@@ -53,6 +53,12 @@
     gate without live GitHub access. Mutually exclusive with -TaskFile
     and -IssueLabel. Implies dry-run mode with -SkipReconcile.
 
+.PARAMETER MaxTasks
+    Maximum number of tasks allowed in a single cycle. Safety cap to prevent
+    runaway parallelism. If the task count exceeds this limit, the runner
+    blocks with exit code 1. A warning is emitted at 80% capacity.
+    Valid range: 1-100. Default: 10.
+
 .EXAMPLE
     # Full dry-run cycle with explicit task file
     ./scripts/ai/run-self-cycle.ps1 -TaskFile ./tasks/issue-148.json
@@ -95,7 +101,10 @@ param(
 
     [switch]$SkipReconcile,
 
-    [switch]$PlanFirst
+    [switch]$PlanFirst,
+
+    [ValidateRange(1, 100)]
+    [int]$MaxTasks = 10
 )
 
 Set-StrictMode -Version Latest
@@ -379,7 +388,7 @@ if ($IssueLabel) {
 
     foreach ($issueEntry in $issues) {
         $issueNum = $issueEntry.number
-        Write-Step "  Compiling issue #$issueNum: $($issueEntry.title)"
+        Write-Step "  Compiling issue #${issueNum}: $($issueEntry.title)"
 
         # Fetch full issue body to extract CONTROL APPENDIX metadata
         try {
@@ -482,9 +491,29 @@ if ($IssueLabel) {
     $compiledTasks | ConvertTo-Json -Depth 10 | Set-Content $discoveredTaskFile -Encoding UTF8
     $TaskFile = $discoveredTaskFile
 
+    # --- Max-task safety contract ---
+    $taskCount = $compiledTasks.Count
+    $warnThreshold = [Math]::Floor($MaxTasks * 0.8)
+
+    if ($taskCount -gt $MaxTasks) {
+        Write-Fail "Task count ($taskCount) exceeds -MaxTasks limit ($MaxTasks)."
+        Write-Fail "Reduce the batch size or increase -MaxTasks (max 100)."
+        Write-HumanStop -Reason "Too many tasks ($taskCount > $MaxTasks). Safety limit breached." `
+                        -NextAction "Reduce issues in batch, or re-run with -MaxTasks $taskCount to override."
+        Add-StepResult -Name "task-compilation" -Status "blocked" `
+                       -Detail "Task count $taskCount exceeds -MaxTasks $MaxTasks" -HumanStop $true
+        $cycleResult.finalStatus = "blocked-by-max-tasks"
+        $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
+        Write-Host ""
+        Write-Host "Cycle result: $($cycleResult.finalStatus)" -ForegroundColor Red
+        exit 1
+    } elseif ($taskCount -ge $warnThreshold -and $taskCount -gt 1) {
+        Write-Warn "Task count ($taskCount) approaching -MaxTasks limit ($MaxTasks)."
+    }
+
     Write-Ok "Compiled $($compiledTasks.Count) task(s) to $TaskFile"
     Add-StepResult -Name "task-compilation" -Status "pass" `
-                   -Detail "Compiled $($compiledTasks.Count) task(s) to temp file"
+                   -Detail "Compiled $($compiledTasks.Count) task(s) to temp file (max $MaxTasks)"
 
     # Dry-run: print compiled tasks, save to file, and stop for human review.
     # Execute mode: continue through the full pipeline.
@@ -515,7 +544,32 @@ if (-not (Test-Path $TaskFile)) {
 
 Write-Step "Task file: $TaskFile"
 Write-Step "Health file: $HealthFile"
+Write-Step "Max tasks: $MaxTasks"
 if ($Repo) { Write-Step "Repo: $Repo" }
+
+# --- Max-task safety contract (TaskFile path) ---
+$taskFileRaw = Get-Content -Path $TaskFile -Raw -Encoding UTF8
+$taskFileJson = $taskFileRaw | ConvertFrom-Json
+$taskFileCount = if ($taskFileJson -is [array]) { $taskFileJson.Count } else { 1 }
+$warnThresholdTf = [Math]::Floor($MaxTasks * 0.8)
+
+if ($taskFileCount -gt $MaxTasks) {
+    Write-Fail "Task file contains $taskFileCount task(s), exceeding -MaxTasks limit ($MaxTasks)."
+    Write-Fail "Reduce the task count or increase -MaxTasks (max 100)."
+    Write-HumanStop -Reason "Too many tasks ($taskFileCount > $MaxTasks). Safety limit breached." `
+                    -NextAction "Split the task file, or re-run with -MaxTasks $taskFileCount to override."
+    Add-StepResult -Name "task-count-check" -Status "blocked" `
+                   -Detail "Task count $taskFileCount exceeds -MaxTasks $MaxTasks" -HumanStop $true
+    $cycleResult.finalStatus = "blocked-by-max-tasks"
+    $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
+    Write-Host ""
+    Write-Host "Cycle result: $($cycleResult.finalStatus)" -ForegroundColor Red
+    exit 1
+} elseif ($taskFileCount -ge $warnThresholdTf -and $taskFileCount -gt 1) {
+    Write-Warn "Task count ($taskFileCount) approaching -MaxTasks limit ($MaxTasks)."
+}
+
+Write-Step "Task count: $taskFileCount (max $MaxTasks)"
 Write-Host ""
 
 # ===========================================================================
@@ -731,6 +785,7 @@ $finalColor = switch ($cycleResult.finalStatus) {
     "blocked"                  { "Red" }
     "blocked-by-health"        { "Red" }
     "blocked-by-gate"          { "Red" }
+    "blocked-by-max-tasks"     { "Red" }
     "discovery-complete"       { "Green" }
     default                    { "White" }
 }
@@ -757,6 +812,9 @@ switch ($cycleResult.finalStatus) {
     "blocked-by-gate" {
         Write-Host "Next: Resolve launch gate conflicts (duplicates, shared locks, health policy)." -ForegroundColor Red
     }
+    "blocked-by-max-tasks" {
+        Write-Host "Next: Reduce batch size or increase -MaxTasks to proceed." -ForegroundColor Red
+    }
     "discovery-complete" {
         Write-Host "Next: Review compiled task contracts. Re-run with -TaskFile <file> -Execute to proceed through the pipeline." -ForegroundColor Green
     }
@@ -771,6 +829,7 @@ $mdLines += ""
 $mdLines += "**Mode:** $modeLabel"
 $mdLines += "**Status:** $($cycleResult.finalStatus)"
 $mdLines += "**Main health:** $mainHealthState"
+$mdLines += "**Max tasks:** $MaxTasks"
 $mdLines += ""
 $mdLines += "| Step | Status |"
 $mdLines += "|------|--------|"
