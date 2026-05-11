@@ -11,25 +11,29 @@ This script **never launches workers**. It is a read-only planning tool.
 ## Command
 
 ```powershell
-# Propose next batch from labeled issues
+# Propose next batch (default label: agent:codex-action-needed)
+./scripts/ai/plan-next-batch.ps1 -Repo owner/name
+
+# Explicit label
 ./scripts/ai/plan-next-batch.ps1 -IssueLabel "agent:codex-action-needed" -Repo owner/name
 
 # JSON output for CI consumption
-./scripts/ai/plan-next-batch.ps1 -IssueLabel "agent:codex-action-needed" -Repo owner/name -Json
+./scripts/ai/plan-next-batch.ps1 -Repo owner/name -Json
 
-# Limit batch size
-./scripts/ai/plan-next-batch.ps1 -IssueLabel "agent:codex-action-needed" -Repo owner/name -MaxTasks 3
+# Show help
+./scripts/ai/plan-next-batch.ps1 -Help
 ```
 
 ## Parameters
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
-| `-IssueLabel` | Yes | — | GitHub issue label to discover open issues |
+| `-IssueLabel` | No | `agent:codex-action-needed` | GitHub issue label to discover open issues |
 | `-Repo` | No | `$env:GH_REPO` | GitHub repo in OWNER/NAME format |
 | `-MatrixPath` | No | `docs/migration/migration-matrix.md` | Path to migration matrix |
 | `-MaxTasks` | No | `5` | Maximum tasks in proposed batch |
 | `-Json` | No | `$false` | Output as JSON instead of console text |
+| `-Help` | No | — | Show usage examples and exit |
 
 ## Pipeline
 
@@ -138,8 +142,8 @@ The planning loop is the first step in the batch workflow:
 ### Typical workflow
 
 ```powershell
-# 1. Propose next batch
-./scripts/ai/plan-next-batch.ps1 -IssueLabel "agent:codex-action-needed" -Repo owner/name
+# 1. Propose next batch (default label)
+./scripts/ai/plan-next-batch.ps1 -Repo owner/name
 
 # 2. Review proposed batch output
 
@@ -150,8 +154,8 @@ The planning loop is the first step in the batch workflow:
 ### CI integration
 
 ```powershell
-# JSON output for pipeline consumption
-$plan = ./scripts/ai/plan-next-batch.ps1 -IssueLabel "agent:codex-action-needed" -Repo owner/name -Json | ConvertFrom-Json
+# JSON output for pipeline consumption (default label)
+$plan = ./scripts/ai/plan-next-batch.ps1 -Repo owner/name -Json | ConvertFrom-Json
 
 # Check if any tasks are ready
 $ready = @($plan.candidates | Where-Object { $_.readiness -eq "ready" })
