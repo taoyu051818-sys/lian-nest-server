@@ -67,10 +67,24 @@ $ErrorActionPreference = "Stop"
 # Helpers
 # ---------------------------------------------------------------------------
 
-function Write-Step { param([string]$Msg) Write-Host "[step] $Msg" -ForegroundColor Cyan }
-function Write-Ok   { param([string]$Msg) Write-Host "[ok]   $Msg" -ForegroundColor Green }
-function Write-Warn { param([string]$Msg) Write-Host "[warn] $Msg" -ForegroundColor Yellow }
-function Write-Fail { param([string]$Msg) Write-Host "[fail] $Msg" -ForegroundColor Red }
+function Write-Step { param([string]$Msg) if (-not $Json) { Write-Host "[step] $Msg" -ForegroundColor Cyan } }
+function Write-Ok   { param([string]$Msg) if (-not $Json) { Write-Host "[ok]   $Msg" -ForegroundColor Green } }
+function Write-Warn { param([string]$Msg) if (-not $Json) { Write-Host "[warn] $Msg" -ForegroundColor Yellow } }
+function Write-Fail {
+    param([string]$Msg)
+    if ($Json) {
+        [Console]::Error.WriteLine("[fail] $Msg")
+    } else {
+        Write-Host "[fail] $Msg" -ForegroundColor Red
+    }
+}
+
+# Safe property access for PSCustomObject (strict-mode safe)
+function Get-Prop {
+    param($Obj, [string]$Name, $Default = $null)
+    if ($Obj.PSObject.Properties.Name -contains $Name) { return $Obj.$Name }
+    return $Default
+}
 
 # ---------------------------------------------------------------------------
 # Load task file
@@ -111,8 +125,9 @@ if ($MainState -ne "") {
     try {
         $healthRaw = Get-Content -Path $HealthFile -Raw -Encoding UTF8
         $health = $healthRaw | ConvertFrom-Json
-        if ($health.state) {
-            $resolvedState = $health.state
+        $healthState = Get-Prop $health "state"
+        if ($healthState) {
+            $resolvedState = $healthState
             Write-Step "Read health state from ${HealthFile}: $resolvedState"
         }
     } catch {
@@ -133,10 +148,7 @@ function Get-WorkerType {
     param($Task)
 
     # Explicit mainHealthPolicy field (backend tasks)
-    $policy = $null
-    if ($Task.PSObject.Properties.Name -contains "mainHealthPolicy") {
-        $policy = $Task.mainHealthPolicy
-    }
+    $policy = Get-Prop $Task "mainHealthPolicy"
 
     if ($policy -eq "gate-docs-only") {
         return "docs"
@@ -146,17 +158,20 @@ function Get-WorkerType {
     }
 
     # Heuristic classification for tasks without explicit mainHealthPolicy
+    $allowedRaw = Get-Prop $Task "allowedFiles"
     $allowed = @()
-    if ($Task.allowedFiles) {
-        $allowed = @($Task.allowedFiles)
+    if ($null -ne $allowedRaw) {
+        $allowed = @($allowedRaw)
     }
 
-    $allDocs = ($allowed.Count -gt 0) -and ($allowed | Where-Object { $_ -notmatch "^docs/" }).Count -eq 0
-    $allScripts = ($allowed.Count -gt 0) -and ($allowed | Where-Object { $_ -notmatch "^scripts/" }).Count -eq 0
-    $touchesSrc = $allowed | Where-Object { $_ -match "^src/" }
-    $risk = if ($Task.risk) { $Task.risk } else { "medium" }
+    $nonDocs = @($allowed | Where-Object { $_ -notmatch "^docs/" })
+    $allDocs = ($allowed.Count -gt 0) -and ($nonDocs.Count -eq 0)
+    $nonScripts = @($allowed | Where-Object { $_ -notmatch "^scripts/" })
+    $allScripts = ($allowed.Count -gt 0) -and ($nonScripts.Count -eq 0)
+    $touchesSrc = @($allowed | Where-Object { $_ -match "^src/" })
+    $risk = Get-Prop $Task "risk" "medium"
 
-    if ($Task.taskType -eq "research") {
+    if ((Get-Prop $Task "taskType") -eq "research") {
         return "research"
     }
     if ($allDocs) {
@@ -199,12 +214,12 @@ $results = @()
 $anyBlocked = $false
 
 foreach ($task in $taskList) {
-    $issueNum = if ($task.targetIssue) { $task.targetIssue } else { "?" }
+    $issueNum = Get-Prop $task "targetIssue" "?"
     $workerType = Get-WorkerType $task
     $allowed = Test-LaunchAllowed -State $resolvedState -WorkerType $workerType
 
-    $conflictGroup = if ($task.conflictGroup) { $task.conflictGroup } else { "" }
-    $risk = if ($task.risk) { $task.risk } else { "unknown" }
+    $conflictGroup = Get-Prop $task "conflictGroup" ""
+    $risk = Get-Prop $task "risk" "unknown"
 
     $result = [ordered]@{
         targetIssue   = $issueNum
@@ -213,6 +228,7 @@ foreach ($task in $taskList) {
         workerType    = $workerType
         mainState     = $resolvedState
         allowed       = $allowed
+        reason        = $null
     }
 
     if (-not $allowed) {
@@ -262,16 +278,17 @@ $lockOwners = @{}
 foreach ($r in $results) {
     $idx = $results.IndexOf($r)
     $task = $taskList[$idx]
+    $locksRaw = Get-Prop $task "sharedLocks"
     $locks = @()
-    if ($task.PSObject.Properties.Name -contains "sharedLocks") {
-        $locks = @($task.sharedLocks)
+    if ($null -ne $locksRaw) {
+        $locks = @($locksRaw)
     }
 
     foreach ($lock in $locks) {
         if (-not $lockOwners.ContainsKey($lock)) {
             $lockOwners[$lock] = @()
         }
-        $lockOwners[$lock] += $task.targetIssue
+        $lockOwners[$lock] += (Get-Prop $task "targetIssue" "?")
     }
 }
 

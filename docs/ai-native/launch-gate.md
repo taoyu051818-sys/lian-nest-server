@@ -25,6 +25,26 @@ The launch gate checker reads a task JSON file and validates every task against:
 The checker produces a structured report and exits with code 0 (all clear) or
 1 (at least one task blocked or conflict detected).
 
+### Input formats
+
+The task file may contain either:
+
+- **A single task object** — a bare JSON object `{ ... }`.
+- **A task array** — a JSON array `[{ ... }, { ... }]`.
+
+Both forms are normalized internally. All optional fields (`reason`,
+`conflictGroup`, `sharedLocks`, `risk`, `targetIssue`, `taskType`,
+`mainHealthPolicy`, `allowedFiles`) are accessed with strict-mode-safe
+property resolution, so missing fields default gracefully instead of
+throwing.
+
+### Pure JSON output
+
+When `-Json` is passed, the script emits **only** the JSON report to stdout.
+All diagnostic and progress messages (`[step]`, `[warn]`, etc.) are
+suppressed. Fatal errors are written to stderr so that downstream consumers
+can parse stdout without filtering.
+
 ---
 
 ## Usage
@@ -47,7 +67,7 @@ The checker produces a structured report and exits with code 0 (all clear) or
 | `TaskFile` | Yes | — | Path to task JSON (single object or array). |
 | `HealthFile` | No | `./.github/ai-state/main-health.json` | Path to main health marker. |
 | `MainState` | No | — | Override health state. Ignored when `HealthFile` exists. |
-| `Json` | No | `$false` | Output report as JSON instead of console text. |
+| `Json` | No | `$false` | Output report as JSON instead of console text. When set, all diagnostic messages are suppressed on stdout (errors go to stderr). |
 
 ---
 
@@ -146,7 +166,8 @@ Gate CHECK FAILED — one or more tasks blocked or conflicts detected.
       "risk": "high",
       "workerType": "foundation-fix",
       "mainState": "green",
-      "allowed": true
+      "allowed": true,
+      "reason": null
     }
   ],
   "duplicateConflictGroups": [],
