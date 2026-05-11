@@ -434,6 +434,297 @@ function run() {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   }
+
+  // --- Preview leaves no temp files -------------------------------------------
+  console.log("\nPreview temp file safety\n");
+
+  {
+    const dir = tmpDir();
+    const statePath = writeFixture(dir, "state.json", fixtureState({
+      providers: [{
+        id: "provider-default",
+        status: "exhausted",
+        currentConcurrency: 0,
+        maxConcurrency: 1,
+        cooldownExpiresAt: "2026-05-11T15:00:00Z",
+        consecutiveFailures: 3,
+        totalQuotaEvents: 2,
+      }],
+    }));
+    const policyPath = writeFixture(dir, "policy.json", fixturePolicy());
+    try {
+      mod.preview({ providerId: "provider-default", statePath, policyPath });
+      const files = fs.readdirSync(dir);
+      const tmpFiles = files.filter((f) => f.includes(".tmp."));
+      assert(tmpFiles.length === 0, "preview leaves no temp files");
+      // Verify state file is still valid JSON after preview
+      const after = readJson(statePath);
+      assert(after !== null, "state file is valid JSON after preview");
+      assert(after.providers[0].status === "exhausted", "state unchanged after preview (exhausted)");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  // --- Reason handling --------------------------------------------------------
+  console.log("\nReason handling\n");
+
+  {
+    const dir = tmpDir();
+    const statePath = writeFixture(dir, "state.json", fixtureState({
+      providers: [{
+        id: "provider-default",
+        status: "exhausted",
+        currentConcurrency: 0,
+        maxConcurrency: 1,
+        cooldownExpiresAt: "2026-05-11T15:00:00Z",
+        consecutiveFailures: 2,
+        totalQuotaEvents: 1,
+      }],
+    }));
+    const policyPath = writeFixture(dir, "policy.json", fixturePolicy());
+    try {
+      const result = mod.execute({ providerId: "provider-default", statePath, policyPath });
+      assert(result.reason === "", "default reason is empty string");
+      assert(typeof result.summary === "string", "execute includes summary string");
+      assert(result.summary.includes("provider-default"), "summary mentions providerId");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const dir = tmpDir();
+    const statePath = writeFixture(dir, "state.json", fixtureState({
+      providers: [{
+        id: "provider-default",
+        status: "exhausted",
+        currentConcurrency: 0,
+        maxConcurrency: 1,
+        cooldownExpiresAt: "2026-05-11T15:00:00Z",
+        consecutiveFailures: 1,
+        totalQuotaEvents: 1,
+      }],
+    }));
+    const policyPath = writeFixture(dir, "policy.json", fixturePolicy());
+    try {
+      const result = mod.execute({ providerId: "provider-default", reason: "", statePath, policyPath });
+      assert(result.reason === "", "explicit empty reason preserved");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const dir = tmpDir();
+    const statePath = writeFixture(dir, "state.json", fixtureState({
+      providers: [{
+        id: "provider-default",
+        status: "exhausted",
+        currentConcurrency: 0,
+        maxConcurrency: 1,
+        cooldownExpiresAt: null,
+        consecutiveFailures: 1,
+        totalQuotaEvents: 0,
+      }],
+    }));
+    const policyPath = writeFixture(dir, "policy.json", fixturePolicy());
+    try {
+      const result = mod.execute({ providerId: "provider-default", reason: "quota reset after billing update", statePath, policyPath });
+      assert(result.reason === "quota reset after billing update", "reason string preserved verbatim");
+      const raw = JSON.stringify(result);
+      assert(!apiKeyRe.test(raw), "reason field has no API key pattern");
+      assert(!ghTokenRe.test(raw), "reason field has no GitHub token pattern");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  // --- Execute null payload ---------------------------------------------------
+  console.log("\nExecute null payload\n");
+
+  {
+    let threw = false;
+    try {
+      mod.execute(null);
+    } catch (err) {
+      threw = true;
+    }
+    assert(threw, "execute throws on null payload");
+  }
+
+  // --- Changes array structure ------------------------------------------------
+  console.log("\nChanges array structure\n");
+
+  {
+    const dir = tmpDir();
+    const statePath = writeFixture(dir, "state.json", fixtureState({
+      providers: [{
+        id: "provider-default",
+        status: "exhausted",
+        currentConcurrency: 0,
+        maxConcurrency: 1,
+        cooldownExpiresAt: "2026-05-11T15:00:00Z",
+        consecutiveFailures: 3,
+        totalQuotaEvents: 2,
+      }],
+    }));
+    const policyPath = writeFixture(dir, "policy.json", fixturePolicy());
+    try {
+      const result = mod.execute({ providerId: "provider-default", reason: "test", statePath, policyPath });
+      assert(result.changes.length === 3, "exhausted provider has 3 changes");
+      const statusChange = result.changes.find((c) => c.field === "status");
+      assert(statusChange !== undefined, "changes include status");
+      assert(statusChange.from === "exhausted", "status from is exhausted");
+      assert(statusChange.to === "available", "status to is available");
+      const cooldownChange = result.changes.find((c) => c.field === "cooldownExpiresAt");
+      assert(cooldownChange !== undefined, "changes include cooldownExpiresAt");
+      assert(cooldownChange.from === "2026-05-11T15:00:00Z", "cooldown from is original value");
+      assert(cooldownChange.to === null, "cooldown to is null");
+      const failureChange = result.changes.find((c) => c.field === "consecutiveFailures");
+      assert(failureChange !== undefined, "changes include consecutiveFailures");
+      assert(failureChange.from === 3, "failures from is original count");
+      assert(failureChange.to === 0, "failures to is 0");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  // --- Disabled provider execute ---------------------------------------------
+  console.log("\nDisabled provider execute\n");
+
+  {
+    const dir = tmpDir();
+    const statePath = writeFixture(dir, "state.json", fixtureState({
+      providers: [{
+        id: "provider-default",
+        status: "disabled",
+        currentConcurrency: 0,
+        maxConcurrency: 1,
+        cooldownExpiresAt: null,
+        consecutiveFailures: 5,
+        totalQuotaEvents: 3,
+      }],
+    }));
+    const policyPath = writeFixture(dir, "policy.json", fixturePolicy());
+    try {
+      const result = mod.execute({ providerId: "provider-default", reason: "re-enable after fix", statePath, policyPath });
+      assert(result.status === "rotated", "disabled provider rotates successfully");
+      const after = readJson(statePath);
+      assert(after.providers[0].status === "available", "disabled provider now available");
+      assert(after.global.availableProviders === 1, "global available count updated");
+      assert(after.global.disabledProviders === 0, "global disabled count updated");
+      assert(after.global.lastUpdatedBy === "webui-provider-rotation", "global lastUpdatedBy set");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  // --- Preview with disabled provider ----------------------------------------
+  console.log("\nPreview with disabled provider\n");
+
+  {
+    const dir = tmpDir();
+    const statePath = writeFixture(dir, "state.json", fixtureState({
+      providers: [{
+        id: "provider-default",
+        status: "disabled",
+        currentConcurrency: 0,
+        maxConcurrency: 1,
+        cooldownExpiresAt: null,
+        consecutiveFailures: 10,
+        totalQuotaEvents: 5,
+      }],
+    }));
+    const policyPath = writeFixture(dir, "policy.json", fixturePolicy());
+    try {
+      const result = mod.preview({ providerId: "provider-default", statePath, policyPath });
+      assert(result.plan.currentState.status === "disabled", "plan shows disabled status");
+      assert(result.plan.targetState.status === "available", "target is available");
+      assert(result.plan.currentState.consecutiveFailures === 10, "plan shows failure count");
+      assert(result.plan.currentState.totalQuotaEvents === 5, "plan shows quota events");
+      const after = readJson(statePath);
+      assert(after.providers[0].status === "disabled", "state still disabled after preview");
+      assert(after.providers[0].consecutiveFailures === 10, "failures unchanged after preview");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  // --- Secret source unavailable blockReason ----------------------------------
+  console.log("\nSecret source blockReason\n");
+
+  {
+    const dir = tmpDir();
+    const statePath = writeFixture(dir, "state.json", fixtureState());
+    const policyPath = writeFixture(dir, "policy.json", fixturePolicy({
+      providers: [{
+        id: "provider-default",
+        label: "Default",
+        source: "env-var",
+        capabilities: ["claude-code"],
+        maxConcurrency: 1,
+      }],
+      secretSources: { allowed: ["env-var"] },
+    }));
+    // Temporarily clear env vars to make secret source unavailable
+    const savedApiKey = process.env.ANTHROPIC_API_KEY;
+    const savedClaudeKey = process.env.CLAUDE_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.CLAUDE_API_KEY;
+    try {
+      const result = mod.preview({ providerId: "provider-default", statePath, policyPath });
+      assert(typeof result.plan.blockReason === "string", "blockReason is a string");
+      assert(result.plan.blockReason.length > 0, "blockReason is non-empty when secret unavailable");
+      assert(result.plan.canRotate === true, "canRotate still true even with blockReason");
+      const secretCheck = result.plan.validationChecks.find((c) => c.check === "secret-source-exists");
+      assert(secretCheck.passed === false, "secret-source-exists fails when env var missing");
+    } finally {
+      if (savedApiKey !== undefined) process.env.ANTHROPIC_API_KEY = savedApiKey;
+      if (savedClaudeKey !== undefined) process.env.CLAUDE_API_KEY = savedClaudeKey;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  // --- providerSource never leaks secret values --------------------------------
+  console.log("\nproviderSource safety\n");
+
+  {
+    const dir = tmpDir();
+    const statePath = writeFixture(dir, "state.json", fixtureState());
+    const policyPath = writeFixture(dir, "policy.json", fixturePolicy());
+    try {
+      const result = mod.preview({ providerId: "provider-default", statePath, policyPath });
+      const ps = result.plan.providerSource;
+      assert(typeof ps.type === "string", "providerSource.type is string");
+      assert(ps.type !== undefined && ps.type !== null, "providerSource.type is defined");
+      // providerSource should never contain actual secret values
+      const raw = JSON.stringify(ps);
+      assert(!raw.includes("sk-"), "providerSource has no sk- prefix");
+      assert(!apiKeyRe.test(raw), "providerSource has no API key pattern");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  // --- Execute on already-available preserves global counts --------------------
+  console.log("\nExecute preserves global counts when no-op\n");
+
+  {
+    const dir = tmpDir();
+    const statePath = writeFixture(dir, "state.json", fixtureState());
+    const policyPath = writeFixture(dir, "policy.json", fixturePolicy());
+    try {
+      const before = readJson(statePath);
+      mod.execute({ providerId: "provider-default", statePath, policyPath });
+      const after = readJson(statePath);
+      assert(after.global.availableProviders === before.global.availableProviders, "available count unchanged on no-op execute");
+      assert(after.global.exhaustedProviders === before.global.exhaustedProviders, "exhausted count unchanged on no-op execute");
+      assert(after.global.disabledProviders === before.global.disabledProviders, "disabled count unchanged on no-op execute");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
 }
 
 // --- Entry point -------------------------------------------------------------
