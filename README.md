@@ -22,6 +22,7 @@ Role prompts for AI workers and reviewers live in [ops/agent-prompts/](ops/agent
 - **ConfigModule** (`src/config/`) — Global module; validates `process.env` with Joi at startup and exposes `ConfigService`.
 - **HealthModule** (`src/health/`) — `GET /api/health` liveness probe.
 - **NodebbModule** (`src/nodebb/`) — Single gateway for all outbound NodeBB API calls. Provides typed providers for topics, posts, users, notifications, and tags. See [docs/architecture/nodebb-integration.md](docs/architecture/nodebb-integration.md).
+- **RepositoryModule** (`src/repositories/`) — Provider interfaces and skeletons for persistence layer. See [docs/architecture/repositories.md](docs/architecture/repositories.md).
 - **GlobalExceptionFilter** (`src/common/filters/`) — Uniform `{ ok, error }` envelope for all error responses.
 
 ## Quick start
@@ -40,3 +41,22 @@ npm run start:dev
 | `npm test`         | Run all tests                   |
 | `npm run start`    | Start the server                |
 | `npm run start:dev`| Start with file watching        |
+
+## Migration & Route Parity
+
+- **Route inventory:** `docs/contracts/route-inventory.md` -- all legacy route families.
+- **Parity tracker:** `docs/migration/route-parity-tracker.md` -- migrated vs unmigrated status.
+- **Acceptance criteria:** `docs/migration/acceptance-criteria.md` -- what "done" means per family.
+- **Legacy freeze rules:** `docs/migration/legacy-freeze-rules.md` -- constraints on legacy code usage.
+
+### Check Parity
+
+```sh
+node scripts/check-route-parity.js
+```
+
+### Run Contract Tests
+
+```sh
+node test/route-parity.test.js
+```
