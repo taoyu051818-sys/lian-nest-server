@@ -1,0 +1,499 @@
+/* ============================================================
+   Provider Pool WebUI — Dashboard Stylesheet Skeleton
+   Dense operational layout for quota-aware provider monitoring.
+   ============================================================ */
+
+/* --- Reset & Base --- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  /* Surface */
+  --surface-bg: #0f1117;
+  --surface-card: #161922;
+  --surface-card-hover: #1c2030;
+  --surface-border: #262b3a;
+  --surface-overlay: rgba(0, 0, 0, 0.6);
+
+  /* Text */
+  --text-primary: #e2e4ea;
+  --text-secondary: #8b8fa4;
+  --text-muted: #565b72;
+  --text-inverse: #0f1117;
+
+  /* Status */
+  --status-available: #34d399;
+  --status-available-bg: rgba(52, 211, 153, 0.12);
+  --status-exhausted: #fbbf24;
+  --status-exhausted-bg: rgba(251, 191, 36, 0.12);
+  --status-disabled: #f87171;
+  --status-disabled-bg: rgba(248, 113, 113, 0.12);
+
+  /* Accent */
+  --accent-blue: #60a5fa;
+  --accent-blue-bg: rgba(96, 165, 250, 0.12);
+
+  /* Spacing (dense 4px grid) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* Typography */
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --text-xs: 0.6875rem;
+  --text-sm: 0.75rem;
+  --text-base: 0.8125rem;
+  --text-lg: 1rem;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* Transition */
+  --transition-fast: 120ms ease;
+  --transition-normal: 200ms ease;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--surface-bg);
+  min-height: 100vh;
+}
+
+/* --- Layout Shell --- */
+
+.app-shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.app-header__title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.app-header__status {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.app-main {
+  padding: var(--sp-4);
+  overflow-y: auto;
+}
+
+/* --- Global Summary Bar --- */
+
+.summary-bar {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-4);
+}
+
+.summary-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--surface-border);
+  background: var(--surface-card);
+  transition: background var(--transition-fast);
+}
+
+.summary-chip--available {
+  color: var(--status-available);
+  border-color: var(--status-available);
+  background: var(--status-available-bg);
+}
+
+.summary-chip--exhausted {
+  color: var(--status-exhausted);
+  border-color: var(--status-exhausted);
+  background: var(--status-exhausted-bg);
+}
+
+.summary-chip--disabled {
+  color: var(--status-disabled);
+  border-color: var(--status-disabled);
+  background: var(--status-disabled-bg);
+}
+
+.summary-chip__label {
+  color: var(--text-secondary);
+}
+
+.summary-chip__value {
+  font-weight: 700;
+}
+
+/* --- Provider Grid --- */
+
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--sp-3);
+}
+
+/* --- Provider Card --- */
+
+.provider-card {
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-4);
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.provider-card:hover {
+  background: var(--surface-card-hover);
+}
+
+.provider-card--available {
+  border-left: 3px solid var(--status-available);
+}
+
+.provider-card--exhausted {
+  border-left: 3px solid var(--status-exhausted);
+}
+
+.provider-card--disabled {
+  border-left: 3px solid var(--status-disabled);
+}
+
+/* Card header */
+
+.provider-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-3);
+}
+
+.provider-card__id {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.provider-card__status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 2px var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: var(--radius-sm);
+}
+
+.provider-card__status-badge--available {
+  color: var(--status-available);
+  background: var(--status-available-bg);
+}
+
+.provider-card__status-badge--exhausted {
+  color: var(--status-exhausted);
+  background: var(--status-exhausted-bg);
+}
+
+.provider-card__status-badge--disabled {
+  color: var(--status-disabled);
+  background: var(--status-disabled-bg);
+}
+
+.provider-card__status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.provider-card__status-dot--available {
+  background: var(--status-available);
+  box-shadow: 0 0 4px var(--status-available);
+}
+
+.provider-card__status-dot--exhausted {
+  background: var(--status-exhausted);
+  box-shadow: 0 0 4px var(--status-exhausted);
+}
+
+.provider-card__status-dot--disabled {
+  background: var(--status-disabled);
+}
+
+/* Card metrics row */
+
+.provider-card__metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+
+.metric-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metric-cell__label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.metric-cell__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Concurrency bar */
+
+.concurrency-bar {
+  margin-bottom: var(--sp-3);
+}
+
+.concurrency-bar__track {
+  height: 4px;
+  background: var(--surface-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.concurrency-bar__fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width var(--transition-normal);
+}
+
+.concurrency-bar__fill--low {
+  background: var(--status-available);
+}
+
+.concurrency-bar__fill--mid {
+  background: var(--status-exhausted);
+}
+
+.concurrency-bar__fill--high {
+  background: var(--status-disabled);
+}
+
+.concurrency-bar__label {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--sp-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+/* Card details */
+
+.provider-card__details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--surface-border);
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--text-xs);
+}
+
+.detail-row__key {
+  color: var(--text-muted);
+}
+
+.detail-row__value {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+/* Cooldown timer */
+
+.cooldown-timer {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--status-exhausted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Failure class tag */
+
+.failure-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  border-radius: var(--radius-sm);
+}
+
+.failure-tag--exhaustion {
+  color: var(--status-exhausted);
+  background: var(--status-exhausted-bg);
+}
+
+.failure-tag--auth {
+  color: var(--status-disabled);
+  background: var(--status-disabled-bg);
+}
+
+.failure-tag--runtime {
+  color: var(--accent-blue);
+  background: var(--accent-blue-bg);
+}
+
+/* --- Activity Log / Event Feed --- */
+
+.event-feed {
+  margin-top: var(--sp-4);
+}
+
+.event-feed__title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: var(--sp-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.event-feed__list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.event-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--sp-2);
+  align-items: center;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  font-size: var(--text-xs);
+}
+
+.event-row__time {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.event-row__message {
+  color: var(--text-secondary);
+}
+
+.event-row__provider {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* --- Refresh / Footer Bar --- */
+
+.footer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-2) var(--sp-4);
+  border-top: 1px solid var(--surface-border);
+  background: var(--surface-card);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.footer-bar__timestamp {
+  font-family: var(--font-mono);
+}
+
+/* --- Utility --- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
+/* --- Responsive --- */
+
+@media (max-width: 768px) {
+  .provider-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-bar {
+    gap: var(--sp-1);
+  }
+
+  .app-main {
+    padding: var(--sp-2);
+  }
+}
