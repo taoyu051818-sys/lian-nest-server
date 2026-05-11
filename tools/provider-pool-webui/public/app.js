@@ -27,6 +27,18 @@ const ACTIONS_PREVIEW_URL = '/api/actions/preview';
 const ACTIONS_EXECUTE_URL = '/api/actions/execute';
 const SERVER_AUDIT_URL = '/api/audit';
 
+// Documentation links for action modules — maps action ID to relative doc path
+const ACTION_DOC_LINKS = {
+  'compile-tasks':       '../../../../docs/ai-native/webui-action-compile-tasks.md',
+  'plan.next.batch':     '../../../../docs/ai-native/webui-action-plan-next-batch.md',
+  'create-issues':       '../../../../docs/ai-native/webui-action-create-issues.md',
+  'issue-state':         '../../../../docs/ai-native/webui-action-issue-state.md',
+  'launch-batch':        '../../../../docs/ai-native/webui-action-launch-batch.md',
+  'merge-prs':           '../../../../docs/ai-native/webui-action-merge-prs.md',
+  'provider-rotation':   '../../../../docs/ai-native/webui-action-provider-rotation.md',
+  'worker.control':      '../../../../docs/ai-native/webui-action-worker-control.md',
+};
+
 // ── helpers ──────────────────────────────────────────────────────────
 
 function el(tag, attrs, children) {
@@ -755,6 +767,28 @@ function executeAction(action, contextData, _allData, confirmEl, reason) {
   );
 }
 
+// ── doc links & risk prompts ──────────────────────────────────────────
+
+function renderDocLink(actionId) {
+  const docPath = ACTION_DOC_LINKS[actionId];
+  if (!docPath) return null;
+  return el('a', {
+    className: 'action-card__doc-link',
+    href: docPath,
+    target: '_blank',
+    rel: 'noopener',
+    textContent: 'Docs',
+  });
+}
+
+function renderRiskPrompt(actionMeta) {
+  if (!actionMeta.dangerous) return null;
+  return el('div', {
+    className: 'action-card__risk-prompt',
+    textContent: '⚠ HIGH RISK — This action mutates state. Review docs before executing.',
+  });
+}
+
 // ── server action module cards ────────────────────────────────────────
 
 function renderServerActionCards(serverActions, allData) {
@@ -774,22 +808,30 @@ function renderServerActionCards(serverActions, allData) {
 function renderServerActionCard(actionMeta, allData) {
   const card = el('div', { className: 'action-card action-card--server' });
 
+  const badges = el('div', { className: 'action-card__badges' }, [
+    riskBadge(actionMeta.dangerous ? 'high' : 'low'),
+    el('span', {
+      className: 'risk-badge',
+      style: 'background:rgba(96,165,250,0.12);color:#60a5fa',
+      textContent: 'MODULE',
+    }),
+  ]);
+
+  const docLink = renderDocLink(actionMeta.id);
+  if (docLink) badges.append(docLink);
+
   const header = el('div', { className: 'action-card__header' }, [
     el('span', { className: 'action-card__label', textContent: actionMeta.label }),
-    el('div', { className: 'action-card__badges' }, [
-      riskBadge(actionMeta.dangerous ? 'high' : 'low'),
-      el('span', {
-        className: 'risk-badge',
-        style: 'background:rgba(96,165,250,0.12);color:#60a5fa',
-        textContent: 'MODULE',
-      }),
-    ]),
+    badges,
   ]);
   card.append(header);
 
   if (actionMeta.description) {
     card.append(el('p', { className: 'action-card__desc', textContent: actionMeta.description }));
   }
+
+  const riskPrompt = renderRiskPrompt(actionMeta);
+  if (riskPrompt) card.append(riskPrompt);
 
   if (actionMeta.dangerous) {
     card.append(el('div', { className: 'action-card__blocker', textContent: '⚠ Dangerous — requires explicit confirmation' }));
@@ -826,24 +868,131 @@ function renderServerActionCard(actionMeta, allData) {
   return card;
 }
 
+// Schema-driven field type configs for server action modules.
+const SCHEMA_FIELD_CONFIG = {
+  targetIssue: { type: 'number', parse: (v) => (v !== '' ? Number(v) : undefined) },
+  taskType: { type: 'select', options: ['operation', 'test', 'docs', 'bugfix', 'feature', 'refactor', 'execution', 'research', 'review'] },
+  risk: { type: 'select', options: ['low', 'medium', 'high', 'critical'] },
+  conflictGroup: { type: 'text' },
+  allowedFiles: { type: 'textarea', parse: (v) => v.split('\n').map((s) => s.trim()).filter(Boolean) },
+  validationCommands: { type: 'textarea', parse: (v) => v.split('\n').map((s) => s.trim()).filter(Boolean) },
+  forbiddenFiles: { type: 'textarea', parse: (v) => v.split('\n').map((s) => s.trim()).filter(Boolean) },
+  outputMode: { type: 'select', options: ['v1', 'v2'] },
+  'rolePacket.actorRole': { type: 'text' },
+};
+
+function renderSchemaFields(actionMeta, form) {
+  const fields = actionMeta.requiredFields;
+  if (!Array.isArray(fields) || fields.length === 0) return;
+
+  for (const fieldName of fields) {
+    const config = SCHEMA_FIELD_CONFIG[fieldName];
+    const fieldWrap = el('div', { className: 'action-form__field' });
+    const label = fieldName.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^[a-z]/, (c) => c.toUpperCase());
+    fieldWrap.append(el('label', { className: 'action-form__label', textContent: label }));
+
+    if (config && config.type === 'select') {
+      const select = el('select', { className: 'action-form__select', 'data-field': fieldName });
+      select.append(el('option', { value: '', textContent: `— select ${label.toLowerCase()} —` }));
+      for (const opt of config.options) {
+        select.append(el('option', { value: opt, textContent: opt }));
+      }
+      fieldWrap.append(select);
+    } else if (config && config.type === 'textarea') {
+      fieldWrap.append(el('textarea', {
+        className: 'action-form__textarea',
+        'data-field': fieldName,
+        placeholder: 'One entry per line',
+        rows: '3',
+      }));
+    } else if (config && config.type === 'number') {
+      fieldWrap.append(el('input', {
+        className: 'action-form__input',
+        'data-field': fieldName,
+        type: 'number',
+        min: '1',
+        step: '1',
+        placeholder: label,
+      }));
+    } else {
+      fieldWrap.append(el('input', {
+        className: 'action-form__input',
+        'data-field': fieldName,
+        type: 'text',
+        autocomplete: 'off',
+        placeholder: label,
+      }));
+    }
+    form.append(fieldWrap);
+  }
+}
+
 function buildPayloadForm(actionMeta, allData) {
+  // Launch-batch gets a dedicated structured task-entry form
+  if (actionMeta.id === 'launch-batch') {
+    return buildLaunchBatchForm(allData);
+  }
+
+  // Worker-control gets a dedicated operation form
+  if (actionMeta.id === 'worker.control') {
+    const form = el('div', { className: 'action-form' });
+    return buildWorkerControlForm(actionMeta, allData, form);
+  }
+
   const form = el('div', { className: 'action-form' });
   const providers = allData.state?.providers || [];
 
-  // If the action id hints at provider context, add a provider selector
-  const isProviderAction = /provider|cooldown|retry/i.test(actionMeta.id);
+  // Structured form for merge-prs action
+  if (actionMeta.id === 'merge-prs') {
+    const prWrap = el('div', { className: 'action-form__field' });
+    prWrap.append(el('label', { className: 'action-form__label', textContent: 'PR Numbers' }));
+    prWrap.append(el('input', {
+      className: 'action-form__input',
+      type: 'text',
+      'data-field': 'prNumbers',
+      placeholder: 'e.g. 760, 759, 758',
+      autocomplete: 'off',
+    }));
+    form.append(prWrap);
 
-  if (isProviderAction && providers.length > 0) {
-    const selectWrap = el('div', { className: 'action-form__field' });
-    selectWrap.append(el('label', { className: 'action-form__label', textContent: 'Provider' }));
-
-    const select = el('select', { className: 'action-form__select', 'data-field': 'providerId' });
-    select.append(el('option', { value: '', textContent: '— select provider —' }));
-    for (const p of providers) {
-      select.append(el('option', { value: p.id, textContent: `${p.id} (${p.status})` }));
+    const repoWrap = el('div', { className: 'action-form__field' });
+    repoWrap.append(el('label', { className: 'action-form__label', textContent: 'Repository (optional)' }));
+    repoWrap.append(el('input', {
+      className: 'action-form__input',
+      type: 'text',
+      'data-field': 'repo',
+      placeholder: 'e.g. owner/repo (defaults to GH_REPO env)',
+      autocomplete: 'off',
+    }));
+    form.append(repoWrap);
+  } else {
+    // Provider selector for provider-related actions
+    const isProviderAction = /provider|cooldown|retry/i.test(actionMeta.id);
+    if (isProviderAction && providers.length > 0) {
+      const selectWrap = el('div', { className: 'action-form__field' });
+      selectWrap.append(el('label', { className: 'action-form__label', textContent: 'Provider' }));
+      const select = el('select', { className: 'action-form__select', 'data-field': 'providerId' });
+      select.append(el('option', { value: '', textContent: '— select provider —' }));
+      for (const p of providers) {
+        select.append(el('option', { value: p.id, textContent: `${p.id} (${p.status})` }));
+      }
+      selectWrap.append(select);
+      form.append(selectWrap);
     }
-    selectWrap.append(select);
-    form.append(selectWrap);
+  }
+
+  // Structured reason field for provider-rotation
+  if (actionMeta.id === 'provider-rotation') {
+    const reasonWrap = el('div', { className: 'action-form__field' });
+    reasonWrap.append(el('label', { className: 'action-form__label', textContent: 'Reason (optional)' }));
+    reasonWrap.append(el('input', {
+      className: 'action-form__input',
+      type: 'text',
+      'data-field': 'reason',
+      placeholder: 'e.g. credential rotation, quota reset',
+      autocomplete: 'off',
+    }));
+    form.append(reasonWrap);
   }
 
   // Structured fields for create-issues gap form
@@ -867,7 +1016,10 @@ function buildPayloadForm(actionMeta, allData) {
     }
   }
 
-  // Generic JSON payload editor for advanced params
+  // Schema-driven fields for server action modules (e.g. compile-tasks, plan.next.batch)
+  renderSchemaFields(actionMeta, form);
+
+  // Generic JSON payload editor for advanced params (always available as fallback)
   const jsonWrap = el('div', { className: 'action-form__field' });
   jsonWrap.append(el('label', { className: 'action-form__label', textContent: 'Payload (JSON)' }));
   const textarea = el('textarea', {
@@ -882,25 +1034,287 @@ function buildPayloadForm(actionMeta, allData) {
   return form;
 }
 
+// ── worker-control structured form ─────────────────────────────────────
+
+function buildWorkerControlForm(_actionMeta, allData, form) {
+  // Operation selector (list vs stop)
+  const opWrap = el('div', { className: 'action-form__field' });
+  opWrap.append(el('label', { className: 'action-form__label', textContent: 'Operation' }));
+  const opSelect = el('select', { className: 'action-form__select', 'data-field': 'action' });
+  opSelect.append(el('option', { value: 'list', textContent: 'List Workers' }));
+  opSelect.append(el('option', { value: 'stop', textContent: 'Stop Workers' }));
+  opWrap.append(opSelect);
+  form.append(opWrap);
+
+  // Stop-only fields container
+  const stopFields = el('div', { className: 'action-form__stop-fields', style: 'display:none' });
+
+  // Worker selector (checkboxes from active workers)
+  const workers = getActiveWorkers(allData);
+  const workerWrap = el('div', { className: 'action-form__field' });
+  workerWrap.append(el('label', { className: 'action-form__label', textContent: 'Target Workers' }));
+
+  if (workers.length > 0) {
+    const checkboxList = el('div', { className: 'action-form__checkbox-list' });
+    for (const w of workers) {
+      const item = el('label', { className: 'action-form__checkbox-item' });
+      const cb = el('input', { type: 'checkbox', value: w.workerId, 'data-field': 'workerId' });
+      item.append(cb);
+      item.append(el('span', { textContent: `${w.workerId} (${w.providerId})` }));
+      checkboxList.append(item);
+    }
+    workerWrap.append(checkboxList);
+  } else {
+    workerWrap.append(el('p', { className: 'action-form__help', textContent: 'No active workers detected. Enter worker IDs manually below.' }));
+    workerWrap.append(el('input', {
+      className: 'action-form__input',
+      type: 'text',
+      'data-field': 'workerIdsManual',
+      placeholder: 'provider-alpha-slot-0, provider-beta-slot-1',
+      autocomplete: 'off',
+    }));
+  }
+  stopFields.append(workerWrap);
+
+  // Reason field
+  const reasonWrap = el('div', { className: 'action-form__field' });
+  reasonWrap.append(el('label', { className: 'action-form__label', textContent: 'Reason' }));
+  reasonWrap.append(el('input', {
+    className: 'action-form__input',
+    type: 'text',
+    'data-field': 'reason',
+    placeholder: 'e.g. manual drain for maintenance',
+    autocomplete: 'off',
+  }));
+  reasonWrap.append(el('p', { className: 'action-form__help', textContent: 'Required for stop. Recorded in audit log.' }));
+  stopFields.append(reasonWrap);
+
+  form.append(stopFields);
+
+  // Toggle stop fields visibility based on operation
+  opSelect.addEventListener('change', () => {
+    stopFields.style.display = opSelect.value === 'stop' ? '' : 'none';
+  });
+
+  return form;
+}
+
+function getActiveWorkers(allData) {
+  const workers = [];
+  const webuiState = allData.webuiState;
+  if (webuiState?.workers) {
+    for (const w of webuiState.workers) {
+      if (w.status === 'running') {
+        workers.push({ workerId: w.workerId || w.id, providerId: w.providerId || w.provider });
+      }
+    }
+  }
+  if (workers.length === 0) {
+    const state = allData.state;
+    for (const p of state?.providers || []) {
+      for (let i = 0; i < (p.currentConcurrency || 0); i++) {
+        workers.push({ workerId: `${p.id}-slot-${i}`, providerId: p.id });
+      }
+    }
+  }
+  return workers;
+}
+
+// ── launch-batch structured form ─────────────────────────────────────
+
+function buildLaunchBatchForm(allData) {
+  const form = el('div', { className: 'action-form action-form--launch-batch' });
+
+  const modeWrap = el('div', { className: 'action-form__field' });
+  modeWrap.append(el('label', { className: 'action-form__label', textContent: 'Task Source' }));
+  const modeSelect = el('select', { className: 'action-form__select', 'data-field': '_taskSource' });
+  modeSelect.append(el('option', { value: 'queue', textContent: 'Use queued tasks (default)' }));
+  modeSelect.append(el('option', { value: 'custom', textContent: 'Specify custom tasks' }));
+  modeWrap.append(modeSelect);
+  form.append(modeWrap);
+
+  const tasksContainer = el('div', {
+    className: 'action-form__tasks-container',
+    'data-field': '_tasksContainer',
+    style: 'display:none',
+  });
+
+  const entriesWrap = el('div', { className: 'action-form__task-entries' });
+  entriesWrap.append(el('label', { className: 'action-form__label', textContent: 'Tasks' }));
+  tasksContainer.append(entriesWrap);
+
+  const addBtn = el('button', {
+    className: 'action-btn action-btn--preview action-form__add-task-btn',
+    textContent: '+ Add Task',
+    type: 'button',
+  });
+  addBtn.addEventListener('click', () => {
+    entriesWrap.append(buildTaskEntryRow());
+  });
+  tasksContainer.append(addBtn);
+
+  form.append(tasksContainer);
+
+  modeSelect.addEventListener('change', () => {
+    tasksContainer.style.display = modeSelect.value === 'custom' ? '' : 'none';
+  });
+
+  return form;
+}
+
+function buildTaskEntryRow() {
+  const row = el('div', { className: 'action-form__task-entry' });
+
+  const removeBtn = el('button', {
+    className: 'action-btn action-btn--cancel action-form__remove-task-btn',
+    textContent: '×',
+    type: 'button',
+  });
+  removeBtn.addEventListener('click', () => row.remove());
+  row.append(removeBtn);
+
+  row.append(formFieldInput('targetIssue', 'number', 'Issue #', '1'));
+  row.append(formFieldInput('conflictGroup', 'text', 'Conflict Group', 'e.g. wave21-webui'));
+  row.append(formFieldSelect('risk', ['low', 'medium', 'high', 'critical'], 'Risk'));
+  row.append(formFieldSelect('taskType', ['operation', 'test', 'docs', 'bugfix', 'feature', 'refactor'], 'Task Type'));
+  row.append(formFieldSelect('mainHealthPolicy', ['standard', 'recovery', 'none'], 'Health Policy'));
+  row.append(formFieldInput('sharedLocks', 'text', 'Shared Locks', 'comma-separated'));
+
+  return row;
+}
+
+function formFieldInput(fieldName, inputType, label, placeholder) {
+  const wrap = el('div', { className: 'action-form__field action-form__field--inline' });
+  wrap.append(el('label', { className: 'action-form__label', textContent: label }));
+  wrap.append(el('input', {
+    className: 'action-form__input',
+    type: inputType,
+    'data-task-field': fieldName,
+    placeholder: placeholder || '',
+    autocomplete: 'off',
+  }));
+  return wrap;
+}
+
+function formFieldSelect(fieldName, options, label) {
+  const wrap = el('div', { className: 'action-form__field action-form__field--inline' });
+  wrap.append(el('label', { className: 'action-form__label', textContent: label }));
+  const select = el('select', { className: 'action-form__select', 'data-task-field': fieldName });
+  select.append(el('option', { value: '', textContent: '—' }));
+  for (const opt of options) {
+    select.append(el('option', { value: opt, textContent: opt }));
+  }
+  wrap.append(select);
+  return wrap;
+}
+
 function collectFormPayload(form) {
   const payload = {};
 
-  // Collect select fields
-  for (const select of form.querySelectorAll('select[data-field]')) {
-    if (select.value) payload[select.dataset.field] = select.value;
+  // Helper to set nested values from dotted paths (e.g. "rolePacket.actorRole")
+  function setNested(obj, path, value) {
+    const parts = path.split('.');
+    let cur = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (!cur[parts[i]] || typeof cur[parts[i]] !== 'object') cur[parts[i]] = {};
+      cur = cur[parts[i]];
+    }
+    cur[parts[parts.length - 1]] = value;
   }
 
-  // Collect text input fields
+  // Launch-batch structured form: collect task entries
+  const taskSource = form.querySelector('[data-field="_taskSource"]');
+  if (taskSource) {
+    if (taskSource.value === 'queue') return payload;
+    const tasks = [];
+    for (const row of form.querySelectorAll('.action-form__task-entry')) {
+      const task = {};
+      for (const input of row.querySelectorAll('[data-task-field]')) {
+        const key = input.dataset.taskField;
+        let val = input.value;
+        if (!val) continue;
+        if (input.type === 'number') val = Number(val);
+        if (key === 'sharedLocks') val = val.split(',').map(s => s.trim()).filter(Boolean);
+        task[key] = val;
+      }
+      if (task.targetIssue) tasks.push(task);
+    }
+    if (tasks.length > 0) payload.tasks = tasks;
+    return payload;
+  }
+
+  // Collect select fields
+  for (const select of form.querySelectorAll('select[data-field]')) {
+    if (select.value) setNested(payload, select.dataset.field, select.value);
+  }
+
+  // Collect checkbox inputs (e.g. worker IDs)
+  const checkboxes = form.querySelectorAll('input[type="checkbox"][data-field]');
+  if (checkboxes.length > 0) {
+    const checkedValues = Array.from(checkboxes)
+      .filter((cb) => cb.checked)
+      .map((cb) => cb.value);
+    if (checkedValues.length > 0) {
+      const field = checkboxes[0].dataset.field;
+      const key = field.endsWith('s') ? field : field + 's';
+      payload[key] = checkedValues;
+    }
+  }
+
+  // Collect text/number input fields
   for (const input of form.querySelectorAll('input[data-field]')) {
-    if (input.value) payload[input.dataset.field] = input.value;
+    if (input.type === 'checkbox') continue;
+    if (input.value) {
+      const field = input.dataset.field;
+      // Handle comma-separated manual worker IDs
+      if (field === 'workerIdsManual') {
+        const ids = input.value.split(',').map((s) => s.trim()).filter(Boolean);
+        if (ids.length > 0) payload.workerIds = ids;
+      } else {
+        setNested(payload, field, input.value);
+      }
+    }
+  }
+
+  // Parse prNumbers from comma-separated text into array of integers
+  if (typeof payload.prNumbers === 'string' && payload.prNumbers.trim()) {
+    const parsed = payload.prNumbers
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => Number.isInteger(n) && n > 0);
+    payload.prNumbers = parsed.length > 0 ? parsed : undefined;
+    if (payload.prNumbers === undefined) delete payload.prNumbers;
+  }
+
+  // Collect structured textarea fields (not the generic jsonPayload)
+  for (const textarea of form.querySelectorAll('textarea[data-field]')) {
+    if (textarea.dataset.field === 'jsonPayload') continue;
+    const val = textarea.value.trim();
+    if (!val) continue;
+    const field = textarea.dataset.field;
+    if (textarea.dataset.parse === 'csv-number') {
+      const nums = val.split(',').map((s) => s.trim()).filter(Boolean).map(Number).filter((n) => !isNaN(n));
+      if (nums.length > 0) setNested(payload, field, nums);
+    } else {
+      setNested(payload, field, val);
+    }
   }
 
   // Merge JSON payload if provided
-  const textarea = form.querySelector('textarea[data-field="jsonPayload"]');
-  if (textarea && textarea.value.trim()) {
+  const jsonTextarea = form.querySelector('textarea[data-field="jsonPayload"]');
+  if (jsonTextarea && jsonTextarea.value.trim()) {
     try {
-      const jsonPayload = JSON.parse(textarea.value.trim());
+      const jsonPayload = JSON.parse(jsonTextarea.value.trim());
       Object.assign(payload, jsonPayload);
+      // Re-apply prNumbers if it was set from structured input
+      const prInput = form.querySelector('input[data-field="prNumbers"]');
+      if (prInput && prInput.value.trim()) {
+        const reParsed = prInput.value
+          .split(',')
+          .map((s) => parseInt(s.trim(), 10))
+          .filter((n) => Number.isInteger(n) && n > 0);
+        if (reParsed.length > 0) payload.prNumbers = reParsed;
+      }
     } catch {
       // ignore invalid JSON — server will handle it
     }
@@ -1957,6 +2371,20 @@ function injectConsoleStyles() {
       border-left: 3px solid var(--accent-blue, #60a5fa);
     }
     .action-card__badges { display: flex; gap: 4px; align-items: center; }
+    .action-card__doc-link {
+      display: inline-flex; align-items: center; padding: 1px 6px;
+      font-family: var(--font-mono, monospace); font-size: 10px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .04em; border-radius: 3px;
+      color: var(--accent-blue, #60a5fa); background: rgba(96,165,250,0.12);
+      border: 1px solid rgba(96,165,250,0.25); text-decoration: none; cursor: pointer;
+      transition: background 120ms ease, border-color 120ms ease;
+    }
+    .action-card__doc-link:hover { background: rgba(96,165,250,0.18); border-color: var(--accent-blue, #60a5fa); }
+    .action-card__risk-prompt {
+      font-size: 11px; color: var(--status-disabled, #f87171);
+      background: rgba(248,113,113,0.1); padding: 6px 8px; border-radius: 4px;
+      border: 1px solid rgba(248,113,113,0.25); margin-bottom: 8px; line-height: 1.4;
+    }
     .server-action-result { margin-top: 8px; }
     .execute-result__payload {
       font-family: var(--font-mono, monospace); font-size: 11px;
@@ -2008,6 +2436,52 @@ function injectConsoleStyles() {
       text-transform: uppercase; letter-spacing: .04em;
       color: var(--text-muted, #8b8fa4); margin-bottom: 4px;
     }
+    .action-form__help {
+      font-size: 10px; color: var(--text-muted, #565b72); margin-top: 4px;
+    }
+    .action-form__checkbox-list {
+      display: flex; flex-direction: column; gap: 4px;
+      max-height: 120px; overflow-y: auto; padding: 4px 0;
+    }
+    .action-form__checkbox-item {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; font-family: var(--font-mono, monospace);
+      color: var(--text-primary, #e2e4ea); cursor: pointer;
+    }
+    .action-form__checkbox-item input[type="checkbox"] {
+      accent-color: var(--accent-blue, #60a5fa);
+    }
+    .action-form__stop-fields {
+      margin-top: 8px; padding-top: 8px;
+      border-top: 1px dashed var(--surface-border, #262b3a);
+    }
+    .action-form__hint {
+      font-size: 10px; color: var(--text-muted, #565b72); margin-top: 3px;
+    }
+    /* Launch-batch structured form */
+    .action-form--launch-batch { padding: 10px; }
+    .action-form__tasks-container { margin-top: 8px; }
+    .action-form__task-entries { display: flex; flex-direction: column; gap: 8px; }
+    .action-form__task-entry {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 6px; padding: 8px; background: rgba(0,0,0,0.1);
+      border: 1px solid var(--surface-border, #262b3a); border-radius: 4px;
+      position: relative;
+    }
+    .action-form__field--inline { margin-bottom: 0; }
+    .action-form__field--inline .action-form__label { margin-bottom: 2px; font-size: 10px; }
+    .action-form__field--inline .action-form__input,
+    .action-form__field--inline .action-form__select { font-size: 11px; padding: 4px 6px; }
+    .action-form__add-task-btn {
+      margin-top: 6px; font-size: 11px; padding: 3px 10px;
+    }
+    .action-form__remove-task-btn {
+      position: absolute; top: 4px; right: 4px;
+      padding: 0 6px; font-size: 14px; line-height: 1;
+      border: none; background: transparent;
+      color: var(--status-disabled, #f87171); cursor: pointer;
+    }
+    .action-form__remove-task-btn:hover { background: rgba(248,113,113,0.15); border-radius: 3px; }
   `;
   document.head.append(style);
 }
