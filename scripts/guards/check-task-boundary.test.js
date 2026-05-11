@@ -273,6 +273,46 @@ console.log('\n-- checkBoundary: docs-index lock');
   assert(result.pass === true, 'docs md allowed with "docs-index" sharedLock');
 }
 
+// ---- checkBoundary: forbidden wins over broad allowed overlap ----------------
+console.log('\n-- checkBoundary: forbidden wins over broad allowed');
+
+{
+  // A file matches both a broad allowed pattern (**/*) and a forbidden pattern (src/**).
+  // The guard must reject it as forbidden — allowed must not override forbidden.
+  const changed = ['src/app.ts'];
+  const allowed = ['src/**', 'scripts/**'];
+  const forbidden = ['src/**'];
+
+  const result = checkBoundary(changed, allowed, forbidden);
+  assert(result.pass === false, 'file matching both allowed and forbidden is still rejected');
+  assert(result.violations.length === 1, 'exactly one violation for overlapping match');
+  assertEq(result.violations[0].file, 'src/app.ts', 'violation file is src/app.ts');
+  assertEq(result.violations[0].reason, 'forbidden', 'reason is forbidden even though allowed also matches');
+}
+
+{
+  // Multiple files: one overlaps (allowed+forbidden), one is only-allowed (should pass).
+  const changed = ['src/app.ts', 'scripts/guards/check-task-boundary.js'];
+  const allowed = ['src/**', 'scripts/**'];
+  const forbidden = ['src/**'];
+
+  const result = checkBoundary(changed, allowed, forbidden);
+  assert(result.pass === false, 'mixed set with forbidden overlap fails');
+  assert(result.violations.length === 1, 'only the forbidden file is a violation');
+  assertEq(result.violations[0].file, 'src/app.ts', 'violation is src/app.ts, not the allowed-only file');
+}
+
+{
+  // File matches broad allowed (**/*) and forbidden — forbidden still wins.
+  const changed = ['prisma/schema.prisma'];
+  const allowed = ['**'];
+  const forbidden = ['prisma/**'];
+
+  const result = checkBoundary(changed, allowed, forbidden);
+  assert(result.pass === false, 'forbidden wins over catch-all allowed pattern');
+  assertEq(result.violations[0].reason, 'forbidden', 'reason is forbidden despite ** allowed');
+}
+
 // ---- checkBoundary: unknown lock name has no effect -------------------------
 console.log('\n-- checkBoundary: unknown lock name');
 
