@@ -239,6 +239,7 @@ Re-engage Codex or call for human intervention when:
 
 ## References
 
+- [webui-control-console.md](webui-control-console.md) — WebUI dashboard runbook for visual oversight of this checklist.
 - [codex-exit-readiness.md](codex-exit-readiness.md) — Readiness checks for Codex exit.
 - [codex-retirement-runbook.md](codex-retirement-runbook.md) — Full retirement criteria, fallback, daily workflow.
 - [self-cycle-runner.md](self-cycle-runner.md) — Runner parameters, pipeline steps, exit codes.

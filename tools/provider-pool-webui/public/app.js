@@ -5,6 +5,10 @@
  * from the sanitized state and policy files. No secrets are ever loaded
  * or displayed.
  *
+ * Includes Operation Console for preview/execute/audit of controlled
+ * actions. All actions default to preview mode; execute requires typed
+ * confirmation and respects policy guard semantics.
+ *
  * Expected data sources (relative to the HTML page):
  *   ../../../../.github/ai-state/provider-pool.json          (provider pool)
  *   ../../../../.github/ai-policy/provider-pool-policy.json   (policy)
@@ -305,6 +309,556 @@ function renderWorkersSection(workers, assignmentData) {
   return el('div', { className: 'workers-section' }, children);
 }
 
+// ── operation console ─────────────────────────────────────────────────
+
+const ACTION_REGISTRY = {
+  provider: [
+    {
+      id: 'provider.retry',
+      label: 'Retry Provider',
+      description: 'Attempt to re-enable a disabled or exhausted provider',
+      riskLevel: 'low',
+      confirmPhrase: 'RETRY',
+      applicable: (p) => p.status === 'exhausted' || p.status === 'disabled',
+      preview: (p) => ({
+        action: 'provider.retry',
+        target: p.id,
+        currentStatus: p.status,
+        willBecome: 'available',
+        requiresGuard: true,
+      }),
+    },
+    {
+      id: 'provider.clearCooldown',
+      label: 'Clear Cooldown',
+      description: 'Remove the cooldown timer on a provider',
+      riskLevel: 'medium',
+      confirmPhrase: 'CLEAR',
+      applicable: (p) => !!p.cooldownExpiresAt,
+      preview: (p) => ({
+        action: 'provider.clearCooldown',
+        target: p.id,
+        cooldownExpiresAt: p.cooldownExpiresAt,
+        willRemoveCooldown: true,
+        requiresGuard: true,
+      }),
+    },
+    {
+      id: 'provider.disable',
+      label: 'Disable Provider',
+      description: 'Manually disable a provider (blocks new assignments)',
+      riskLevel: 'high',
+      confirmPhrase: 'DISABLE',
+      humanRequired: true,
+      applicable: (p) => p.status === 'available',
+      preview: (p) => ({
+        action: 'provider.disable',
+        target: p.id,
+        currentStatus: p.status,
+        willBecome: 'disabled',
+        humanRequired: true,
+        blocker: 'Operator must confirm — provider will stop accepting tasks',
+      }),
+    },
+  ],
+  queue: [
+    {
+      id: 'queue.retryBlocked',
+      label: 'Retry Blocked Tasks',
+      description: 'Re-queue tasks blocked by exhaustion or conflict',
+      riskLevel: 'low',
+      confirmPhrase: 'RETRY',
+      applicable: (_q, entries) => entries?.some((e) => e.state === 'blocked'),
+      preview: (_q, entries) => {
+        const blocked = (entries || []).filter((e) => e.state === 'blocked');
+        return {
+          action: 'queue.retryBlocked',
+          affectedTasks: blocked.length,
+          tasks: blocked.map((e) => e.issueNumber ? `#${e.issueNumber}` : e.taskId),
+          requiresGuard: true,
+        };
+      },
+    },
+    {
+      id: 'queue.clearStale',
+      label: 'Clear Stale Entries',
+      description: 'Remove queue entries older than 2 hours with no update',
+      riskLevel: 'medium',
+      confirmPhrase: 'CLEAR',
+      applicable: (_q, entries) => entries?.some((e) => {
+        if (!e.updatedAt) return false;
+        return Date.now() - new Date(e.updatedAt).getTime() > 7_200_000;
+      }),
+      preview: (_q, entries) => {
+        const stale = (entries || []).filter((e) => {
+          if (!e.updatedAt) return false;
+          return Date.now() - new Date(e.updatedAt).getTime() > 7_200_000;
+        });
+        return {
+          action: 'queue.clearStale',
+          affectedTasks: stale.length,
+          tasks: stale.map((e) => e.issueNumber ? `#${e.issueNumber}` : e.taskId),
+          requiresGuard: true,
+        };
+      },
+    },
+  ],
+  global: [
+    {
+      id: 'global.refreshState',
+      label: 'Force State Refresh',
+      description: 'Trigger an immediate state file refresh',
+      riskLevel: 'low',
+      confirmPhrase: 'REFRESH',
+      applicable: () => true,
+      preview: () => ({
+        action: 'global.refreshState',
+        willRefresh: ['provider-pool.json', 'provider-pool-webui.json'],
+        requiresGuard: false,
+      }),
+    },
+    {
+      id: 'global.exportAudit',
+      label: 'Export Audit Log',
+      description: 'Download the operation console audit log as JSON',
+      riskLevel: 'low',
+      confirmPhrase: 'EXPORT',
+      applicable: () => auditLog.length > 0,
+      preview: () => ({
+        action: 'global.exportAudit',
+        entryCount: auditLog.length,
+        requiresGuard: false,
+      }),
+    },
+  ],
+};
+
+const auditLog = [];
+
+function logAuditEvent(entry) {
+  auditLog.push({
+    ...entry,
+    timestamp: new Date().toISOString(),
+    id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+  });
+}
+
+function riskClass(level) {
+  switch (level) {
+    case 'low': return 'status-available';
+    case 'medium': return 'status-exhausted';
+    case 'high': return 'status-disabled';
+    default: return '';
+  }
+}
+
+function riskBadge(level) {
+  return el('span', {
+    className: `risk-badge ${riskClass(level)}`,
+    textContent: level.toUpperCase(),
+  });
+}
+
+function renderPreviewPayload(payload) {
+  const entries = Object.entries(payload);
+  const rows = entries.map(([key, value]) =>
+    el('tr', null, [
+      el('td', { className: 'preview-key', textContent: key }),
+      el('td', { className: 'preview-value', textContent: formatPreviewValue(value) }),
+    ]),
+  );
+  return el('table', { className: 'preview-table' }, [
+    el('thead', null, [el('tr', null, [
+      el('th', { textContent: 'Field' }),
+      el('th', { textContent: 'Value' }),
+    ])]),
+    el('tbody', null, rows),
+  ]);
+}
+
+function formatPreviewValue(value) {
+  if (value === null || value === undefined) return '—';
+  if (Array.isArray(value)) return value.length > 0 ? value.join(', ') : '(empty)';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function renderActionCard(action, contextData, allData) {
+  const { provider, queue, queueEntries } = contextData;
+  const isApplicable = action.applicable(
+    provider || {},
+    provider ? undefined : (queue || null),
+    provider ? undefined : (queueEntries || null),
+  );
+
+  const card = el('div', { className: `action-card ${isApplicable ? '' : 'action-card--disabled'}` });
+
+  const header = el('div', { className: 'action-card__header' }, [
+    el('span', { className: 'action-card__label', textContent: action.label }),
+    riskBadge(action.riskLevel),
+  ]);
+  card.append(header);
+
+  const desc = el('p', { className: 'action-card__desc', textContent: action.description });
+  card.append(desc);
+
+  if (action.humanRequired) {
+    card.append(el('div', { className: 'action-card__blocker', textContent: '⚠ Human approval required' }));
+  }
+
+  if (!isApplicable) {
+    card.append(el('p', { className: 'action-card__na', textContent: 'Not applicable to current state' }));
+    return card;
+  }
+
+  // Preview button
+  const previewBtn = el('button', {
+    className: 'action-btn action-btn--preview',
+    textContent: 'Preview',
+    onClick: () => showPreview(action, contextData, allData, card),
+  });
+  card.append(previewBtn);
+
+  return card;
+}
+
+function showPreview(action, contextData, allData, parentCard) {
+  // Remove any existing preview/execute panel in this card
+  const existing = parentCard.querySelector('.action-panel');
+  if (existing) existing.remove();
+
+  const previewData = action.preview(
+    contextData.provider || {},
+    contextData.provider ? undefined : (contextData.queue || null),
+    contextData.provider ? undefined : (contextData.queueEntries || null),
+  );
+
+  const panel = el('div', { className: 'action-panel' });
+  panel.append(el('h4', { className: 'action-panel__title', textContent: 'Preview' }));
+
+  if (previewData.humanRequired) {
+    panel.append(el('div', { className: 'action-panel__warning', textContent: previewData.blocker || 'Human approval required' }));
+  }
+
+  if (previewData.requiresGuard) {
+    panel.append(el('p', { className: 'action-panel__guard', textContent: 'Guard validation will run before execution' }));
+  }
+
+  panel.append(renderPreviewPayload(previewData));
+
+  // Execute button (only after preview)
+  const executeBtn = el('button', {
+    className: 'action-btn action-btn--execute',
+    textContent: 'Execute…',
+    onClick: () => showExecuteConfirm(action, contextData, allData, panel),
+  });
+  panel.append(executeBtn);
+
+  parentCard.append(panel);
+}
+
+function showExecuteConfirm(action, contextData, allData, parentPanel) {
+  const existing = parentPanel.querySelector('.execute-confirm');
+  if (existing) existing.remove();
+
+  const confirm = el('div', { className: 'execute-confirm' });
+
+  if (action.riskLevel === 'high' || action.humanRequired) {
+    confirm.append(el('div', { className: 'execute-confirm__blocker', textContent: 'This action requires human approval and cannot be auto-executed' }));
+    parentPanel.append(confirm);
+    return;
+  }
+
+  confirm.append(el('p', {
+    className: 'execute-confirm__prompt',
+    textContent: `Type "${action.confirmPhrase}" to confirm execution:`,
+  }));
+
+  const input = el('input', {
+    className: 'execute-confirm__input',
+    type: 'text',
+    placeholder: action.confirmPhrase,
+    autocomplete: 'off',
+  });
+  confirm.append(input);
+
+  const btnRow = el('div', { className: 'execute-confirm__actions' });
+
+  const cancelBtn = el('button', {
+    className: 'action-btn action-btn--cancel',
+    textContent: 'Cancel',
+    onClick: () => confirm.remove(),
+  });
+
+  const goBtn = el('button', {
+    className: 'action-btn action-btn--execute action-btn--disabled',
+    textContent: 'Execute',
+    disabled: 'true',
+  });
+
+  input.addEventListener('input', () => {
+    const match = input.value.trim() === action.confirmPhrase;
+    goBtn.disabled = !match;
+    goBtn.className = `action-btn action-btn--execute ${match ? '' : 'action-btn--disabled'}`;
+  });
+
+  goBtn.addEventListener('click', () => {
+    if (input.value.trim() !== action.confirmPhrase) return;
+    executeAction(action, contextData, allData, confirm);
+  });
+
+  btnRow.append(cancelBtn, goBtn);
+  confirm.append(btnRow);
+  parentPanel.append(confirm);
+  input.focus();
+}
+
+function executeAction(action, contextData, _allData, confirmEl) {
+  const previewData = action.preview(
+    contextData.provider || {},
+    contextData.provider ? undefined : (contextData.queue || null),
+    contextData.provider ? undefined : (contextData.queueEntries || null),
+  );
+
+  // Record in audit log
+  logAuditEvent({
+    action: action.id,
+    riskLevel: action.riskLevel,
+    target: contextData.provider?.id || 'global',
+    payload: previewData,
+    mode: 'execute',
+    status: 'dispatched',
+    note: 'Client-side dispatch recorded; server guard required for mutation',
+  });
+
+  // Replace confirm with result
+  confirmEl.replaceChildren(
+    el('div', { className: 'execute-result execute-result--dispatched' }, [
+      el('p', { textContent: `Action "${action.label}" dispatched for guard validation` }),
+      el('p', { className: 'execute-result__note', textContent: 'Server guard must approve before mutation is applied' }),
+    ]),
+  );
+}
+
+function renderOperationConsole(allData) {
+  const { state, policy, webuiState } = allData;
+  const container = el('div', { className: 'console-section' });
+  container.append(el('h2', { textContent: 'Operation Console' }));
+
+  // Preview mode indicator
+  container.append(el('div', { className: 'console-mode-banner' }, [
+    el('span', { className: 'console-mode-label', textContent: 'MODE:' }),
+    el('span', { className: 'console-mode-value', textContent: 'PREVIEW (default)' }),
+    el('span', { className: 'console-mode-note', textContent: 'Execute requires typed confirmation' }),
+  ]));
+
+  // Provider actions
+  const providers = state?.providers || [];
+  if (providers.length > 0) {
+    const providerSection = el('div', { className: 'console-group' });
+    providerSection.append(el('h3', { textContent: 'Provider Actions' }));
+
+    for (const provider of providers) {
+      const providerBlock = el('div', { className: 'console-provider-block' });
+      providerBlock.append(el('h4', {
+        className: 'console-provider-id',
+        textContent: `${provider.id} (${provider.status})`,
+      }));
+
+      const actionGrid = el('div', { className: 'action-grid' });
+      for (const action of ACTION_REGISTRY.provider) {
+        actionGrid.append(renderActionCard(action, { provider }, allData));
+      }
+      providerBlock.append(actionGrid);
+      providerSection.append(providerBlock);
+    }
+    container.append(providerSection);
+  }
+
+  // Queue actions
+  if (webuiState?.queueEntries?.length > 0 || webuiState?.queue) {
+    const queueSection = el('div', { className: 'console-group' });
+    queueSection.append(el('h3', { textContent: 'Queue Actions' }));
+
+    const actionGrid = el('div', { className: 'action-grid' });
+    for (const action of ACTION_REGISTRY.queue) {
+      actionGrid.append(renderActionCard(
+        action,
+        { queue: webuiState?.queue, queueEntries: webuiState?.queueEntries },
+        allData,
+      ));
+    }
+    queueSection.append(actionGrid);
+    container.append(queueSection);
+  }
+
+  // Global actions
+  const globalSection = el('div', { className: 'console-group' });
+  globalSection.append(el('h3', { textContent: 'Global Actions' }));
+
+  const globalGrid = el('div', { className: 'action-grid' });
+  for (const action of ACTION_REGISTRY.global) {
+    globalGrid.append(renderActionCard(action, {}, allData));
+  }
+  globalSection.append(globalGrid);
+  container.append(globalSection);
+
+  // Audit log section
+  container.append(renderAuditSection());
+
+  return container;
+}
+
+function renderAuditSection() {
+  const section = el('div', { className: 'console-group console-audit' });
+  section.append(el('h3', { textContent: 'Audit Log' }));
+
+  if (auditLog.length === 0) {
+    section.append(el('p', { className: 'empty-state', textContent: 'No operations recorded in this session' }));
+    return section;
+  }
+
+  const rows = auditLog.map((entry) =>
+    el('tr', null, [
+      el('td', { className: 'mono', textContent: formatTimestamp(entry.timestamp) }),
+      el('td', { textContent: entry.action }),
+      el('td', null, [riskBadge(entry.riskLevel)]),
+      el('td', { textContent: entry.target || '—' }),
+      el('td', { textContent: entry.mode }),
+      el('td', { textContent: entry.status }),
+    ]),
+  );
+
+  section.append(
+    el('table', { className: 'audit-table' }, [
+      el('thead', null, [el('tr', null, [
+        el('th', { textContent: 'Time' }),
+        el('th', { textContent: 'Action' }),
+        el('th', { textContent: 'Risk' }),
+        el('th', { textContent: 'Target' }),
+        el('th', { textContent: 'Mode' }),
+        el('th', { textContent: 'Status' }),
+      ])]),
+      el('tbody', null, rows),
+    ]),
+  );
+
+  return section;
+}
+
+function injectConsoleStyles() {
+  if (document.getElementById('console-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'console-styles';
+  style.textContent = `
+    .console-section { margin-top: 24px; }
+    .console-mode-banner {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; background: var(--surface-card, #161922);
+      border: 1px solid var(--surface-border, #262b3a);
+      border-radius: 6px; margin-bottom: 16px; font-size: 12px;
+    }
+    .console-mode-label { color: var(--text-muted, #565b72); text-transform: uppercase; letter-spacing: .04em; }
+    .console-mode-value { font-weight: 600; color: var(--status-available, #34d399); }
+    .console-mode-note { color: var(--text-muted, #565b72); margin-left: auto; }
+    .console-group { margin-bottom: 20px; }
+    .console-group h3 {
+      font-size: 12px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--text-muted, #8b8fa4); margin-bottom: 10px;
+    }
+    .console-provider-block { margin-bottom: 12px; }
+    .console-provider-id {
+      font-family: var(--font-mono, monospace); font-size: 13px;
+      font-weight: 600; margin-bottom: 8px;
+    }
+    .action-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 10px;
+    }
+    .action-card {
+      background: var(--surface-card, #161922); border: 1px solid var(--surface-border, #262b3a);
+      border-radius: 6px; padding: 12px; transition: background 120ms ease;
+    }
+    .action-card:hover { background: var(--surface-card-hover, #1c2030); }
+    .action-card--disabled { opacity: 0.5; pointer-events: none; }
+    .action-card__header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .action-card__label { font-weight: 600; font-size: 13px; }
+    .action-card__desc { font-size: 11px; color: var(--text-muted, #8b8fa4); margin-bottom: 8px; }
+    .action-card__blocker {
+      font-size: 11px; color: var(--status-disabled, #f87171);
+      background: rgba(248,113,113,0.1); padding: 4px 8px; border-radius: 4px; margin-bottom: 8px;
+    }
+    .action-card__na { font-size: 11px; color: var(--text-muted, #565b72); font-style: italic; }
+    .risk-badge {
+      display: inline-block; padding: 1px 6px; border-radius: 3px;
+      font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+    }
+    .action-btn {
+      padding: 4px 12px; border-radius: 4px; border: 1px solid var(--surface-border, #262b3a);
+      background: var(--surface-card, #161922); color: var(--text-primary, #e2e4ea);
+      font-size: 12px; cursor: pointer; transition: background 120ms ease;
+    }
+    .action-btn:hover { background: var(--surface-card-hover, #1c2030); }
+    .action-btn--preview { border-color: var(--accent-blue, #60a5fa); color: var(--accent-blue, #60a5fa); }
+    .action-btn--execute { border-color: var(--status-exhausted, #fbbf24); color: var(--status-exhausted, #fbbf24); }
+    .action-btn--cancel { border-color: var(--text-muted, #565b72); }
+    .action-btn--disabled { opacity: 0.4; cursor: not-allowed; }
+    .action-panel {
+      margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.15);
+      border-radius: 4px; border: 1px solid var(--surface-border, #262b3a);
+    }
+    .action-panel__title { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+    .action-panel__warning {
+      font-size: 11px; color: var(--status-disabled, #f87171);
+      background: rgba(248,113,113,0.1); padding: 4px 8px; border-radius: 4px; margin-bottom: 8px;
+    }
+    .action-panel__guard {
+      font-size: 11px; color: var(--status-exhausted, #fbbf24); margin-bottom: 8px;
+    }
+    .preview-table { width: 100%; font-size: 11px; margin-bottom: 10px; }
+    .preview-table th { font-size: 10px; padding: 4px 6px; }
+    .preview-table td { padding: 4px 6px; }
+    .preview-key { font-family: var(--font-mono, monospace); color: var(--text-muted, #8b8fa4); }
+    .preview-value { color: var(--text-primary, #e2e4ea); word-break: break-all; }
+    .execute-confirm { margin-top: 10px; }
+    .execute-confirm__prompt { font-size: 12px; margin-bottom: 6px; }
+    .execute-confirm__input {
+      width: 100%; padding: 6px 8px; background: var(--surface-bg, #0f1117);
+      border: 1px solid var(--surface-border, #262b3a); border-radius: 4px;
+      color: var(--text-primary, #e2e4ea); font-family: var(--font-mono, monospace);
+      font-size: 12px; margin-bottom: 8px;
+    }
+    .execute-confirm__input::placeholder { color: var(--text-muted, #565b72); }
+    .execute-confirm__actions { display: flex; gap: 8px; }
+    .execute-confirm__blocker {
+      font-size: 12px; color: var(--status-disabled, #f87171);
+      background: rgba(248,113,113,0.1); padding: 8px; border-radius: 4px;
+    }
+    .execute-result { margin-top: 8px; padding: 8px; border-radius: 4px; font-size: 12px; }
+    .execute-result--dispatched {
+      background: rgba(52,211,153,0.1); border: 1px solid var(--status-available, #34d399);
+      color: var(--status-available, #34d399);
+    }
+    .execute-result__note { font-size: 11px; color: var(--text-muted, #8b8fa4); margin-top: 4px; }
+    .audit-table { font-size: 11px; }
+    .tab-bar {
+      display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid var(--surface-border, #262b3a);
+    }
+    .tab-btn {
+      padding: 8px 16px; background: transparent; border: none; border-bottom: 2px solid transparent;
+      color: var(--text-muted, #8b8fa4); font-size: 13px; font-weight: 500;
+      cursor: pointer; transition: color 120ms ease, border-color 120ms ease;
+    }
+    .tab-btn:hover { color: var(--text-primary, #e2e4ea); }
+    .tab-btn--active {
+      color: var(--accent-blue, #60a5fa); border-bottom-color: var(--accent-blue, #60a5fa);
+    }
+    .tab-panel { display: none; }
+    .tab-panel--active { display: block; }
+  `;
+  document.head.append(style);
+}
+
 // ── main app ─────────────────────────────────────────────────────────
 
 async function fetchJSON(url) {
@@ -333,34 +887,68 @@ async function refresh(root) {
     (policy.providers ?? []).map(p => [p.id, p]),
   );
 
-  const children = [
+  // Build dashboard panel
+  const dashboardChildren = [
     renderGlobalSummary(state.global ?? {}),
     el('h2', { textContent: 'Providers' }),
   ];
 
   for (const provider of state.providers ?? []) {
-    children.push(renderProviderCard(provider, policyMap[provider.id]));
+    dashboardChildren.push(renderProviderCard(provider, policyMap[provider.id]));
   }
 
-  // Worker view sections from the WebUI state projection
   if (webuiState) {
     const pressureEl = renderPressureSection(webuiState.pressure);
-    if (pressureEl) children.push(pressureEl);
+    if (pressureEl) dashboardChildren.push(pressureEl);
 
     const queueEl = renderQueueSection(
       webuiState.queue,
       webuiState.queueEntries,
     );
-    if (queueEl) children.push(queueEl);
+    if (queueEl) dashboardChildren.push(queueEl);
 
     const workersEl = renderWorkersSection(
       webuiState.workers,
       webuiState.assignments,
     );
-    if (workersEl) children.push(workersEl);
+    if (workersEl) dashboardChildren.push(workersEl);
   }
 
-  root.replaceChildren(...children);
+  // Build operation console panel
+  const allData = { state, policy, webuiState };
+  const consoleEl = renderOperationConsole(allData);
+
+  // Tab bar
+  const dashboardPanel = el('div', { className: 'tab-panel tab-panel--active', id: 'tab-dashboard' }, dashboardChildren);
+  const consolePanel = el('div', { className: 'tab-panel', id: 'tab-console' }, [consoleEl]);
+
+  const dashboardTab = el('button', {
+    className: 'tab-btn tab-btn--active',
+    textContent: 'Dashboard',
+    onClick: () => switchTab('dashboard'),
+  });
+  const consoleTab = el('button', {
+    className: 'tab-btn',
+    textContent: 'Operation Console',
+    onClick: () => switchTab('console'),
+  });
+
+  const tabBar = el('div', { className: 'tab-bar' }, [dashboardTab, consoleTab]);
+
+  root.replaceChildren(tabBar, dashboardPanel, consolePanel);
+}
+
+function switchTab(tab) {
+  const panels = document.querySelectorAll('.tab-panel');
+  const tabs = document.querySelectorAll('.tab-btn');
+  panels.forEach((p) => p.classList.remove('tab-panel--active'));
+  tabs.forEach((t) => t.classList.remove('tab-btn--active'));
+
+  const targetPanel = document.getElementById(`tab-${tab}`);
+  if (targetPanel) targetPanel.classList.add('tab-panel--active');
+
+  const tabIndex = tab === 'dashboard' ? 0 : 1;
+  if (tabs[tabIndex]) tabs[tabIndex].classList.add('tab-btn--active');
 }
 
 function boot() {
@@ -369,6 +957,7 @@ function boot() {
     console.error('[provider-pool] #provider-pool-root element not found');
     return;
   }
+  injectConsoleStyles();
   refresh(root);
   setInterval(() => refresh(root), REFRESH_INTERVAL_MS);
 }

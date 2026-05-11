@@ -43,7 +43,7 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const STATE_DIR = path.join(REPO_ROOT, '.github', 'ai-state');
 const DEFAULT_OUT = path.join(STATE_DIR, 'dashboard-state.json');
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const INPUT_FILES = {
   health:        'main-health.json',
@@ -69,7 +69,7 @@ function readJsonFile(filePath) {
 
 function printHelp() {
   const help = `
-emit-control-plane-dashboard-state.js — Dashboard state emitter
+emit-control-plane-dashboard-state.js — Dashboard state emitter (v2)
 
 USAGE
     node scripts/ai/emit-control-plane-dashboard-state.js [options]
@@ -131,6 +131,135 @@ function parseArgs(argv) {
     i++;
   }
   return args;
+}
+
+// ── Action readiness ─────────────────────────────────────────────────────────
+
+const ACTION_IDS = [
+  'launch-worker',
+  'merge-pr',
+  'retry-failed',
+  'drain-queue',
+];
+
+function computeActionReadiness({ health, providerPool, workerTrust, metaSignals, queue }) {
+  const healthState = health && health.state ? health.state : 'unknown';
+  const isHealthy = healthState === 'green' || healthState === 'yellow';
+  const isBlocked = !isHealthy;
+
+  const availableProviders = providerPool && providerPool.global
+    ? (providerPool.global.availableProviders || 0)
+    : 0;
+
+  const minTrust = workerTrust && workerTrust.scheduling
+    ? workerTrust.scheduling.minTrustToLaunch
+    : null;
+
+  const trust = metaSignals && metaSignals.signals
+    ? metaSignals.signals.trust
+    : null;
+
+  const riskScore = metaSignals && metaSignals.signals
+    ? metaSignals.signals.riskScore
+    : 0;
+
+  const queueSummary = queue && queue.summary ? queue.summary : null;
+  const queuedCount = queueSummary ? (queueSummary.queued || 0) : 0;
+  const blockedCount = queueSummary ? (queueSummary.blocked || 0) : 0;
+  const runningCount = queueSummary ? (queueSummary.running || 0) : 0;
+
+  const healthBlockedReason = isBlocked
+    ? (healthState === 'unknown' ? 'health state unknown' : `health state is ${healthState}`)
+    : null;
+
+  function computeLaunchWorker() {
+    const reasons = [];
+    if (isBlocked) reasons.push(healthBlockedReason);
+    if (availableProviders === 0) reasons.push('no available providers');
+    if (minTrust !== null && trust !== null && trust < minTrust) {
+      reasons.push(`trust ${trust} below minimum ${minTrust}`);
+    }
+    return { id: 'launch-worker', ready: reasons.length === 0, blockedReasons: reasons };
+  }
+
+  function computeMergePr() {
+    const reasons = [];
+    if (isBlocked) reasons.push(healthBlockedReason);
+    if (riskScore > 80) reasons.push(`risk score ${riskScore} exceeds threshold 80`);
+    return { id: 'merge-pr', ready: reasons.length === 0, blockedReasons: reasons };
+  }
+
+  function computeRetryFailed() {
+    const reasons = [];
+    if (isBlocked) reasons.push(healthBlockedReason);
+    if (blockedCount === 0 && queuedCount === 0) reasons.push('no failed or blocked entries');
+    return { id: 'retry-failed', ready: reasons.length === 0, blockedReasons: reasons };
+  }
+
+  function computeDrainQueue() {
+    const reasons = [];
+    if (isBlocked) reasons.push(healthBlockedReason);
+    if (queuedCount === 0 && runningCount === 0) reasons.push('queue is empty');
+    if (availableProviders === 0) reasons.push('no available providers');
+    return { id: 'drain-queue', ready: reasons.length === 0, blockedReasons: reasons };
+  }
+
+  const actionFns = {
+    'launch-worker': computeLaunchWorker,
+    'merge-pr': computeMergePr,
+    'retry-failed': computeRetryFailed,
+    'drain-queue': computeDrainQueue,
+  };
+
+  const actions = ACTION_IDS.map(id => actionFns[id]());
+  const readyCount = actions.filter(a => a.ready).length;
+
+  return {
+    actions,
+    readyCount,
+    totalActions: actions.length,
+    allReady: readyCount === actions.length,
+  };
+}
+
+// ── Audit summary ────────────────────────────────────────────────────────────
+
+function computeAuditSummary(queue) {
+  if (!queue || !Array.isArray(queue.entries) || queue.entries.length === 0) {
+    return {
+      totalEntries: 0,
+      byState: { queued: 0, launching: 0, running: 0, prCreated: 0, blocked: 0, done: 0 },
+      lastActivityAt: null,
+      blockedReasons: [],
+    };
+  }
+
+  const entries = queue.entries;
+  const byState = { queued: 0, launching: 0, running: 0, prCreated: 0, blocked: 0, done: 0 };
+  let lastActivityAt = null;
+  const blockedReasons = [];
+
+  for (const entry of entries) {
+    const state = entry.state || 'unknown';
+    if (state in byState) byState[state]++;
+
+    if (entry.updatedAt) {
+      if (!lastActivityAt || entry.updatedAt > lastActivityAt) {
+        lastActivityAt = entry.updatedAt;
+      }
+    }
+
+    if (state === 'blocked' && entry.blockedReason) {
+      blockedReasons.push(entry.blockedReason);
+    }
+  }
+
+  return {
+    totalEntries: entries.length,
+    byState,
+    lastActivityAt,
+    blockedReasons: [...new Set(blockedReasons)],
+  };
 }
 
 // ── Build dashboard state ────────────────────────────────────────────────────
@@ -202,6 +331,12 @@ function buildDashboardState(inputs) {
     ? queue.entries.length
     : 0;
 
+  const actionReadiness = computeActionReadiness({
+    health, providerPool, workerTrust, metaSignals, queue,
+  });
+
+  const auditSummary = computeAuditSummary(queue);
+
   return {
     schemaVersion: SCHEMA_VERSION,
     capturedAt: new Date().toISOString(),
@@ -225,6 +360,8 @@ function buildDashboardState(inputs) {
       entryCount: queueEntryCount,
       summary: queueSummary,
     },
+    actionReadiness,
+    auditSummary,
     inputSources: {
       healthLoaded: !!health,
       providerPoolLoaded: !!providerPool,
@@ -262,7 +399,7 @@ function runSelfTest() {
     metaSignals: null,
     queue: null,
   });
-  assert(empty.schemaVersion === 1, 'schemaVersion is 1');
+  assert(empty.schemaVersion === 2, 'schemaVersion is 2');
   assert(typeof empty.capturedAt === 'string', 'capturedAt is string');
   assert(empty.health === null, 'health is null when missing');
   assert(empty.providerPool === null, 'providerPool is null when missing');
@@ -273,6 +410,20 @@ function runSelfTest() {
   assert(empty.queue.entryCount === 0, 'queue entryCount defaults to 0');
   assert(empty.queue.summary === null, 'queue summary is null when missing');
   assert(empty.inputSources.healthLoaded === false, 'healthLoaded false');
+
+  // Test: actionReadiness with all null inputs
+  assert(empty.actionReadiness.readyCount === 0, 'actionReadiness readyCount defaults to 0');
+  assert(empty.actionReadiness.totalActions === 4, 'actionReadiness totalActions is 4');
+  assert(empty.actionReadiness.allReady === false, 'actionReadiness allReady false when unhealthy');
+  assert(empty.actionReadiness.actions.length === 4, 'actionReadiness has 4 actions');
+  const launchAction = empty.actionReadiness.actions.find(a => a.id === 'launch-worker');
+  assert(launchAction.ready === false, 'launch-worker not ready with null inputs');
+  assert(Array.isArray(launchAction.blockedReasons), 'launch-worker has blockedReasons array');
+
+  // Test: auditSummary with null queue
+  assert(empty.auditSummary.totalEntries === 0, 'auditSummary totalEntries defaults to 0');
+  assert(empty.auditSummary.lastActivityAt === null, 'auditSummary lastActivityAt null when no queue');
+  assert(Array.isArray(empty.auditSummary.blockedReasons), 'auditSummary blockedReasons is array');
 
   // Test: buildDashboardState with health data
   const withHealth = buildDashboardState({
@@ -402,6 +553,76 @@ function runSelfTest() {
   });
   assert(withResources.resources.totalFiles === 50, 'resources totalFiles');
   assert(withResources.resources.missingFiles === 2, 'resources missingFiles');
+
+  // Test: actionReadiness with green health and available providers
+  const readyInputs = buildDashboardState({
+    health: { state: 'green' },
+    providerPool: { global: { availableProviders: 2, totalActiveWorkers: 0, globalMaxWorkers: 3, exhaustedProviders: 0, disabledProviders: 0 } },
+    resources: null,
+    activeWorkers: null,
+    workerTrust: { scheduling: { minTrustToLaunch: 0.3, highTrustThreshold: 0.8, rules: [] } },
+    metaSignals: { signals: { failureScore: 0, frictionScore: 0, riskScore: 0, cost: 0, trust: 90, topPain: 'none' } },
+    queue: {
+      entries: [{ issueNumber: 1, state: 'queued', updatedAt: '2026-01-01T00:00:00.000Z' }],
+      summary: { queued: 1, launching: 0, running: 0, prCreated: 0, blocked: 0, done: 0 },
+    },
+  });
+  assert(readyInputs.actionReadiness.allReady === true, 'allReady true when healthy with providers');
+  assert(readyInputs.actionReadiness.readyCount === 4, 'readyCount 4 when all ready');
+  const launchReady = readyInputs.actionReadiness.actions.find(a => a.id === 'launch-worker');
+  assert(launchReady.ready === true, 'launch-worker ready with green health and providers');
+  assert(launchReady.blockedReasons.length === 0, 'launch-worker no blocked reasons');
+
+  // Test: actionReadiness blocked when red health
+  const redInputs = buildDashboardState({
+    health: { state: 'red' },
+    providerPool: { global: { availableProviders: 2, totalActiveWorkers: 0, globalMaxWorkers: 3, exhaustedProviders: 0, disabledProviders: 0 } },
+    resources: null,
+    activeWorkers: null,
+    workerTrust: null,
+    metaSignals: null,
+    queue: null,
+  });
+  const redLaunch = redInputs.actionReadiness.actions.find(a => a.id === 'launch-worker');
+  assert(redLaunch.ready === false, 'launch-worker not ready when red health');
+  assert(redLaunch.blockedReasons.some(r => r.includes('health')), 'launch-worker blocked by red health');
+
+  // Test: actionReadiness blocked when no providers
+  const noProviders = buildDashboardState({
+    health: { state: 'green' },
+    providerPool: { global: { availableProviders: 0, totalActiveWorkers: 3, globalMaxWorkers: 3, exhaustedProviders: 1, disabledProviders: 0 } },
+    resources: null,
+    activeWorkers: null,
+    workerTrust: null,
+    metaSignals: null,
+    queue: null,
+  });
+  const noProvLaunch = noProviders.actionReadiness.actions.find(a => a.id === 'launch-worker');
+  assert(noProvLaunch.ready === false, 'launch-worker not ready with no providers');
+  assert(noProvLaunch.blockedReasons.includes('no available providers'), 'launch-worker blocked by no providers');
+
+  // Test: auditSummary with queue entries
+  const withAuditQueue = buildDashboardState({
+    health: null,
+    providerPool: null,
+    resources: null,
+    activeWorkers: null,
+    workerTrust: null,
+    metaSignals: null,
+    queue: {
+      entries: [
+        { issueNumber: 1, state: 'running', updatedAt: '2026-01-02T00:00:00.000Z' },
+        { issueNumber: 2, state: 'blocked', updatedAt: '2026-01-03T00:00:00.000Z', blockedReason: 'provider unavailable' },
+        { issueNumber: 3, state: 'done', updatedAt: '2026-01-01T00:00:00.000Z' },
+      ],
+      summary: { queued: 0, launching: 0, running: 1, prCreated: 0, blocked: 1, done: 1 },
+    },
+  });
+  assert(withAuditQueue.auditSummary.totalEntries === 3, 'auditSummary totalEntries 3');
+  assert(withAuditQueue.auditSummary.byState.running === 1, 'auditSummary byState running');
+  assert(withAuditQueue.auditSummary.byState.blocked === 1, 'auditSummary byState blocked');
+  assert(withAuditQueue.auditSummary.lastActivityAt === '2026-01-03T00:00:00.000Z', 'auditSummary lastActivityAt is latest');
+  assert(withAuditQueue.auditSummary.blockedReasons.includes('provider unavailable'), 'auditSummary captures blockedReason');
 
   // Test: readJsonFile with nonexistent path
   const missing = readJsonFile('/nonexistent/path.json');

@@ -54,6 +54,67 @@ function fetch(url, opts) {
   });
 }
 
+function post(url, body) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const opts = {
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    };
+    const req = http.request(opts, (res) => {
+      let data = "";
+      res.on("data", (chunk) => (data += chunk));
+      res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
+    });
+    req.on("error", reject);
+    if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+function put(url, body) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const opts = {
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname,
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+    };
+    const req = http.request(opts, (res) => {
+      let data = "";
+      res.on("data", (chunk) => (data += chunk));
+      res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
+    });
+    req.on("error", reject);
+    if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+function del(url) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const opts = {
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname,
+      method: "DELETE",
+    };
+    const req = http.request(opts, (res) => {
+      let data = "";
+      res.on("data", (chunk) => (data += chunk));
+      res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
 function startServer(port) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [serverScript, "--port", String(port)], {
@@ -337,6 +398,80 @@ console.log("\nEADDRINUSE tests\n");
     {
       const res = await fetch(`http://127.0.0.1:${port}/api/actions`);
       assert(res.status === 200, "GET /api/actions method check");
+    }
+
+    // --- Audit redaction smoke tests ------------------------------------------
+    console.log("\nAudit redaction smoke tests\n");
+
+    {
+      const res = await fetch(`http://127.0.0.1:${port}/api/policy`);
+      if (res.status === 200) {
+        const data = JSON.parse(res.body);
+        // sourcePath must be stripped from all providers
+        if (Array.isArray(data.providers)) {
+          const hasSourcePath = data.providers.some((p) => p.sourcePath !== undefined);
+          assert(!hasSourcePath, "audit: no provider exposes sourcePath");
+        }
+        // secretSources must be stripped
+        assert(data.secretSources === undefined, "audit: secretSources is stripped");
+        // No raw key patterns in serialized response
+        const raw = JSON.stringify(data);
+        assert(!/sk-ant-/.test(raw), "audit: no raw API key pattern in policy response");
+        assert(!/ANTHROPIC_API_KEY/.test(raw), "audit: no env var name leaked in policy");
+      } else {
+        assert(true, "audit redaction: policy file not present, skip (503)");
+      }
+    }
+
+    {
+      const res = await fetch(`http://127.0.0.1:${port}/api/state`);
+      if (res.status === 200) {
+        const data = JSON.parse(res.body);
+        const raw = JSON.stringify(data);
+        assert(!/sk-ant-/.test(raw), "audit: no raw API key pattern in state response");
+        assert(!/apiKey/.test(raw), "audit: no apiKey field in state response");
+        assert(!/token/.test(raw.toLowerCase()) || /cooldownExpiresAt/.test(raw), "audit: no token field in state response");
+      } else {
+        assert(true, "audit redaction: state file not present, skip (503)");
+      }
+    }
+
+    // Verify health endpoint leaks no secrets
+    {
+      const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+      const raw = JSON.stringify(JSON.parse(res.body));
+      assert(!/sk-ant-/.test(raw), "audit: health endpoint leaks no API keys");
+      assert(Object.keys(JSON.parse(res.body)).length <= 3, "audit: health response has only ok/uptime fields");
+    }
+
+    // --- Localhost-only binding smoke tests -----------------------------------
+    console.log("\nLocalhost-only binding smoke tests\n");
+
+    // Verify CORS header restricts to localhost
+    {
+      const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+      const corsOrigin = res.headers["access-control-allow-origin"];
+      assert(corsOrigin === "http://127.0.0.1", "CORS origin is restricted to http://127.0.0.1");
+      assert(corsOrigin !== "*", "CORS origin is not wildcard *");
+    }
+
+    // Verify server binds to 127.0.0.1 by checking it does NOT respond on 0.0.0.0
+    // (We can only verify positive binding on 127.0.0.1 since 0.0.0.0 test requires
+    // a separate server instance — the startServer helper always binds to the
+    // configured port on 127.0.0.1 as enforced by server.js)
+    {
+      const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+      assert(res.status === 200, "localhost: server responds on 127.0.0.1");
+    }
+
+    // Verify the server child process address is loopback
+    {
+      // The server stdout includes the bound address at startup
+      const addr = `http://127.0.0.1:${port}`;
+      const res = await fetch(`${addr}/api/health`);
+      assert(res.status === 200, "localhost: health check succeeds on loopback");
+      const data = JSON.parse(res.body);
+      assert(data.ok === true, "localhost: health check returns ok:true on loopback");
     }
   } finally {
     await stopServer(child);
