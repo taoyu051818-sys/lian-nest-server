@@ -1,0 +1,109 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/taoyu051818-sys/lian-nest-server/schemas/launch-locks.schema.json",
+  "title": "LaunchLocks",
+  "description": "Machine-readable projection of currently held launch locks. Records which conflict groups, write sets, and shared locks are held by active workers. Consumed by the batch launcher and scheduler to prevent concurrent workers from editing overlapping resources. Aligned with docs/ai-native/launch-locks-schema.md.",
+  "type": "object",
+  "required": [
+    "markerVersion",
+    "capturedAt",
+    "locks"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "markerVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this projection was last written."
+    },
+    "locks": {
+      "type": "array",
+      "description": "Currently held locks. Empty array when no workers are active.",
+      "items": {
+        "$ref": "#/$defs/lockEntry"
+      }
+    }
+  },
+  "$defs": {
+    "lockEntry": {
+      "type": "object",
+      "description": "A lock held by an active worker. Records the conflict group, file write set, shared resource locks, owning task identity, and acquisition/expiry timestamps.",
+      "required": [
+        "conflictGroup",
+        "writeSet",
+        "ownerTask",
+        "acquiredAt",
+        "expiresAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "conflictGroup": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The conflict group this lock protects. Maps to the task's conflictGroup field."
+        },
+        "writeSet": {
+          "type": "array",
+          "description": "File paths or glob patterns the worker intends to edit. Populated from the task's allowedFiles.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "sharedLocks": {
+          "type": "array",
+          "description": "Shared resource locks claimed (e.g. app-module, prisma-schema). Empty when none are claimed.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "ownerTask": {
+          "$ref": "#/$defs/ownerTask"
+        },
+        "acquiredAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the lock was acquired (worker dispatch time)."
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the lock expires if not released. Derived from the task's hardTimeMinutes budget."
+        }
+      }
+    },
+    "ownerTask": {
+      "type": "object",
+      "description": "Identifies the task holding this lock.",
+      "required": [
+        "issue",
+        "branch",
+        "workerClass"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "issue": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "GitHub issue number."
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Git worktree branch name."
+        },
+        "workerClass": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Worker classification (e.g. runtime-feature, docs, foundation-fix)."
+        }
+      }
+    }
+  }
+}
