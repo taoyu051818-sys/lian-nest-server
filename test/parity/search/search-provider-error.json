@@ -1,0 +1,89 @@
+{
+  "id": "search-provider-error",
+  "endpoint": "GET /api/search",
+  "description": "Search when upstream provider returns error or is unavailable returns 400",
+  "cases": [
+    {
+      "label": "provider 500 error",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=test",
+        "query": { "term": "test" }
+      },
+      "simulatedProviderResponse": {
+        "status": "error",
+        "statusCode": 500,
+        "data": null,
+        "error": "Internal error"
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json",
+        "bodySchema": {
+          "type": "object",
+          "required": ["statusCode", "message"],
+          "properties": {
+            "statusCode": { "type": "integer", "enum": [400] },
+            "message": { "type": "string", "minLength": 1 },
+            "error": { "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "label": "provider 404 not found",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=test",
+        "query": { "term": "test" }
+      },
+      "simulatedProviderResponse": {
+        "status": "not_found",
+        "statusCode": 404,
+        "data": null,
+        "error": "Search endpoint not available"
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "provider 401 unauthorized",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=test",
+        "query": { "term": "test" }
+      },
+      "simulatedProviderResponse": {
+        "status": "error",
+        "statusCode": 401,
+        "data": null,
+        "error": "Unauthorized"
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "provider 429 rate limited",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=test",
+        "query": { "term": "test" }
+      },
+      "simulatedProviderResponse": {
+        "status": "error",
+        "statusCode": 429,
+        "data": null,
+        "error": "Rate limit exceeded"
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    }
+  ],
+  "notes": "When the upstream NodeBB provider returns any error status (error or not_found) or null data, the search endpoint must return 400 Bad Request. The response message should convey the provider's error context."
+}
