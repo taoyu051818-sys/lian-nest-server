@@ -111,7 +111,7 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 
 | endpoint | family | slice | status | contract | fixture | impl_pr | test_status | shutdown_ready |
 |----------|--------|-------|--------|----------|---------|---------|-------------|----------------|
-| GET /api/search | SEARCH | — | NOT_STARTED | — | — | — | — | — |
+| GET /api/search | SEARCH | S1 | IMPLEMENTED | — | — | [#304](https://github.com/taoyu051818-sys/lian-nest-server/pull/304) | — | NO |
 
 ### GROUPS — Group Management
 
@@ -128,9 +128,9 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 
 | Status | Count | Percentage |
 |--------|-------|------------|
-| `NOT_STARTED` | 11 | 27% |
+| `NOT_STARTED` | 10 | 24% |
 | `CONTRACTED` | 14 | 34% |
-| `IMPLEMENTED` | 16 | 39% |
+| `IMPLEMENTED` | 17 | 41% |
 | `PARITY_TESTED` | 0 | 0% |
 | `LEGACY_DISABLED` | 0 | 0% |
 | **Total** | **41** | 100% |
@@ -197,7 +197,6 @@ Full index: [readonly-route-parity-fixtures.md](readonly-route-parity-fixtures.m
 | CATEGORIES family has no slice | 4 endpoints stuck at NOT_STARTED | Queue slice after A2 lands |
 | TOPICS family has no slice | 5 endpoints stuck at NOT_STARTED | Queue slice after A2 lands |
 | TAGS family has no slice | 2 endpoints stuck at NOT_STARTED | Queue slice after A2 lands |
-| SEARCH family has no slice | 1 endpoint stuck at NOT_STARTED | Queue slice after A2 lands |
 | GROUPS family has no slice | 4 endpoints stuck at NOT_STARTED | Queue slice after A2 lands |
 | No parity fixtures for contracted slices | Cannot verify parity until fixtures exist | Create fixtures per slice during implementation |
 | Feed/Profile not in legacy inventory | Unclear if these are new or legacy equivalents | Confirm with legacy backend route dump |

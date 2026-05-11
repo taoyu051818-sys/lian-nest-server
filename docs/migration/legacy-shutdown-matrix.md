@@ -120,7 +120,7 @@ are true:
 
 | Method | Path | Slice | Status | Shutdown Blocker |
 |--------|------|-------|--------|-----------------|
-| GET | /api/search | — | `NOT_STARTED` | No slice defined |
+| GET | /api/search | S1 | `IMPLEMENTED` | Parity tests not yet passing |
 
 ### GROUPS — Group Management
 
@@ -137,9 +137,9 @@ are true:
 
 | Status | Count |
 |--------|-------|
-| `NOT_STARTED` | 10 |
+| `NOT_STARTED` | 9 |
 | `CONTRACTED` | 16 |
-| `IMPLEMENTED` | 13 |
+| `IMPLEMENTED` | 14 |
 | `PARITY_TESTED` | 0 |
 | `LEGACY_DISABLED` | 0 |
 | **Total** | **40** |
