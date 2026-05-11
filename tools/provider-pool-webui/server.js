@@ -20,6 +20,8 @@ const REPO_ROOT = path.resolve(__dirname, "../..");
 const POLICY_PATH = path.join(REPO_ROOT, ".github/ai-policy/provider-pool-policy.json");
 const STATE_PATH = path.join(REPO_ROOT, ".github/ai-state/provider-pool.json");
 const QUEUE_STATE_PATH = path.join(REPO_ROOT, ".github/ai-state/webui-queue-state.json");
+const ACTIONS_DIR = path.join(__dirname, "actions");
+const AUDIT_PATH = path.join(__dirname, ".audit-log.json");
 
 // --- CLI -------------------------------------------------------------------
 
@@ -42,6 +44,10 @@ ENDPOINTS
   GET /api/resources      Concurrency utilization and headroom
   GET /api/queue          Queue state projection (empty if no file)
   GET /api/health         Server health check
+  GET /api/actions        List available action modules
+  POST /api/actions/preview  Preview an action (dry-run, no side effects)
+  POST /api/actions/execute  Execute an action (requires confirmation for dangerous)
+  GET /api/audit          View action execution audit trail
 
 DESCRIPTION
   Local-only HTTP server for viewing provider pool state and policy.
@@ -87,6 +93,24 @@ function readJsonFile(filePath) {
   }
 }
 
+function readBody(req, cb) {
+  const chunks = [];
+  req.on("data", (chunk) => chunks.push(chunk));
+  req.on("end", () => {
+    const raw = Buffer.concat(chunks).toString("utf-8");
+    if (!raw) {
+      cb(null, {});
+      return;
+    }
+    try {
+      cb(null, JSON.parse(raw));
+    } catch {
+      cb(new Error("Invalid JSON"));
+    }
+  });
+  req.on("error", cb);
+}
+
 function stripSecrets(policy) {
   if (!policy || typeof policy !== "object") return policy;
   const sanitized = JSON.parse(JSON.stringify(policy));
@@ -100,6 +124,101 @@ function stripSecrets(policy) {
     delete sanitized.secretSources;
   }
   return sanitized;
+}
+
+// --- Action modules ---------------------------------------------------------
+
+function loadActionModules() {
+  if (!fs.existsSync(ACTIONS_DIR)) return [];
+  const modules = [];
+  let files;
+  try {
+    files = fs.readdirSync(ACTIONS_DIR).filter((f) => f.endsWith(".js"));
+  } catch {
+    return [];
+  }
+  for (const file of files) {
+    try {
+      const mod = require(path.join(ACTIONS_DIR, file));
+      if (mod && typeof mod.id === "string" && typeof mod.label === "string") {
+        modules.push({
+          id: mod.id,
+          label: mod.label,
+          description: mod.description || "",
+          dangerous: !!mod.dangerous,
+        });
+      }
+    } catch {
+      // skip broken module
+    }
+  }
+  return modules;
+}
+
+function resolveAction(actionId) {
+  if (!fs.existsSync(ACTIONS_DIR)) return null;
+  let files;
+  try {
+    files = fs.readdirSync(ACTIONS_DIR).filter((f) => f.endsWith(".js"));
+  } catch {
+    return null;
+  }
+  for (const file of files) {
+    try {
+      const mod = require(path.join(ACTIONS_DIR, file));
+      if (mod && mod.id === actionId) return mod;
+    } catch {
+      // skip
+    }
+  }
+  return null;
+}
+
+// --- Audit log --------------------------------------------------------------
+
+function readAuditLog() {
+  try {
+    const raw = fs.readFileSync(AUDIT_PATH, "utf-8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function appendAuditEntry(entry) {
+  const log = readAuditLog();
+  log.push(entry);
+  fs.writeFileSync(AUDIT_PATH, JSON.stringify(log, null, 2), "utf-8");
+}
+
+// --- Secret stripping for action payloads -----------------------------------
+
+const SECRET_KEY_PATTERN = /(api[_-]?key|token|secret|password|credential|auth)/i;
+
+function sanitizeValue(val) {
+  if (val === null || val === undefined) return val;
+  if (typeof val === "string") {
+    // mask anything that looks like a key/token
+    if (val.length > 20 && /^[A-Za-z0-9_\-]{20,}$/.test(val)) return "***REDACTED***";
+    return val;
+  }
+  if (Array.isArray(val)) return val.map(sanitizeValue);
+  if (typeof val === "object") return sanitizeObject(val);
+  return val;
+}
+
+function sanitizeObject(obj) {
+  if (!obj || typeof obj !== "object") return obj;
+  const out = Array.isArray(obj) ? [] : {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (SECRET_KEY_PATTERN.test(k)) {
+      out[k] = "***REDACTED***";
+    } else {
+      out[k] = sanitizeValue(v);
+    }
+  }
+  return out;
 }
 
 // --- HTML dashboard --------------------------------------------------------
@@ -309,6 +428,140 @@ function handleRequest(req, res) {
     return;
   }
 
+  // --- Action endpoints -------------------------------------------------------
+
+  if (route === "/api/actions" && req.method === "GET") {
+    const actions = loadActionModules();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ actions }, null, 2));
+    return;
+  }
+
+  if (route === "/api/actions/preview" && req.method === "POST") {
+    readBody(req, (err, body) => {
+      if (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Invalid request body" }));
+        return;
+      }
+      const { actionId, payload } = body || {};
+      if (!actionId) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Missing actionId" }));
+        return;
+      }
+      const mod = resolveAction(actionId);
+      if (!mod) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Action not found" }));
+        return;
+      }
+      if (typeof mod.preview !== "function") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          actionId,
+          label: mod.label,
+          description: mod.description || "",
+          preview: null,
+          message: "This action has no preview function",
+        }));
+        return;
+      }
+      try {
+        const result = mod.preview(payload || {});
+        const sanitized = sanitizeObject(result);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          actionId,
+          label: mod.label,
+          description: mod.description || "",
+          preview: sanitized,
+          dryRun: true,
+        }, null, 2));
+      } catch (e) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Preview failed: " + e.message }));
+      }
+    });
+    return;
+  }
+
+  if (route === "/api/actions/execute" && req.method === "POST") {
+    readBody(req, (err, body) => {
+      if (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Invalid request body" }));
+        return;
+      }
+      const { actionId, payload, confirm, confirmationToken } = body || {};
+      if (!actionId) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Missing actionId" }));
+        return;
+      }
+      const mod = resolveAction(actionId);
+      if (!mod) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Action not found" }));
+        return;
+      }
+      // Dangerous actions require explicit confirmation
+      if (mod.dangerous && confirm !== true) {
+        res.writeHead(409, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          error: "This action is marked dangerous. Set confirm: true to proceed.",
+          actionId,
+          dangerous: true,
+        }));
+        return;
+      }
+      if (typeof mod.execute !== "function") {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Action has no execute function" }));
+        return;
+      }
+      const startedAt = new Date().toISOString();
+      try {
+        const result = mod.execute(payload || {});
+        const sanitized = sanitizeObject(result);
+        const entry = {
+          id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          actionId,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          status: "success",
+          payload: sanitizeObject(payload || {}),
+          result: sanitized,
+          confirmationToken: confirmationToken ? "provided" : "absent",
+        };
+        appendAuditEntry(entry);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, auditId: entry.id, result: sanitized }, null, 2));
+      } catch (e) {
+        const entry = {
+          id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          actionId,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          status: "error",
+          error: e.message,
+          payload: sanitizeObject(payload || {}),
+        };
+        appendAuditEntry(entry);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, auditId: entry.id, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (route === "/api/audit" && req.method === "GET") {
+    const log = readAuditLog();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ entries: log, total: log.length }, null, 2));
+    return;
+  }
+
   res.writeHead(404, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ error: "Not found" }));
 }
@@ -329,6 +582,8 @@ server.listen(args.port, "127.0.0.1", () => {
     `  Workers API: http://127.0.0.1:${addr.port}/api/workers\n` +
     `  Resources:   http://127.0.0.1:${addr.port}/api/resources\n` +
     `  Queue:       http://127.0.0.1:${addr.port}/api/queue\n` +
+    `  Actions:     http://127.0.0.1:${addr.port}/api/actions\n` +
+    `  Audit:       http://127.0.0.1:${addr.port}/api/audit\n` +
     `  Health:      http://127.0.0.1:${addr.port}/api/health\n`
   );
 });
