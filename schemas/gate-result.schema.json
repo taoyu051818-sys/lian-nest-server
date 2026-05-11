@@ -1,0 +1,169 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/gate-result.schema.json",
+  "title": "GateResult",
+  "description": "Structured output from a gate evaluation (launch review, PR review, merge gate, post-merge health gate). Captures the decision, evidence, and machine-readable markers for downstream control-plane consumers. Aligned with docs/ai-native/gate-result-schema.md.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "gateType",
+    "decision",
+    "markerId",
+    "capturedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1."
+    },
+    "gateType": {
+      "type": "string",
+      "enum": [
+        "launch",
+        "pr-review",
+        "merge",
+        "post-merge-health"
+      ],
+      "description": "Which gate produced this result."
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "block",
+        "warn",
+        "override"
+      ],
+      "description": "Gate outcome. pass = all checks cleared. block = hard failure. warn = advisory finding. override = repo-owner bypass with justification."
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "error",
+        "critical"
+      ],
+      "description": "Severity of the gate finding. info for pass, warning for advisory, error for blockable issues, critical for security or data-loss risk."
+    },
+    "markerId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9._-]+$",
+      "description": "Machine-readable idempotency marker (e.g. issue-88-launch, pr-90-review). Used by the result publisher to update-or-create comments."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when the gate evaluation completed."
+    },
+    "targetIssue": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub issue number this gate evaluated, if applicable."
+    },
+    "targetPR": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub PR number this gate evaluated, if applicable."
+    },
+    "factsRead": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "summary"],
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Path or URL to the fact source (e.g. docs/ai-native/launch-gate.md, .github/ai-state/main-health.json)."
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One-line summary of what was read from this source."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Evidence sources the gate consulted before making its decision."
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Machine-readable blocker code (e.g. MAIN_RED, CONFLICT_GROUP_DUPLICATE, BUILD_FAIL)."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable explanation of the blocker."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Hard failures that prevent pass or override."
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Machine-readable warning code."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable explanation of the warning."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Advisory findings that do not block the gate."
+    },
+    "producedFacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "value"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Fact identifier (e.g. health-state, worker-type, conflict-count)."
+          },
+          "value": {
+            "description": "Fact value. May be a string, number, boolean, or object."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Structured facts this gate produced for downstream consumers."
+    },
+    "overrideJustification": {
+      "type": ["string", "null"],
+      "description": "Required when decision is override. Documents why the repo-owner chose to bypass the gate."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "decision": { "const": "override" } }
+      },
+      "then": {
+        "required": ["overrideJustification"]
+      }
+    }
+  ],
+  "additionalProperties": false
+}
