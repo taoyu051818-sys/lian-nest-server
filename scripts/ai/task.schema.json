@@ -168,6 +168,10 @@
     "promptHandoff": {
       "type": "string",
       "description": "Concise description of what to build and why. Derived from the issue title or body. Workers use this as the initial prompt context; full details live in sourceIssue and knowledgeRefs."
+    },
+    "llmExtracted": {
+      "type": "boolean",
+      "description": "True when the task JSON was produced by LLM extraction (e.g. Claude parsed the issue body). Absent or false means the fields came from deterministic/structured input. Workers use this to decide whether richer semantic fields (knowledgeRefs, promptHandoff, attentionAreas) are trustworthy."
     }
   },
   "additionalProperties": false

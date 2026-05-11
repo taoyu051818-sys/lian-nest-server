@@ -39,11 +39,61 @@ param(
     [Parameter(Mandatory = $false)]
     [string]$OutputFile,
 
-    [switch]$DryRun
+    [switch]$DryRun,
+
+    [switch]$Help
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# ── Help ─────────────────────────────────────────────────────────────────────
+
+if ($Help) {
+    @"
+
+compile-issue-to-task-json.ps1 — Issue-to-task compiler
+
+USAGE
+    ./scripts/ai/compile-issue-to-task-json.ps1 [options]
+
+OPTIONS
+    -IssueFile <path>    Path to an issue JSON file. If omitted, reads from stdin.
+    -OutputFile <path>   Path to write the compiled task JSON. If omitted, writes to stdout.
+    -DryRun              Print diagnostics without emitting task JSON (default mode).
+    -Help                Show this help message.
+
+LLM CONTRACT
+    When the input JSON contains "llmExtracted": true, the compiler applies
+    stricter validation: knowledgeRefs and promptHandoff must be present and
+    non-empty. This signals that the task JSON was produced by an LLM (e.g.
+    Claude) parsing the issue body, so richer semantic fields are expected.
+
+    When llmExtracted is absent or false, the compiler uses the standard
+    deterministic path — only structural fields (allowedFiles, risk, etc.)
+    are required. Semantic fields are optional and passed through if present.
+
+    Deterministic parsing is always the fallback. LLM extraction augments it;
+    it never replaces it.
+
+EXIT CODES
+    0   Success (task JSON emitted or dry-run completed)
+    1   Validation failure (missing fields, bad enums, underspecified issue)
+    2   Invalid arguments
+
+EXAMPLES
+    # Dry-run from file
+    ./scripts/ai/compile-issue-to-task-json.ps1 -IssueFile ./fixtures/issue-149.json
+
+    # Write output
+    ./scripts/ai/compile-issue-to-task-json.ps1 -IssueFile ./fixtures/issue-149.json -DryRun:`$false -OutputFile ./tasks/issue-149.json
+
+    # Pipe from stdin
+    Get-Content issue.json -Raw | ./scripts/ai/compile-issue-to-task-json.ps1
+
+"@ | Write-Host
+    exit 0
+}
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -175,6 +225,44 @@ if ($warnings.Count -eq 0) {
     Write-Ok "Issue specificity looks good"
 }
 
+# ── LLM contract validation ──────────────────────────────────────────────────
+# When the input claims llmExtracted=true, the compiler expects richer semantic
+# fields (knowledgeRefs, promptHandoff) to be present. Missing semantic fields
+# trigger a warning — not a hard block — because the deterministic fallback
+# path always works regardless of LLM extraction.
+
+$isLlmExtracted = $issue.PSObject.Properties.Name -contains "llmExtracted" -and $issue.llmExtracted -eq $true
+
+if ($isLlmExtracted) {
+    Write-Step "LLM contract validation (llmExtracted=true)"
+
+    $llmWarnings = @()
+
+    # knowledgeRefs should be present and non-empty for LLM-extracted tasks
+    $hasKnowledgeRefs = $issue.PSObject.Properties.Name -contains "knowledgeRefs" -and
+        $issue.knowledgeRefs -is [System.Collections.IList] -and
+        $issue.knowledgeRefs.Count -gt 0
+    if (-not $hasKnowledgeRefs) {
+        $llmWarnings += "llmExtracted=true but knowledgeRefs is missing or empty -- LLM should populate semantic references"
+    }
+
+    # promptHandoff should be present and non-empty for LLM-extracted tasks
+    $hasPromptHandoff = $issue.PSObject.Properties.Name -contains "promptHandoff" -and
+        $issue.promptHandoff -is [string] -and
+        -not [string]::IsNullOrWhiteSpace($issue.promptHandoff)
+    if (-not $hasPromptHandoff) {
+        $llmWarnings += "llmExtracted=true but promptHandoff is missing or empty -- LLM should produce a concise handoff"
+    }
+
+    foreach ($w in $llmWarnings) {
+        Write-Warn $w
+    }
+
+    if ($llmWarnings.Count -eq 0) {
+        Write-Ok "LLM contract: semantic fields present"
+    }
+}
+
 # ── Build task JSON ──────────────────────────────────────────────────────────
 
 Write-Step "Building task JSON"
@@ -215,6 +303,11 @@ if ($issue.PSObject.Properties.Name -contains "knowledgeRefs") {
 # promptHandoff: pass through from input if present
 if ($issue.PSObject.Properties.Name -contains "promptHandoff") {
     $task["promptHandoff"] = $issue.promptHandoff
+}
+
+# llmExtracted: pass through from input if present
+if ($issue.PSObject.Properties.Name -contains "llmExtracted") {
+    $task["llmExtracted"] = [bool]$issue.llmExtracted
 }
 
 # Copy optional fields if present

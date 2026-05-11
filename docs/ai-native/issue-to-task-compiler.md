@@ -49,6 +49,7 @@ These are passed through to the task JSON if present:
 - `pmPhase` -- wave phase identifier
 - `knowledgeRefs` -- file paths or URLs for semantic context (see below)
 - `promptHandoff` -- concise description of what to build and why
+- `llmExtracted` -- boolean, true when LLM produced the semantic fields (see below)
 
 ### Example Input
 
@@ -179,6 +180,52 @@ The compiler emits three fields to support this handoff:
 - Business rules or acceptance criteria (live in the issue body)
 - Implementation instructions (live in the issue body or `knowledgeRefs`)
 - Contract details (reference via `knowledgeRefs`)
+
+## LLM Extraction vs Deterministic Parsing
+
+The compiler supports two input paths. Both produce valid task JSON;
+they differ in **where the semantic fields come from**.
+
+### Deterministic parsing (default)
+
+When `llmExtracted` is absent or `false`, the compiler expects only
+structural fields: `targetIssue`, `taskType`, `risk`, `conflictGroup`,
+`allowedFiles`, `validationCommands`, `rolePacket`. Semantic fields
+(`knowledgeRefs`, `promptHandoff`, `attentionAreas`) are optional
+pass-throughs.
+
+**Use deterministic parsing when:**
+- The issue body is structured JSON (CONTROL APPENDIX format).
+- A human or script has already extracted the fields.
+- You want maximum reliability with no LLM dependency.
+
+### LLM extraction
+
+When the input contains `"llmExtracted": true`, the compiler applies
+stricter validation: `knowledgeRefs` and `promptHandoff` must be present
+and non-empty. This signals that an LLM (e.g. Claude) parsed the issue
+body and produced the semantic fields.
+
+**Use LLM extraction when:**
+- The issue body is free-form markdown (no CONTROL APPENDIX).
+- You want richer context (handoff description, knowledge references)
+  derived from the issue body automatically.
+- A human reviews the compiled task JSON before launching.
+
+**Fallback guarantee:** If LLM extraction fails or produces incomplete
+output, the compiler still emits valid task JSON with the structural
+fields. The deterministic path is always available. LLM extraction
+augments the compiler; it never replaces the fallback.
+
+### How the compiler handles each path
+
+| Input | `llmExtracted` | Required fields | Semantic fields |
+|-------|---------------|-----------------|-----------------|
+| Structured JSON | absent/false | Structural only | Optional pass-through |
+| LLM-produced JSON | `true` | Structural + knowledgeRefs + promptHandoff | Validated, warned if missing |
+
+In both cases, missing semantic fields produce **warnings**, not errors.
+The compiler always emits task JSON if the structural fields are valid.
 
 ## Integration
 
