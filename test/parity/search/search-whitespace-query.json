@@ -1,0 +1,147 @@
+{
+  "id": "search-whitespace-query",
+  "endpoint": "GET /api/search",
+  "description": "Whitespace-only queries are rejected; leading/trailing whitespace is trimmed from the term before search and in the response",
+  "cases": [
+    {
+      "label": "spaces-only term",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=%20%20%20",
+        "query": { "term": "   " }
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "tab-only term",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=%09%09",
+        "query": { "term": "\t\t" }
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "newline-only term",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=%0A%0A",
+        "query": { "term": "\n\n" }
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "mixed whitespace-only term",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=%20%09%0A%0D",
+        "query": { "term": " \t\n\r" }
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "leading and trailing spaces trimmed",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=%20%20hello%20world%20%20",
+        "query": { "term": "  hello world  " }
+      },
+      "expected": {
+        "status": 200,
+        "contentType": "application/json",
+        "body": {
+          "term": "hello world"
+        }
+      }
+    },
+    {
+      "label": "leading and trailing tabs trimmed",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=%09hello%09",
+        "query": { "term": "\thello\t" }
+      },
+      "expected": {
+        "status": 200,
+        "contentType": "application/json",
+        "body": {
+          "term": "hello"
+        }
+      }
+    },
+    {
+      "label": "leading and trailing newlines trimmed",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=%0Ahello%0A",
+        "query": { "term": "\nhello\n" }
+      },
+      "expected": {
+        "status": 200,
+        "contentType": "application/json",
+        "body": {
+          "term": "hello"
+        }
+      }
+    },
+    {
+      "label": "internal whitespace preserved",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=hello%20%20%20world",
+        "query": { "term": "hello   world" }
+      },
+      "expected": {
+        "status": 200,
+        "contentType": "application/json",
+        "body": {
+          "term": "hello   world"
+        }
+      }
+    },
+    {
+      "label": "mixed leading/trailing whitespace types trimmed",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=%09%20hello%20%09",
+        "query": { "term": "\t hello \t" }
+      },
+      "expected": {
+        "status": 200,
+        "contentType": "application/json",
+        "body": {
+          "term": "hello"
+        }
+      }
+    },
+    {
+      "label": "trimmed term with page param",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=%20test%20&page=2",
+        "query": { "term": " test ", "page": "2" }
+      },
+      "expected": {
+        "status": 200,
+        "contentType": "application/json",
+        "body": {
+          "term": "test",
+          "page": 2
+        }
+      }
+    }
+  ],
+  "notes": "Whitespace-only terms (spaces, tabs, newlines, mixed) must be rejected with 400. Leading/trailing whitespace of all types is trimmed via String.prototype.trim(). Internal whitespace is preserved as-is. Non-breaking spaces (U+00A0) are NOT trimmed by JS trim() and will pass through."
+}
