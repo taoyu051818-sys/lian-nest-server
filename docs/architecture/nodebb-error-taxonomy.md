@@ -1,6 +1,6 @@
 # NodeBB Adapter Error Taxonomy
 
-> Architecture contract for [#77](https://github.com/taoyu051818-sys/lian-nest-server/issues/77).
+> Architecture contract for [#77](https://github.com/taoyu051818-sys/lian-nest-server/issues/77) and [#299](https://github.com/taoyu051818-sys/lian-nest-server/issues/299).
 > Defines a reusable error classification for all NodeBB adapter implementations.
 > Companion types live in `src/nodebb/contracts/error-types.ts`.
 
@@ -209,12 +209,108 @@ Health check endpoints should report NodeBB error rates by category:
 }
 ```
 
-A spike in `TIMEOWN` or `NETWORK` indicates NodeBB is unreachable.
+A spike in `TIMEOUT` or `NETWORK` indicates NodeBB is unreachable.
 A spike in `AUTH` indicates credential rotation is needed.
 
 ---
 
-## 9. Contract stability
+## 9. Observability contract
+
+> This contract ensures that **no NodeBB adapter error is silently swallowed**.
+> Every classification and every fallback must produce a traceable artifact.
+
+### 9.1 Structured log fields
+
+Every classified error MUST emit a structured log entry at the adapter boundary.
+The following fields are **required** — omitting any of them violates this contract.
+
+| Field | Type | Description |
+|---|---|---|
+| `nodebb.error.category` | `NodebbErrorCategory` | One of the six categories from section 2 |
+| `nodebb.error.code` | `NodebbErrorCode` | Specific code from section 5 |
+| `nodebb.error.httpStatus` | `number \| null` | HTTP status if a response was received, else `null` |
+| `nodebb.error.endpoint` | `string` | Normalized endpoint path (e.g. `/api/topic/:tid`) — no query params or PII |
+| `nodebb.error.durationMs` | `number` | Wall-clock time for the request attempt |
+| `nodebb.error.attempt` | `number` | 1-based attempt number within a retry sequence |
+| `nodebb.error.message` | `string` | Sanitized error message — no tokens, cookies, or user data |
+
+Optional enrichments (emit when available):
+
+| Field | Type | Description |
+|---|---|---|
+| `nodebb.error.retryable` | `boolean` | Whether the adapter will retry this request |
+| `nodebb.error.fallbackUsed` | `string` | Name of fallback path taken (see 9.3) |
+| `nodebb.error.circuitState` | `string` | Circuit-breaker state at time of call (`closed`, `open`, `half-open`) |
+
+### 9.2 Metrics contract
+
+Adapters MUST maintain per-category counters accessible from the health endpoint
+(section 8). In addition, the following metrics are **required** for
+observability of graceful fallbacks:
+
+| Metric | Type | Description |
+|---|---|---|
+| `nodebb.errors.total` | counter | Total classified errors across all categories |
+| `nodebb.errors.by_category.{category}` | counter | Per-category error counter |
+| `nodebb.fallback.total` | counter | Total number of requests that completed via fallback |
+| `nodebb.fallback.by_reason.{category}` | counter | Fallback invocations grouped by the error category that triggered them |
+| `nodebb.fallback.latency_ms` | histogram | Extra latency added by the fallback path |
+
+### 9.3 Fallback observability rules
+
+When a service-layer call encounters a NodeBB error and applies a graceful
+fallback (cached data, default value, degraded response), the following
+**must** happen:
+
+1. **Log the fallback event** at `warn` level with structured fields:
+   ```
+   nodebb.fallback.triggered = true
+   nodebb.error.category     = <the category that triggered fallback>
+   nodebb.error.code         = <the specific error code>
+   nodebb.fallback.strategy  = <name of fallback strategy>
+   nodebb.fallback.endpoint  = <normalized endpoint>
+   ```
+   The strategy name is one of:
+   - `cached_stale` — serve stale cached data
+   - `default_value` — return a domain-specific default
+   - `empty_result` — return empty list/null with success envelope
+   - `degraded_response` — return reduced payload (e.g. without avatar URLs)
+   - `skip` — omit this data source from an aggregation (topic list, etc.)
+
+2. **Increment the fallback counter** (`nodebb.fallback.total` and the
+   per-reason counter).
+
+3. **Preserve the original error metadata** on the response so upstream
+   consumers can detect that a fallback was applied. The suggested shape:
+
+   ```typescript
+   interface NodebbFallbackMeta {
+     fallbackApplied: true;
+     strategy: NodebbFallbackStrategy;
+     originalCategory: NodebbErrorCategory;
+     originalCode: NodebbErrorCode;
+   }
+   ```
+
+4. **Never log at `debug` or lower.** A fallback is a degradation — operators
+   need to see it in production logs without enabling verbose logging.
+
+### 9.4 Alerting thresholds (guidance)
+
+These are recommended starting points; teams should tune based on traffic:
+
+| Condition | Severity |
+|---|---|
+| `nodebb.errors.by_category.NETWORK > 0` | `critical` — NodeBB is unreachable |
+| `nodebb.errors.by_category.TIMEOUT > 10/min` | `high` — latency degradation |
+| `nodebb.errors.by_category.AUTH > 0` | `high` — credential issue |
+| `nodebb.fallback.total > 50/min` | `high` — fallback saturation |
+| `nodebb.errors.by_category.UNKNOWN > 0` | `medium` — investigate unknown shape |
+| `nodebb.errors.by_category.HTTP_CLIENT > 20/min` | `medium` — possible API drift |
+
+---
+
+## 10. Contract stability
 
 - The `NodebbErrorCategory` enum is additive-only. New categories may be
   added; existing ones must not be removed or renamed.
