@@ -65,5 +65,50 @@ describe('SearchController', () => {
       );
       await expect(controller.search('')).rejects.toThrow(BadRequestException);
     });
+
+    it('should propagate BadRequestException for missing term (undefined)', async () => {
+      jest.spyOn(usecase, 'search').mockRejectedValue(
+        new BadRequestException('Search term is required'),
+      );
+      await expect(controller.search(undefined as any)).rejects.toThrow(BadRequestException);
+    });
+
+    it('should return a response matching SearchResponse shape', async () => {
+      const mockResult = {
+        term: 'test',
+        items: [
+          { id: 1, title: 'Title', snippet: 'content', timestamp: 1700000000 },
+        ],
+        total: 1,
+        page: 1,
+        pages: 1,
+        source: 'nodebb' as const,
+      };
+      jest.spyOn(usecase, 'search').mockResolvedValue(mockResult);
+      const result = await controller.search('test', '1');
+      expect(Object.keys(result).sort()).toEqual(['items', 'page', 'pages', 'source', 'term', 'total']);
+      expect(result.items[0]).toEqual({ id: 1, title: 'Title', snippet: 'content', timestamp: 1700000000 });
+    });
+
+    it('should pass page string to usecase as-is for coercion', async () => {
+      const mockResult = {
+        term: 'test',
+        items: [],
+        total: 0,
+        page: 2,
+        pages: 0,
+        source: 'nodebb' as const,
+      };
+      const spy = jest.spyOn(usecase, 'search').mockResolvedValue(mockResult);
+      await controller.search('test', '2');
+      expect(spy).toHaveBeenCalledWith('test', '2');
+    });
+
+    it('should propagate BadRequestException for invalid page', async () => {
+      jest.spyOn(usecase, 'search').mockRejectedValue(
+        new BadRequestException('Invalid page: abc'),
+      );
+      await expect(controller.search('test', 'abc')).rejects.toThrow(BadRequestException);
+    });
   });
 });
