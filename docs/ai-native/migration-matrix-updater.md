@@ -39,6 +39,9 @@ or `LEGACY_DISABLED`, the shutdown blocker is cleared automatically.
 
 # Write (modify file)
 ./scripts/ai/update-migration-matrix.ps1 -Slice A3 -TargetStatus IMPLEMENTED -Write
+
+# Idempotent check (exit 0 if already at target)
+./scripts/ai/update-migration-matrix.ps1 -Slice A3 -TargetStatus IMPLEMENTED -Idempotent
 ```
 
 ### Slice mode (migration-matrix)
@@ -93,6 +96,62 @@ When `matrixType` is `"slice"`, the script automatically targets
 - **CLI suggestion mode first.** Targets specific slices, not full matrix rewrites (straggler-safe).
 - **No runtime changes.** Only touches `docs/migration/` markdown files.
 - **Idempotent output.** Markdown markers allow re-posting without duplicates.
+
+## Idempotency
+
+Repeated self-cycle runs are safe by design. The updater never duplicates rows
+or re-applies transitions that are already complete.
+
+### How It Works
+
+1. **Skip-at-target.** When a row already matches `$TargetStatus`, the updater
+   skips it and reports it as `[SKIP]` rather than emitting a duplicate
+   suggestion. This applies to both endpoint mode and slice mode.
+2. **No-op detection.** If all matched rows are already at the target status,
+   the updater reports "All matched rows already at target status. No-op
+   (idempotent)." and exits cleanly.
+3. **`-Idempotent` flag.** Pass this flag to assert that the run should be a
+   pure no-op. If any rows still need updating, the flag has no effect. If all
+   rows are already at target, the script exits 0 immediately — useful in CI
+   to confirm a prior run already applied changes.
+
+### Self-Cycle Usage
+
+During automated self-cycle orchestration, always pass `-Idempotent` on
+re-runs to guarantee no duplicate mutations:
+
+```powershell
+# First run: applies updates
+./scripts/ai/update-migration-matrix.ps1 -Slice A3 -TargetStatus IMPLEMENTED -SliceMatrix -Write
+
+# Re-run: safe, reports skip, exits 0
+./scripts/ai/update-migration-matrix.ps1 -Slice A3 -TargetStatus IMPLEMENTED -SliceMatrix -Idempotent
+```
+
+### Markdown Report Markers
+
+The updater wraps its markdown report in markers:
+
+```
+<!-- ai-migration-matrix-updater:begin -->
+... report table ...
+<!-- ai-migration-matrix-updater:end -->
+```
+
+When posting to GitHub comments, replace the previous marker block rather than
+appending. This prevents duplicate report tables from accumulating across
+multiple self-cycle runs.
+
+### Verification
+
+To verify the matrix is in the expected state after a run, use the route
+parity guard:
+
+```bash
+node scripts/check-route-parity.js
+```
+
+This catches any drift between the matrix rows and the Progress Summary.
 
 ## Integration
 
