@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotImplementedException } from '@nestjs/common';
 import { CreateMessageDto, MessageResponseDto, MessageListResponseDto } from '../dto/message.dto';
 
 @Injectable()
@@ -10,7 +10,7 @@ export class MessagesUseCase {
   async sendMessage(fromUid: number, dto: CreateMessageDto): Promise<MessageResponseDto> {
     void fromUid;
     void dto;
-    throw new Error('Not implemented: MessagesUseCase.sendMessage — awaiting NodeBB message provider');
+    throw new NotImplementedException('MessagesUseCase.sendMessage');
   }
 
   /**
@@ -34,6 +34,6 @@ export class MessagesUseCase {
   async markRead(uid: number, messageId: number): Promise<void> {
     void uid;
     void messageId;
-    throw new Error('Not implemented: MessagesUseCase.markRead — awaiting NodeBB message provider');
+    throw new NotImplementedException('MessagesUseCase.markRead');
   }
 }

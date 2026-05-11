@@ -1,0 +1,15 @@
+{
+  "id": "message-mark-read",
+  "endpoint": "POST /api/messages/:messageId/read",
+  "description": "Mark a single message as read by messageId",
+  "request": {
+    "method": "POST",
+    "path": "/api/messages/:messageId/read"
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": null
+  },
+  "notes": "Returns void on success. Throws BadRequestException when messageId is not a positive integer. Currently stubbed: throws NotImplementedException (501) until NodeBB message provider is wired."
+}

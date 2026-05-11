@@ -5,7 +5,7 @@ import { MessagesUseCase } from './use-cases/messages.use-case';
 import { NotificationsUseCase } from './use-cases/notifications.use-case';
 import { NodebbNotificationsProvider } from '../nodebb';
 import { BodyStatus } from '../nodebb';
-import { BadRequestException, NotFoundException, ExecutionContext } from '@nestjs/common';
+import { BadRequestException, NotFoundException, NotImplementedException, ExecutionContext } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth';
 
 describe('MessagesModule', () => {
@@ -59,10 +59,10 @@ describe('MessagesModule', () => {
   });
 
   describe('MessagesController', () => {
-    it('should throw not implemented for sendMessage', async () => {
+    it('should throw NotImplementedException for sendMessage', async () => {
       await expect(
         messagesController.sendMessage({ toUid: 1, content: 'test' }, 1),
-      ).rejects.toThrow('Not implemented: MessagesUseCase.sendMessage');
+      ).rejects.toThrow(NotImplementedException);
     });
 
     it('should return empty paginated list for listMessages with defaults', async () => {
@@ -85,9 +85,9 @@ describe('MessagesModule', () => {
       });
     });
 
-    it('should throw not implemented for markRead', async () => {
+    it('should throw NotImplementedException for markRead', async () => {
       await expect(messagesController.markRead(1, '1')).rejects.toThrow(
-        'Not implemented: MessagesUseCase.markRead',
+        NotImplementedException,
       );
     });
 
@@ -284,10 +284,10 @@ describe('MessagesModule', () => {
   });
 
   describe('MessagesUseCase', () => {
-    it('should throw not implemented for sendMessage', async () => {
+    it('should throw NotImplementedException for sendMessage', async () => {
       await expect(
         messagesUseCase.sendMessage(1, { toUid: 2, content: 'test' }),
-      ).rejects.toThrow('Not implemented');
+      ).rejects.toThrow(NotImplementedException);
     });
 
     it('should return empty list with default pagination', async () => {
@@ -323,9 +323,9 @@ describe('MessagesModule', () => {
       expect(result.perPage).toBeLessThanOrEqual(50);
     });
 
-    it('should throw not implemented for markRead', async () => {
+    it('should throw NotImplementedException for markRead', async () => {
       await expect(messagesUseCase.markRead(1, 1)).rejects.toThrow(
-        'Not implemented',
+        NotImplementedException,
       );
     });
 
@@ -350,6 +350,22 @@ describe('MessagesModule', () => {
       expect(result.page).toBeGreaterThanOrEqual(1);
       expect(result.perPage).toBeGreaterThanOrEqual(1);
       expect(result.perPage).toBeLessThanOrEqual(50);
+    });
+
+    it('should throw stable NotImplementedException for sendMessage across calls (message-send parity)', async () => {
+      // Regression: parity fixture message-send.json — stub must be deterministic
+      await expect(
+        messagesUseCase.sendMessage(1, { toUid: 2, content: 'a' }),
+      ).rejects.toThrow(NotImplementedException);
+      await expect(
+        messagesUseCase.sendMessage(99, { toUid: 1, content: 'b' }),
+      ).rejects.toThrow(NotImplementedException);
+    });
+
+    it('should throw stable NotImplementedException for markRead across calls (message-mark-read parity)', async () => {
+      // Regression: parity fixture message-mark-read.json — stub must be deterministic
+      await expect(messagesUseCase.markRead(1, 1)).rejects.toThrow(NotImplementedException);
+      await expect(messagesUseCase.markRead(99, 999)).rejects.toThrow(NotImplementedException);
     });
   });
 
