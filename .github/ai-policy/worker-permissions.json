@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Worker Permissions Policy",
+  "description": "Defines allowed file classes, forbidden file classes, and human-required escalation triggers for each role-bounded AI worker class. Reference: docs/ai-native/backend-worker-layers.md, docs/ai-native/roles.md",
+  "version": "1.0.0",
+  "lastUpdated": "2026-05-11",
+  "sourceOfTruth": "docs/ai-native/worker-permissions.md",
+  "globalForbidden": [
+    ".env",
+    ".env.*",
+    "node_modules/**",
+    "dist/**",
+    ".git/**"
+  ],
+  "workerClasses": {
+    "docs": {
+      "description": "Produces and maintains documentation under docs/ and ops/. No runtime code.",
+      "allowedFileClasses": [
+        "docs/**",
+        "ops/**",
+        "README.md"
+      ],
+      "forbiddenFileClasses": [
+        "src/**",
+        "prisma/**",
+        "scripts/**",
+        "schemas/**",
+        "package.json",
+        "package-lock.json"
+      ],
+      "humanEscalation": [
+        "Proposes changes to shared docs outside docs/ or ops/",
+        "Needs to edit SOP.md or roles.md that affect other worker classes",
+        "Encounters links to files that no longer exist"
+      ]
+    },
+    "tests": {
+      "description": "Writes and maintains test files under test/. May read source but not modify it.",
+      "allowedFileClasses": [
+        "test/**"
+      ],
+      "forbiddenFileClasses": [
+        "src/**",
+        "prisma/**",
+        "scripts/**",
+        "schemas/**",
+        "package.json",
+        "package-lock.json"
+      ],
+      "humanEscalation": [
+        "Test requires a change to source code to be testable",
+        "Test reveals a bug in source code that blocks the test",
+        "Needs to add a new test utility that requires a shared dependency"
+      ]
+    },
+    "tooling": {
+      "description": "Maintains scripts, CI config, and developer tooling. No application source.",
+      "allowedFileClasses": [
+        "scripts/**",
+        ".github/**"
+      ],
+      "forbiddenFileClasses": [
+        "src/**",
+        "prisma/**",
+        "schemas/**",
+        "package.json",
+        "package-lock.json"
+      ],
+      "humanEscalation": [
+        "Script requires a new npm dependency (package.json change)",
+        "CI config change affects merge protection rules",
+        "Tooling change would alter build output or validation behavior"
+      ]
+    },
+    "runtime-feature": {
+      "description": "Implements business module code under src/<slice>/. Layer 4 in the worker layer model.",
+      "allowedFileClasses": [
+        "src/**",
+        "test/**"
+      ],
+      "forbiddenFileClasses": [
+        "src/generated/**",
+        "src/prisma/**",
+        "prisma/**",
+        "scripts/**",
+        "schemas/**",
+        "package.json",
+        "package-lock.json"
+      ],
+      "humanEscalation": [
+        "Needs to modify Prisma schema or generated client",
+        "Requires a new NestJS module outside existing feature slices",
+        "Change affects authentication or authorization flows",
+        "Touches shared AppModule imports"
+      ]
+    },
+    "runtime-foundation": {
+      "description": "Resolves runtime blockers: Prisma client bootstrap, DatabaseModule, RedisModule, core DI. Layer 2 in the worker layer model.",
+      "allowedFileClasses": [
+        "src/prisma/**",
+        "src/database/**",
+        "src/common/**"
+      ],
+      "forbiddenFileClasses": [
+        "src/generated/**",
+        "src/**/*.controller.ts",
+        "src/**/*.module.ts",
+        "prisma/schema.prisma",
+        "scripts/**",
+        "schemas/**",
+        "package.json",
+        "package-lock.json"
+      ],
+      "humanEscalation": [
+        "Requires modifying prisma/schema.prisma",
+        "Requires changing package.json dependencies",
+        "Foundation change would break existing feature slices",
+        "Generated client needs regeneration"
+      ]
+    },
+    "prisma": {
+      "description": "Manages Prisma schema changes and database migrations. May trigger generated client regeneration.",
+      "allowedFileClasses": [
+        "prisma/**"
+      ],
+      "forbiddenFileClasses": [
+        "src/**",
+        "scripts/**",
+        "schemas/**",
+        "package.json",
+        "package-lock.json"
+      ],
+      "humanEscalation": [
+        "Migration drops a column or table with existing data",
+        "Schema change affects more than one feature slice",
+        "Requires a data migration script",
+        "Migration is not reversible"
+      ]
+    },
+    "review": {
+      "description": "Performs cross-cutting review, parity checks, security audit, and migration audit. Layer 5 in the worker layer model. Read-only.",
+      "allowedFileClasses": [
+        "docs/**",
+        ".github/**"
+      ],
+      "forbiddenFileClasses": [
+        "src/**",
+        "prisma/**",
+        "scripts/**",
+        "schemas/**",
+        "package.json",
+        "package-lock.json"
+      ],
+      "humanEscalation": [
+        "Review finds a security vulnerability that requires immediate source fix",
+        "Review discovers architectural violation that blocks merge",
+        "Review requires access to runtime logs or production data"
+      ]
+    },
+    "merge": {
+      "description": "Handles merge queue management, release prep, and final integration validation. Layer 6 in the worker layer model.",
+      "allowedFileClasses": [
+        "docs/ai-native/merge-closure-sop.md",
+        "docs/ai-native/merge-queue-assistant.md",
+        ".github/**"
+      ],
+      "forbiddenFileClasses": [
+        "src/**",
+        "prisma/**",
+        "scripts/**",
+        "schemas/**",
+        "package.json",
+        "package-lock.json"
+      ],
+      "humanEscalation": [
+        "Merge conflict cannot be resolved automatically",
+        "Health gate fails and root cause is unclear",
+        "Release requires cherry-pick or branch management decision"
+      ]
+    },
+    "state-reconciler": {
+      "description": "Manages AI-native control-plane state files (ai-state, wave tracking, task manifests).",
+      "allowedFileClasses": [
+        ".github/ai-state/**",
+        "docs/ai-native/**"
+      ],
+      "forbiddenFileClasses": [
+        "src/**",
+        "prisma/**",
+        "scripts/**",
+        "schemas/**",
+        "package.json",
+        "package-lock.json"
+      ],
+      "humanEscalation": [
+        "State file references a worker or task that no longer exists",
+        "Wave tracking is out of sync with actual merge history",
+        "State reconciliation requires deleting or overwriting a completed task record"
+      ]
+    },
+    "provider-pool": {
+      "description": "Manages AI provider configuration, model routing, and fallback policies for worker dispatch.",
+      "allowedFileClasses": [
+        ".github/ai-policy/**",
+        ".github/ai-state/**"
+      ],
+      "forbiddenFileClasses": [
+        "src/**",
+        "prisma/**",
+        "scripts/**",
+        "schemas/**",
+        "package.json",
+        "package-lock.json"
+      ],
+      "humanEscalation": [
+        "Adding a new AI provider or model to the pool",
+        "Changing fallback behavior that affects all workers",
+        "Modifying rate limits or cost thresholds"
+      ]
+    },
+    "meta-loop": {
+      "description": "Orchestrates the self-cycle loop, wave planning, and batch scheduling. Top-level control-plane automation.",
+      "allowedFileClasses": [
+        ".github/ai-policy/**",
+        "docs/ai-native/**"
+      ],
+      "forbiddenFileClasses": [
+        "src/**",
+        "prisma/**",
+        "scripts/**",
+        "schemas/**",
+        "package.json",
+        "package-lock.json"
+      ],
+      "humanEscalation": [
+        "Loop detects conflicting wave assignments",
+        "Batch scheduling requires overriding conflict group rules",
+        "Self-cycle enters a retry loop exceeding maxRetries",
+        "Wave planning requires splitting a task across multiple workers"
+      ]
+    }
+  }
+}
