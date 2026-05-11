@@ -57,6 +57,20 @@ The writer produces `.github/ai-state/main-health.json`. See
 and [write-main-health-state.ps1](../../scripts/ai/write-main-health-state.ps1)
 for parameter reference.
 
+### Validation Rules
+
+The writer enforces these constraints at write time to prevent malformed markers:
+
+| Rule | Enforcement | Rationale |
+|------|-------------|-----------|
+| `state` must be one of `green`, `yellow`, `red`, `black` | Hard fail (ValidateSet) | Prevents typos that would confuse consumers. |
+| `commitSha` must be 7-40 hex characters | Hard fail | Ensures the SHA is a real git object, not free-text. |
+| `failedChecks` entries must each appear in `checks` | Hard fail | Prevents phantom failures that reference non-existent checks. |
+| `checks` must not be empty when `failedChecks` is provided | Hard fail | You cannot fail a check that was never evaluated. |
+| `state=green` with non-empty `failedChecks` | Warning (non-blocking) | Likely caller error; script proceeds but logs a yellow warning. |
+
+Dry-run mode (`-DryRun`) exercises all validation without writing the marker file.
+
 ---
 
 ## Worker Types and Launch Permissions

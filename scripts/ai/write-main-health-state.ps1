@@ -88,6 +88,24 @@ $ErrorActionPreference = "Stop"
 # Helpers
 # ---------------------------------------------------------------------------
 
+function Assert-ValidSha {
+    param([string]$Sha)
+    if ($Sha -notmatch '^[0-9a-fA-F]{7,40}$') {
+        Write-Fail "CommitSha must be 7-40 hex characters. Got: '$Sha'"
+        exit 1
+    }
+}
+
+function Assert-CheckConsistency {
+    param([string[]]$AllChecks, [string[]]$Failed)
+    foreach ($fc in $Failed) {
+        if ($AllChecks -notcontains $fc) {
+            Write-Fail "FailedChecks entry '$fc' is not in Checks list [$($AllChecks -join ', ')]. Every failed check must appear in Checks."
+            exit 1
+        }
+    }
+}
+
 function Write-Step { param([string]$Msg) Write-Host "[step] $Msg" -ForegroundColor Cyan }
 function Write-Ok   { param([string]$Msg) Write-Host "[ok]   $Msg" -ForegroundColor Green }
 function Write-Warn { param([string]$Msg) Write-Host "[warn] $Msg" -ForegroundColor Yellow }
@@ -120,7 +138,7 @@ if ($AllowedWorkerClasses -eq "") {
 
 $classesArray = @()
 if ($AllowedWorkerClasses -ne "") {
-    $classesArray = $AllowedWorkerClasses -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
+    $classesArray = @($AllowedWorkerClasses -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" })
 }
 
 # ---------------------------------------------------------------------------
@@ -129,12 +147,32 @@ if ($AllowedWorkerClasses -ne "") {
 
 $checksArray = @()
 if ($Checks -ne "") {
-    $checksArray = $Checks -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
+    $checksArray = @($Checks -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" })
 }
 
 $failedArray = @()
 if ($FailedChecks -ne "") {
-    $failedArray = $FailedChecks -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
+    $failedArray = @($FailedChecks -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" })
+}
+
+# ---------------------------------------------------------------------------
+# Schema validation
+# ---------------------------------------------------------------------------
+
+Assert-ValidSha -Sha $CommitSha
+
+if ($failedArray.Count -gt 0 -and $checksArray.Count -eq 0) {
+    Write-Fail "FailedChecks provided but Checks is empty. Specify -Checks when using -FailedChecks."
+    exit 1
+}
+
+if ($failedArray.Count -gt 0 -and $checksArray.Count -gt 0) {
+    Assert-CheckConsistency -AllChecks $checksArray -Failed $failedArray
+}
+
+# Warn if state is green but failedChecks are present (likely caller error)
+if ($State -eq "green" -and $failedArray.Count -gt 0) {
+    Write-Warn "State is 'green' but FailedChecks is non-empty. Verify this is intentional."
 }
 
 # ---------------------------------------------------------------------------
