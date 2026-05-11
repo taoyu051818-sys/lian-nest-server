@@ -1,0 +1,270 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/task-compiler-handoff.schema.json",
+  "title": "Task Compiler LLM Handoff Contract",
+  "description": "Defines how an LLM (Claude/Codex) produces a structured handoff from free-form issue text into validated task JSON. Captures extraction metadata, field-level confidence, validation gate results, and the exit signal that lets the orchestrator hand off to deterministic compilation. Aligned with docs/ai-native/llm-assisted-task-compiler.md.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "sourceType",
+    "extractionResult",
+    "fieldConfidence",
+    "validationGate",
+    "exitSignal"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1."
+    },
+    "sourceType": {
+      "type": "string",
+      "enum": ["issue-body", "structured-json", "hybrid"],
+      "description": "What the LLM was given as input. issue-body = free-form markdown from GitHub. structured-json = CONTROL APPENDIX or pre-structured JSON. hybrid = both."
+    },
+    "sourceIssue": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "GitHub issue number that was processed."
+    },
+    "sourceChecksum": {
+      "type": "string",
+      "description": "SHA-256 prefix (first 12 chars) of the raw input text. Used for idempotency — re-extraction on the same input should produce the same checksum."
+    },
+    "extractionResult": {
+      "type": "object",
+      "required": [
+        "taskType",
+        "risk",
+        "conflictGroup",
+        "allowedFiles",
+        "validationCommands",
+        "actorRole"
+      ],
+      "properties": {
+        "taskType": {
+          "type": "string",
+          "enum": ["execution", "research", "review"],
+          "description": "Extracted task type."
+        },
+        "risk": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Extracted risk level."
+        },
+        "conflictGroup": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Extracted conflict group identifier."
+        },
+        "allowedFiles": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "description": "Extracted allowed file patterns."
+        },
+        "forbiddenFiles": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Extracted forbidden file patterns."
+        },
+        "validationCommands": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "description": "Extracted validation commands."
+        },
+        "actorRole": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Extracted actor role name."
+        },
+        "roleDescription": {
+          "type": "string",
+          "description": "Extracted role description."
+        },
+        "promptHandoff": {
+          "type": "string",
+          "description": "LLM-generated concise summary of what to build and why."
+        },
+        "knowledgeRefs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "File paths or URLs the LLM identified as relevant context."
+        },
+        "attentionFocus": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Key constraints or priorities extracted from the issue."
+        },
+        "knownBlindspots": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Patterns or mistakes the LLM identified to avoid."
+        },
+        "budget": {
+          "type": "object",
+          "properties": {
+            "maxFiles": { "type": "integer", "minimum": 1 },
+            "maxLinesChanged": { "type": "integer", "minimum": 1 },
+            "softTimeMinutes": { "type": "integer", "minimum": 1 },
+            "hardTimeMinutes": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false,
+          "description": "Extracted budget constraints."
+        },
+        "complexityAssessment": {
+          "type": "object",
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": ["low", "low-medium", "medium", "high"]
+            },
+            "drivers": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "splitRecommendation": {
+              "type": ["string", "null"]
+            }
+          },
+          "additionalProperties": false,
+          "description": "LLM's complexity assessment of the task."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Fields extracted by the LLM from the issue input. Required fields mirror the task-v2 structural requirements."
+    },
+    "fieldConfidence": {
+      "type": "object",
+      "required": [
+        "taskType",
+        "risk",
+        "conflictGroup",
+        "allowedFiles",
+        "validationCommands",
+        "actorRole"
+      ],
+      "properties": {
+        "taskType": {
+          "type": "string",
+          "enum": ["deterministic", "high", "medium", "low"]
+        },
+        "risk": {
+          "type": "string",
+          "enum": ["deterministic", "high", "medium", "low"]
+        },
+        "conflictGroup": {
+          "type": "string",
+          "enum": ["deterministic", "high", "medium", "low"]
+        },
+        "allowedFiles": {
+          "type": "string",
+          "enum": ["deterministic", "high", "medium", "low"]
+        },
+        "validationCommands": {
+          "type": "string",
+          "enum": ["deterministic", "high", "medium", "low"]
+        },
+        "actorRole": {
+          "type": "string",
+          "enum": ["deterministic", "high", "medium", "low"]
+        },
+        "knowledgeRefs": {
+          "type": "string",
+          "enum": ["deterministic", "high", "medium", "low"]
+        },
+        "promptHandoff": {
+          "type": "string",
+          "enum": ["deterministic", "high", "medium", "low"]
+        }
+      },
+      "additionalProperties": false,
+      "description": "Confidence level for each extracted field. deterministic = copied verbatim from structured input. high = clearly stated in issue. medium = inferred from context. low = guessed or defaulted."
+    },
+    "validationGate": {
+      "type": "object",
+      "required": ["passed", "checks"],
+      "properties": {
+        "passed": {
+          "type": "boolean",
+          "description": "True when all required fields pass validation. False when any field fails."
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["field", "status"],
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Field name that was validated."
+              },
+              "status": {
+                "type": "string",
+                "enum": ["pass", "fail", "warn"],
+                "description": "Validation outcome for this field."
+              },
+              "message": {
+                "type": "string",
+                "description": "Human-readable explanation for fail or warn status."
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Per-field validation results."
+        },
+        "humanReviewRequired": {
+          "type": "boolean",
+          "default": false,
+          "description": "True when any field has low confidence or a validation gate failed. The orchestrator must route to human review before task execution."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Deterministic validation gate applied after LLM extraction. Mirrors the compiler's specificity checks."
+    },
+    "exitSignal": {
+      "type": "string",
+      "enum": ["ready", "needs-human-review", "fallback-to-deterministic", "blocked"],
+      "description": "Controls the orchestrator's next action. ready = handoff is valid, proceed to task-v2 compilation. needs-human-review = confidence or validation issues require human approval. fallback-to-deterministic = LLM extraction failed; use structured input only. blocked = hard validation failure, cannot proceed."
+    },
+    "fallbackPayload": {
+      "type": "object",
+      "description": "When exitSignal is fallback-to-deterministic, contains the partial structural fields the LLM managed to extract before failure. The deterministic compiler uses these as overrides for the default pass-through path.",
+      "properties": {
+        "extractedFields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of field names the LLM successfully extracted before fallback."
+        },
+        "failureReason": {
+          "type": "string",
+          "description": "Why the LLM extraction fell back to deterministic."
+        }
+      },
+      "additionalProperties": false
+    },
+    "dryRun": {
+      "type": "boolean",
+      "default": true,
+      "description": "When true, the handoff is for review only — no task JSON is compiled or dispatched. All write-capable automation defaults to dry-run."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when the handoff was produced."
+    },
+    "llmModel": {
+      "type": "string",
+      "description": "Model identifier that performed the extraction (e.g. claude-sonnet-4-6, codex-mini). For audit trail only."
+    },
+    "extractionDurationMs": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Wall-clock milliseconds the LLM extraction took. Used for telemetry and cost estimation."
+    }
+  },
+  "additionalProperties": false
+}
