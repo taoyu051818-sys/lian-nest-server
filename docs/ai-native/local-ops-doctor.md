@@ -24,11 +24,40 @@ A worktree whose branch is merged into main is always classified as `merged`
 last commit is. The `dirty` status only applies to unmerged branches — this
 avoids misclassifying an old-but-merged worktree as both stale and dirty.
 
+### Safety policy
+
+The janitor follows a strict safety model:
+
+| Category      | Auto-removed? | Why |
+|---------------|---------------|-----|
+| merged        | Yes (with `-RemoveMerged`) | Branch is fully merged; safe to clean up |
+| merged+dirty  | Only with `-Force` | Uncommitted changes would be lost |
+| dirty         | **Never** | Uncommitted work on an unmerged branch |
+| stale         | **Never** | Requires human review before removal |
+| active        | **Never** | Work in progress |
+
+**Key guarantees:**
+- Default mode is always dry-run — no worktree is ever deleted without an explicit `-RemoveMerged` flag.
+- Dirty and stale worktrees are reported but never touched by automated cleanup.
+- The `-DryRun` flag explicitly requests dry-run mode; if combined with `-RemoveMerged`, dry-run takes precedence.
+
+### Dry-run behavior
+
+Running the script without `-RemoveMerged` (or with `-DryRun`) produces a report showing:
+- Classification of every worktree
+- What `-RemoveMerged` *would* do (which worktrees would be removed vs skipped)
+- Policy hints for dirty and stale worktrees with recommended actions
+
+This makes it safe to run in CI or as a pre-launch check without side effects.
+
 ### Usage
 
 ```powershell
 # Dry-run report (default — no changes)
 ./scripts/ai/worktree-janitor.ps1
+
+# Explicit dry-run (same as default, intent is clear)
+./scripts/ai/worktree-janitor.ps1 -DryRun
 
 # Remove only merged worktrees (safe, explicit)
 ./scripts/ai/worktree-janitor.ps1 -RemoveMerged
@@ -87,6 +116,10 @@ When the janitor reports dirty, merged+dirty, or stale worktrees:
 | 0    | All worktrees are clean or merged (no action needed) |
 | 1    | Stale, dirty, or merged+dirty worktrees need attention |
 | 2    | Script error (could not list worktrees) |
+
+Exit code 1 does **not** mean the janitor failed — it means human review is needed for
+dirty or stale worktrees. This is by design: the janitor refuses to auto-remove
+non-merged worktrees.
 
 ### Integration
 
