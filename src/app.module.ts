@@ -1,13 +1,19 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from './config';
 import { HealthModule } from './health';
+import { MessagesModule } from './messages';
 import { NodebbModule } from './nodebb';
 import { toNodebbAuthMode } from './nodebb/types';
+import { PostsModule } from './posts';
+import { ProfileModule } from './profile';
 
 @Module({
   imports: [
     ConfigModule,
     HealthModule,
+    MessagesModule,
+    PostsModule,
+    ProfileModule,
     NodebbModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
