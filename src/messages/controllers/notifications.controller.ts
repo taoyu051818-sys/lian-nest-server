@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { NotificationsUseCase } from '../use-cases/notifications.use-case';
 import { NotificationListResponseDto } from '../dto/notification.dto';
 
@@ -19,11 +20,16 @@ export class NotificationsController {
   }
 
   @Get('unread-count')
-  async getUnreadCount(): Promise<{ count: number }> {
+  async getUnreadCount(
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ count: number }> {
     // TODO: Extract uid from auth context (session/JWT)
     const uid = 0;
-    const count = await this.notificationsUseCase.getUnreadCount(uid);
-    return { count };
+    const result = await this.notificationsUseCase.getUnreadCount(uid);
+    if (result.fallback) {
+      res.set('X-Fallback', 'true');
+    }
+    return { count: result.count };
   }
 
   @Post(':nid/read')
