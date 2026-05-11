@@ -92,7 +92,8 @@ function validate(body) {
     warnings.push(...validateEvidence(body));
   }
 
-  return { ok: missing.length === 0, found: [...found], missing, warnings };
+  const hasEvidenceFailure = found.has('Validation') && warnings.some((w) => /empty|no PASS\/FAIL/i.test(w));
+  return { ok: missing.length === 0 && !hasEvidenceFailure, found: [...found], missing, warnings };
 }
 
 function parseArgs(argv) {
