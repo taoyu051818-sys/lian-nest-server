@@ -168,6 +168,110 @@ the [worker acceptance checklist](worker-acceptance-checklist.md). It fills
 the gap between worker launch and `agent:done` described in the
 [SOP batch execution section](SOP.md#batch-execution).
 
+## Monitor Contract
+
+The heartbeat monitor follows a formal contract that the orchestrator and
+state reconciler depend on.
+
+### Expected Behaviors
+
+| Behavior | Guarantee |
+|----------|-----------|
+| Snapshot cadence | Writes a JSON snapshot every `PollIntervalMs` (default 15s) while the process is alive. |
+| Final snapshot | Always writes a `done` or `failed` snapshot on process exit, even if the last poll was recent. |
+| No raw logs | Snapshots contain metadata only — state, elapsed time, timestamps, exit code. No stdout/stderr content. |
+| No secrets | Snapshot fields never include tokens, paths, env vars, or command output. |
+| Idempotent file | Each snapshot overwrites the previous one; the file always reflects the latest state. |
+| Label mapping | The `label` field maps heartbeat states to `agent:*` labels for reconciler consumption. |
+
+### Label Mapping
+
+The monitor maps its internal states to the `agent:*` label vocabulary used
+by the state reconciler and issue lifecycle:
+
+| Heartbeat State | Mapped Label | Reconciler Interpretation |
+|-----------------|--------------|---------------------------|
+| `running` | `agent:running` | Worker is active |
+| `running:no-output` | `agent:running` | Worker is active but silent — may need attention |
+| `stale` | `agent:running` | Worker is likely hung — reconciler should flag |
+| `done` | `agent:done` | Worker completed successfully |
+| `failed` | `agent:running` | Worker exited non-zero — may need re-launch |
+
+The label is written into each snapshot so the state reconciler can
+consume it without re-classifying the heartbeat state.
+
+### Snapshot Completeness
+
+A well-formed snapshot includes all fields from the schema. The monitor
+populates:
+
+| Field | Source | Notes |
+|-------|--------|-------|
+| `taskId` | `-TaskId` param or PID | Always set |
+| `issueNumber` | `-IssueNumber` param | Null if not provided |
+| `prNumber` | `-PRNumber` param | Null if not provided |
+| `label` | Derived from state | Always set (see mapping above) |
+
+## Stale State Visibility for Reconciliation
+
+The heartbeat monitor is the primary source of truth for detecting silent
+or hung workers. The state reconciler consumes heartbeat snapshots as
+"worker evidence" (highest precedence in the evidence chain).
+
+### How Stale Detection Works
+
+```
+Worker produces output  -->  lastOutputAt resets
+         |
+         | (time passes with no output)
+         v
+noOutputMs > 60s   -->  state: running:no-output
+noOutputMs > 5min  -->  state: stale
+```
+
+When the state reconciler encounters a worker in `stale` state:
+
+1. The snapshot's `label` field still reads `agent:running`.
+2. The reconciler's `stale-running` rule checks whether the issue has
+   been `agent:running` for longer than the stale threshold (default 72h).
+3. If the heartbeat shows `stale` but the issue label is still
+   `agent:running`, this is strong evidence of a hung worker.
+
+### Reconciler Integration
+
+The state reconciler evaluates evidence in this precedence order:
+
+1. **Worker evidence** (heartbeat snapshots, result comments)
+2. **PR state** (open, merged, closed)
+3. **Issue labels** (`agent:*`)
+
+The heartbeat snapshot is the canonical worker evidence. When the
+reconciler detects:
+
+| Heartbeat State | Issue Label | PR State | Reconciler Action |
+|-----------------|-------------|----------|-------------------|
+| `stale` | `agent:running` | No open PR | Flag as `stale-running` (warning) |
+| `done` | `agent:running` | Merged PR | Flag as `merged-pr-open-issue` (error) |
+| `done` | `agent:done` | No merged PR | Flag as `done-without-merge` (error) |
+| `failed` | `agent:running` | No open PR | Suggest re-launch or `agent:blocked` |
+
+### Reading Snapshot for Downstream Tools
+
+The snapshot file (`monitor-state.json`) is designed for machine consumption:
+
+```powershell
+# Read current state
+$snapshot = Get-Content ./scripts/ai/monitor-state.json | ConvertFrom-Json
+
+# Check if worker is stale
+if ($snapshot.state -eq "stale") {
+    Write-Warning "Worker $($snapshot.taskId) is stale ($($snapshot.noOutputMs)ms silent)"
+}
+
+# Feed to state reconciler
+$snapshot.label  # "agent:running", "agent:done", etc.
+```
+
 ## Files
 
 | File | Purpose |

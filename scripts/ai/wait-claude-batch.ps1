@@ -129,6 +129,15 @@ function Build-Snapshot {
 
     $now = [DateTime]::UtcNow
 
+    $stateLabel = switch ($State) {
+        "running"          { "agent:running" }
+        "running:no-output" { "agent:running" }
+        "stale"            { "agent:running" }
+        "done"             { "agent:done" }
+        "failed"           { "agent:running" }
+        default            { $null }
+    }
+
     $snapshot = [ordered]@{
         snapshotVersion = 1
         taskId          = $TaskId
@@ -139,8 +148,8 @@ function Build-Snapshot {
         exitCode        = if ($IsRunning) { $null } else { $ExitCode }
         noOutputMs      = $NoOutputMs
         issueNumber     = if ($IssueNumber -gt 0) { $IssueNumber } else { $null }
-        prNumber        = $null
-        label           = $null
+        prNumber        = if ($PRNumber -gt 0) { $PRNumber } else { $null }
+        label           = $stateLabel
     }
 
     return $snapshot

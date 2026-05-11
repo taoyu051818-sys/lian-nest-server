@@ -150,6 +150,69 @@ Only exit code, elapsed time, and task metadata are included.
 
 See [worker-heartbeat.md](worker-heartbeat.md) for full usage examples.
 
+## Heartbeat-to-Reconciler Data Flow
+
+The heartbeat monitor, result publisher, and state reconciler form a
+visibility chain for long-running workers:
+
+```
+wait-claude-batch.ps1
+    |
+    | writes monitor-state.json (local snapshot)
+    | optionally publishes via publish-agent-result.ps1
+    |
+    v
+state-reconciler.ps1
+    |
+    | reads worker evidence (heartbeat snapshot, result comments)
+    | compares against issue labels and PR state
+    |
+    v
+drift report (suggested label transitions)
+```
+
+### Evidence Precedence
+
+The state reconciler evaluates evidence in this order:
+
+1. **Worker evidence** — heartbeat snapshots (`monitor-state.json`),
+   result comments on issues/PRs
+2. **PR state** — open, merged, or closed pull requests
+3. **Issue labels** — `agent:*` labels on the issue
+
+The heartbeat snapshot is the highest-precedence source. If the snapshot
+says `done` but the issue still has `agent:running`, the reconciler flags
+the label as stale.
+
+### What Gets Published vs. Kept Local
+
+| Data | Where it lives | Who consumes it |
+|------|---------------|-----------------|
+| `monitor-state.json` | Local filesystem | Orchestrator, state reconciler |
+| Result comment (via `-PublishOnComplete`) | GitHub issue/PR | Human reviewers, state reconciler |
+| Raw stdout/stderr | **Never published** | N/A — stays local only |
+| LLM transcripts | **Never published** | N/A — stays local only |
+
+The monitor and publisher enforce a strict no-secrets policy: only state,
+exit code, elapsed time, and task metadata are included in published
+content. Raw logs and transcripts are never passed to the publisher.
+
+### Consuming Snapshots Programmatically
+
+```powershell
+# Read latest heartbeat
+$snapshot = Get-Content ./scripts/ai/monitor-state.json | ConvertFrom-Json
+
+# Check state
+$snapshot.state      # "running" | "running:no-output" | "stale" | "done" | "failed"
+$snapshot.label      # "agent:running" | "agent:done"
+$snapshot.exitCode   # $null while running, int after exit
+$snapshot.noOutputMs # milliseconds since last output
+
+# Feed to reconciler as worker evidence
+./scripts/ai/state-reconciler.ps1 -Repo "owner/name" -IssueNumbers $snapshot.issueNumber
+```
+
 ## See Also
 
 - [Worker Task Contract](worker-task-contract.md) -- Task JSON schema
