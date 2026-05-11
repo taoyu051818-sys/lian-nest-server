@@ -12,6 +12,7 @@ describe('UsersUsecase', () => {
     getBySlug: jest.fn(),
     getSaved: jest.fn(),
     getLiked: jest.fn(),
+    getPosts: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -121,6 +122,88 @@ describe('UsersUsecase', () => {
 
       const result = await usecase.getByUid('42');
       expect(result.joinedAt).toBe('1970-01-01T00:00:00.000Z');
+    });
+  });
+
+  describe('getPosts', () => {
+    const mockPosts = [
+      {
+        pid: 101,
+        tid: 10,
+        uid: 42,
+        content: 'First post content',
+        timestamp: 1735689600000,
+      },
+      {
+        pid: 202,
+        tid: 20,
+        uid: 42,
+        content: 'Second post content',
+        timestamp: 1735776000000,
+      },
+    ];
+
+    it('should map NodebbPost[] to UserPostItem[]', async () => {
+      mockUsersProvider.getPosts.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: mockPosts,
+        error: null,
+      });
+
+      const result = await usecase.getPosts('42');
+
+      expect(result.posts).toHaveLength(2);
+      expect(result.posts[0]).toEqual({
+        pid: 101,
+        tid: 10,
+        uid: 42,
+        content: 'First post content',
+        timestamp: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.source).toBe('nodebb');
+      expect(mockUsersProvider.getPosts).toHaveBeenCalledWith(42);
+    });
+
+    it('should return fallback when provider returns non-OK status', async () => {
+      mockUsersProvider.getPosts.mockResolvedValue({
+        status: BodyStatus.ERROR,
+        statusCode: 500,
+        data: null,
+        error: 'Internal error',
+      });
+
+      const result = await usecase.getPosts('42');
+
+      expect(result.posts).toEqual([]);
+      expect(result.source).toBe('fallback');
+    });
+
+    it('should return fallback when provider throws', async () => {
+      mockUsersProvider.getPosts.mockRejectedValue(new Error('network'));
+
+      const result = await usecase.getPosts('42');
+
+      expect(result.posts).toEqual([]);
+      expect(result.source).toBe('fallback');
+    });
+
+    it('should throw NotFoundException for invalid uid', async () => {
+      await expect(usecase.getPosts('abc')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should return empty posts when data is empty array', async () => {
+      mockUsersProvider.getPosts.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
+      const result = await usecase.getPosts('42');
+
+      expect(result.posts).toEqual([]);
+      expect(result.source).toBe('nodebb');
     });
   });
 });
