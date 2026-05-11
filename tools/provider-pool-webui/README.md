@@ -184,6 +184,46 @@ The WebUI visualizes this flow but does not participate in it.
 
 ---
 
+## Test Index
+
+All tests are self-contained Node.js scripts using inline `assert()`.
+Run individually with `node <path>`. The smoke test is available as
+`npm run ops:webui:smoke`.
+
+### Server & Console Smoke
+
+| Test file | Coverage |
+|-----------|----------|
+| `server.test.js` | HTTP server smoke — CLI flags, all endpoints, security headers, audit redaction, localhost binding |
+| `console-smoke.test.js` | End-to-end console — dashboard HTML, all API routes, action refusal flows, secret isolation, 404 handling |
+
+### Library Tests
+
+| Test file | Module under test | Coverage |
+|-----------|-------------------|----------|
+| `action-registry.test.js` | `lib/action-registry` | Risk constants, allowlist shape, ID validation, `getAction`, `describeAction`, `registryMeta` |
+| `action-form-schema.test.js` | `lib/action-form-schema` | Field types, risk badges, `buildFormSchema`, schema immutability, confirm messages |
+| `action-result-normalizer.test.js` | `lib/action-result-normalizer` | Secret redaction, string capping, `normalizeResult`, `classifyStatus`, boundary cases |
+| `action-runner.test.js` | `lib/action-runner` | Allowlist enforcement, dry-run/execute modes, confirmation gate, param validation, timeout, audit trail |
+| `action-modules.test.js` | `actions/*.js` inventory | Loads all action modules, verifies contract (id/label/description/dangerous/preview/execute), server discovery |
+| `audit-store.test.js` | `lib/audit-store` | `sanitizeString`, `validateEntry`, `buildEntry`, append-only store, raw output rejection |
+| `audit-retention.test.js` | `lib/audit-store` (retention) | Entry size bounds, sanitization preventing log bloat, 30-day cutoff, no-secrets-survive-in-file |
+
+### Action Module Tests
+
+| Test file | Action module | Coverage |
+|-----------|---------------|----------|
+| `actions/compile-tasks.test.js` | `compile-tasks` | Payload validation, warnings, outputMode (v1/v2), execute field promotion, non-destructive guarantee |
+| `actions/issue-state.test.js` | `issue-state` | Close-done safety rejection, umbrella/human-required refusal, input validation, module contract |
+| `actions/create-issues.test.js` | `create-issues` | Gap validation, proposal generation, dry-run/real execution, issue number extraction, no secrets in output |
+| `actions/launch-batch.test.js` | `launch-batch` | Permission matrix (green/yellow/red/black), conflict group dedup, shared lock overlap, gate blocking |
+| `actions/merge-prs.test.js` | `merge-prs` | PR number validation, repo resolution, shell injection guard, confirmation gate, graceful failure |
+| `actions/plan-next-batch.test.js` | `plan-next-batch` | Capacity planning, conflict group dedup, provider exhaustion, batch plan write, sanitization |
+| `actions/provider-rotation.test.js` | `provider-rotation` | Secret isolation, preview/execute modes, input validation, atomic write safety, 4 validation checks |
+| `actions/worker-control.test.js` | `worker.control` | List/stop actions, worker ID validation, concurrency floors, explicit targeting safety, source hygiene |
+
+---
+
 ## References
 
 - [Provider Pool Architecture](../../docs/ai-native/provider-pool.md) — full design doc
@@ -192,3 +232,4 @@ The WebUI visualizes this flow but does not participate in it.
 - [Provider Pool State](../../.github/ai-state/provider-pool.json) — runtime state
 - [WebUI Control Map](../../docs/ai-native/webui-control-map.md) — action-to-endpoint mapping
 - [WebUI Operation Runbook](../../docs/ai-native/webui-operation-runbook.md) — step-by-step operator guide
+- [WebUI Action Module Registry](../../docs/ai-native/webui-action-module-registry.md) — action ID naming & module catalogue
