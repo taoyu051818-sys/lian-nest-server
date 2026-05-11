@@ -5,6 +5,8 @@ Ensures every action result has a predictable shape regardless of
 which action module or handler produced it.
 
 > **Closes:** [#691](https://github.com/taoyu051818-sys/lian-nest-server/issues/691)
+>
+> **Expanded by:** [#883](https://github.com/taoyu051818-sys/lian-nest-server/issues/883)
 
 ---
 
@@ -104,20 +106,68 @@ Severity maps to UI display styling:
 
 ## Safety Invariants
 
+### Stable Response Shape
+
+The normalizer guarantees that every output has a predictable envelope.
+Six fields are **always present** regardless of input:
+
+| Field            | Source                         | Fallback              |
+|------------------|--------------------------------|-----------------------|
+| `schemaVersion`  | Constant `1`                   | —                     |
+| `normalizedAt`   | `Date.now()` ISO string        | —                     |
+| `status`         | `classifyStatus(raw)`          | `"unknown"`           |
+| `severity`       | `classifySeverity(raw)`        | `"info"`              |
+| `actionId`       | `context.actionId` or `raw.action` | `null`           |
+| `label`          | `context.label`                | `null`                |
+
+When the raw input is `null`, `undefined`, or not an object the
+normalizer returns:
+
+```json
+{
+  "ok": false,
+  "error": "No result provided",
+  "status": "unknown"
+}
+```
+
+When `normalizeResults` receives a non-array it returns `[]`.
+
+### Error Normalization
+
+Error fields are extracted with the following precedence:
+
+- **`errorCode`** — sourced from `raw.errorCode`, then `raw.code`, then
+  `null`. Numeric codes are preserved as numbers.
+- **`error`** — sourced from `raw.error`, then `raw.message`. Always a
+  string or absent.
+- **`ok`** — takes precedence over `mode` when determining status and
+  severity. A non-boolean truthy `ok` (e.g. `1`, `"yes"`) is **not**
+  treated as `true`; only `true` maps to success status.
+
 ### Secret Redaction
 
-All string values are scanned for secret-like patterns:
+Redaction operates in two layers applied sequentially.
 
-- GitHub tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`)
-- Bearer tokens
-- Basic auth credentials
-- AWS-style keys (`AKIA*`, `ASIA*`)
-- JWT tokens (three dot-separated base64 segments)
-- Long base64-like strings (40+ chars)
-- Private key headers
+**Layer 1 — key-based redaction.** Any object key matching the pattern
+`/(?:api[_-]?key|token|secret|password|credential|auth|private[_-]?key)/i`
+has its value replaced with `[redacted]`. This applies recursively to
+nested objects.
 
-Fields with secret-like names (`apiKey`, `token`, `secret`, `password`,
-`credential`, `auth`, `private_key`) are replaced with `[redacted]`.
+**Layer 2 — value-based redaction.** All string values (including those
+inside nested objects and arrays) are scanned with these patterns in
+order:
+
+| Pattern                                  | Replacement              |
+|------------------------------------------|--------------------------|
+| `key=value` / `key:value` pairs where key contains `password`, `secret`, `token`, `api_key`, `auth`, or `credential` | value → `[redacted]` |
+| GitHub tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_` prefix) | `[redacted-gh-token]` |
+| `Bearer <token>`                         | `Bearer [redacted]`      |
+| `Basic <base64>`                         | `Basic [redacted]`       |
+| AWS keys (`AKIA`/`ASIA` + 16 chars)     | `[redacted-aws-key]`    |
+| JWT (three dot-separated base64 segments)| `[redacted-jwt]`         |
+| Long base64-like strings (40+ chars)     | `[redacted-token]`       |
+| PEM private key blocks                   | `[redacted-private-key]` |
 
 ### Output Capping
 
