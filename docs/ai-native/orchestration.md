@@ -7,7 +7,7 @@ This document describes how `lian-nest-server` owns and runs AI worker orchestra
 The self-hosted batch launcher runs Claude Code workers directly from this repository. It reads task JSON files, validates them against the launch gate, creates isolated git worktrees, and invokes Claude Code in `--print` mode with strict tool boundaries.
 
 ```
-task.json → batch-launch.ps1 → launch gate → git worktree → run-claude-print.ps1 → Claude Code → commit → done
+task.json → batch-launch.ps1 → launch gate → git worktree → run-claude-print.ps1 → Claude Code reads issue/docs → implements → commit → done
 ```
 
 ## Components
@@ -30,6 +30,19 @@ Every task is defined by a JSON file conforming to `scripts/ai/task.schema.json`
 - **Boundaries**: `budgets`, `risk`, `conflictGroup`
 
 See [worker-task-contract.md](worker-task-contract.md) for the full field reference.
+
+## Prompt Structure
+
+The worker prompt is split into two parts:
+
+1. **Semantic source of truth** — The worker is told to read the GitHub issue body (`gh issue view`) and relevant repository docs first. The issue body and docs define *what* to do.
+2. **Control appendix** — Extracted fields from the task JSON (allowedFiles, forbiddenFiles, validationCommands, budgets, etc.) define *where* and *how*. The raw JSON is not dumped into the prompt.
+
+The worker receives these allowed tools for reading context:
+- `Read`, `Glob`, `Grep` — explore repository docs and code
+- `Bash(gh issue view *)` — read the GitHub issue body
+- `Edit`, `Write` — modify files within allowedFiles
+- `Bash(git *)`, `Bash(npm run *)` — git and validation (execution tasks only)
 
 ## Usage
 
