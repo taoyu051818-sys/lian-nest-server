@@ -13,4 +13,11 @@ export class NodebbCategoriesProvider {
   ): Promise<NodebbNormalizedResponse<NodebbCategory[]>> {
     return this.client.get<NodebbCategory[]>('/api/v3/categories', auth);
   }
+
+  async getById(
+    cid: number,
+    auth?: NodebbAuth,
+  ): Promise<NodebbNormalizedResponse<NodebbCategory>> {
+    return this.client.get<NodebbCategory>(`/api/v3/categories/${cid}`, auth);
+  }
 }
