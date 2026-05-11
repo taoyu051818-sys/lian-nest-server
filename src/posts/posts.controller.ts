@@ -9,6 +9,7 @@ import {
   Query,
   NotImplementedException,
 } from '@nestjs/common';
+import { PostsService } from './posts.service';
 import type {
   PostDetail,
   PostPaginatedList,
@@ -24,6 +25,8 @@ import type {
 
 @Controller('api/posts')
 export class PostsController {
+  constructor(private readonly postsService: PostsService) {}
+
   // ---- Read ----------------------------------------------------------------
 
   @Get()
@@ -32,8 +35,8 @@ export class PostsController {
   }
 
   @Get(':postId')
-  getPostDetail(@Param('postId') _postId: string): PostDetail {
-    throw new NotImplementedException('PostsController.getPostDetail');
+  getPostDetail(@Param('postId') postId: string): Promise<PostDetail> {
+    return this.postsService.getPostDetail(postId);
   }
 
   // ---- Write ---------------------------------------------------------------

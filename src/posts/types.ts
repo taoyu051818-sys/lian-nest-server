@@ -1,8 +1,8 @@
 /**
  * PostsModule — DTOs and domain types.
  *
- * Skeleton stubs for detail / read / write / reactions / replies.
- * No runtime behavior; every handler throws NotImplementedException.
+ * PostDetail is the first runtime endpoint (issue #121).
+ * Other handlers remain stubs throwing NotImplementedException.
  */
 
 // ---------------------------------------------------------------------------
@@ -23,9 +23,26 @@ export enum PostReactionType {
 // ---------------------------------------------------------------------------
 
 export interface PostAuthor {
-  id: string;
+  uid: number;
   username: string;
-  avatarUrl?: string;
+  avatar: string | null;
+  reputation: number;
+}
+
+export interface TopicSummary {
+  tid: number;
+  title: string;
+  slug: string;
+  cid: number;
+  categoryName: string;
+  tagWhitelist: string[];
+  postCount: number;
+  viewCount: number;
+  timestamp: number;
+  lastPostTime: number;
+  isPinned: boolean;
+  isLocked: boolean;
+  isDeleted: boolean;
 }
 
 export interface PostReactionSummary {
@@ -44,13 +61,25 @@ export interface PostReply {
 }
 
 export interface PostDetail {
-  id: string;
-  author: PostAuthor;
+  pid: number;
+  tid: number;
+  title: string;
+  slug: string;
   content: string;
-  createdAt: string;
-  updatedAt?: string;
-  reactionCounts: PostReactionSummary[];
+  contentHtml: string;
+  author: PostAuthor;
+  timestamp: number;
+  editedTimestamp: number | null;
+  editedByUid: number | null;
+  voteCount: number;
+  bookmarkCount: number;
   replyCount: number;
+  viewCount: number;
+  tags: string[];
+  isPinned: boolean;
+  isLocked: boolean;
+  isDeleted: boolean;
+  topic: TopicSummary;
 }
 
 export interface PostListItem {

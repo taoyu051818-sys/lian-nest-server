@@ -1,4 +1,13 @@
-import { Injectable, NotImplementedException } from '@nestjs/common';
+import {
+  Injectable,
+  NotImplementedException,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  NodebbPostsProvider,
+  NodebbTopicsProvider,
+  BodyStatus,
+} from '../nodebb';
 import type {
   PostDetail,
   PostPaginatedList,
@@ -15,19 +24,77 @@ import type {
 /**
  * Use-case layer for the Posts domain.
  *
- * Each method is a contract stub — call sites can depend on PostsService
- * while the implementation is filled in later.
+ * getPostDetail is the first runtime endpoint (issue #121).
+ * All other methods remain contract stubs.
  */
 @Injectable()
 export class PostsService {
+  constructor(
+    private readonly postsProvider: NodebbPostsProvider,
+    private readonly topicsProvider: NodebbTopicsProvider,
+  ) {}
+
   // ---- Read ----------------------------------------------------------------
 
   listPosts(_query: ListPostsQuery): PostPaginatedList {
     throw new NotImplementedException('PostsService.listPosts');
   }
 
-  getPostDetail(_postId: string): PostDetail {
-    throw new NotImplementedException('PostsService.getPostDetail');
+  async getPostDetail(postId: string): Promise<PostDetail> {
+    const pid = Number(postId);
+    if (!Number.isFinite(pid) || pid < 1) {
+      throw new NotFoundException(`Post ${postId} not found`);
+    }
+
+    const postRes = await this.postsProvider.getByPid(pid);
+    if (postRes.status === BodyStatus.NOT_FOUND || !postRes.data) {
+      throw new NotFoundException(`Post ${postId} not found`);
+    }
+    const post = postRes.data;
+
+    const topicRes = await this.topicsProvider.getById(post.tid);
+    const topic = topicRes.data;
+
+    return {
+      pid: post.pid,
+      tid: post.tid,
+      title: topic?.title ?? '',
+      slug: topic?.slug ?? '',
+      content: post.content,
+      contentHtml: '',
+      author: {
+        uid: post.uid,
+        username: '',
+        avatar: null,
+        reputation: 0,
+      },
+      timestamp: post.timestamp,
+      editedTimestamp: post.edited ?? null,
+      editedByUid: null,
+      voteCount: 0,
+      bookmarkCount: 0,
+      replyCount: 0,
+      viewCount: topic?.viewcount ?? 0,
+      tags: [],
+      isPinned: false,
+      isLocked: false,
+      isDeleted: post.deleted ?? false,
+      topic: {
+        tid: topic?.tid ?? post.tid,
+        title: topic?.title ?? '',
+        slug: topic?.slug ?? '',
+        cid: topic?.cid ?? 0,
+        categoryName: '',
+        tagWhitelist: [],
+        postCount: topic?.postcount ?? 0,
+        viewCount: topic?.viewcount ?? 0,
+        timestamp: topic?.timestamp ?? post.timestamp,
+        lastPostTime: topic?.timestamp ?? post.timestamp,
+        isPinned: false,
+        isLocked: false,
+        isDeleted: false,
+      },
+    };
   }
 
   // ---- Write ---------------------------------------------------------------
