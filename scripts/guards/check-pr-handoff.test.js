@@ -7,7 +7,7 @@
  * Run: node scripts/guards/check-pr-handoff.test.js
  */
 
-const { validate, findSections, headingMatches, REQUIRED_SECTIONS } = require('./check-pr-handoff');
+const { validate, findSections, headingMatches, extractSectionBody, validateEvidence, REQUIRED_SECTIONS } = require('./check-pr-handoff');
 
 let passed = 0;
 let failed = 0;
@@ -190,6 +190,7 @@ for (const section of REQUIRED_SECTIONS) {
   assert(typeof result.ok === 'boolean', 'result.ok is boolean');
   assert(Array.isArray(result.found), 'result.found is array');
   assert(Array.isArray(result.missing), 'result.missing is array');
+  assert(Array.isArray(result.warnings), 'result.warnings is array');
 }
 
 // 10. Body with extra non-required headings still passes
@@ -197,6 +198,144 @@ for (const section of REQUIRED_SECTIONS) {
   const extraHeadings = fullBody() + '\n\n## Deployment\n- Auto\n\n## Screenshots\n- N/A';
   const result = validate(extraHeadings);
   assert(result.ok === true, 'body with extra non-required headings passes');
+}
+
+// --- Validation evidence tests ---
+
+// 11. Validation section with PASS/FAIL evidence produces no warnings
+{
+  const result = validate(fullBody());
+  assert(result.warnings.length === 0, 'PASS/FAIL evidence produces no warnings');
+}
+
+// 12. Empty Validation section produces warning
+{
+  const body = [
+    '## Summary',
+    '- Something',
+    '',
+    '## Changed files',
+    '- file.js',
+    '',
+    '## Linked issues',
+    'Closes #1',
+    '',
+    '## Validation',
+    '',
+    '## Non-goals',
+    '- Not this',
+    '',
+    '## Risk',
+    '- Low',
+    '',
+    '## Handoff',
+    '- Done',
+  ].join('\n');
+  const result = validate(body);
+  assert(result.ok === true, 'empty Validation section still passes section check');
+  assert(result.warnings.length === 1, 'empty Validation section produces one warning');
+  assert(result.warnings[0].includes('empty'), 'warning mentions empty');
+}
+
+// 13. Validation section without PASS/FAIL produces warning
+{
+  const body = [
+    '## Summary',
+    '- Something',
+    '',
+    '## Changed files',
+    '- file.js',
+    '',
+    '## Linked issues',
+    'Closes #1',
+    '',
+    '## Validation',
+    '- Ran tests manually',
+    '- Checked output',
+    '',
+    '## Non-goals',
+    '- Not this',
+    '',
+    '## Risk',
+    '- Low',
+    '',
+    '## Handoff',
+    '- Done',
+  ].join('\n');
+  const result = validate(body);
+  assert(result.ok === true, 'Validation without PASS/FAIL still passes section check');
+  assert(result.warnings.length === 1, 'Validation without PASS/FAIL produces one warning');
+  assert(result.warnings[0].includes('PASS/FAIL'), 'warning mentions PASS/FAIL');
+}
+
+// 14. Missing Validation section produces no evidence warning (section missing handles it)
+{
+  const body = [
+    '## Summary',
+    '- Something',
+    '',
+    '## Changed files',
+    '- file.js',
+    '',
+    '## Linked issues',
+    'Closes #1',
+    '',
+    '## Non-goals',
+    '- Not this',
+    '',
+    '## Risk',
+    '- Low',
+    '',
+    '## Handoff',
+    '- Done',
+  ].join('\n');
+  const result = validate(body);
+  assert(result.ok === false, 'missing Validation fails');
+  assert(result.warnings.length === 0, 'missing Validation produces no evidence warnings');
+}
+
+// 15. extractSectionBody returns correct content
+{
+  const body = '## Summary\n- Line 1\n\n## Validation\n- cmd: PASS\n- other: FAIL\n\n## Other\n- Ignored';
+  const section = extractSectionBody(body, ['validation']);
+  assert(section.includes('cmd: PASS'), 'extractSectionBody captures validation content');
+  assert(!section.includes('Line 1'), 'extractSectionBody excludes prior section');
+  assert(!section.includes('Ignored'), 'extractSectionBody excludes next section');
+}
+
+// 16. Validation with FAIL result produces no warning (FAIL is valid evidence)
+{
+  const body = fullBody().replace('PASS', 'FAIL');
+  const result = validate(body);
+  assert(result.warnings.length === 0, 'FAIL result produces no warning');
+}
+
+// 17. Validation with mixed case PASS/FAIL is recognized
+{
+  const body = [
+    '## Summary',
+    '- Something',
+    '',
+    '## Changed files',
+    '- file.js',
+    '',
+    '## Linked issues',
+    'Closes #1',
+    '',
+    '## Validation',
+    '- npm run build: pass (exit 0)',
+    '',
+    '## Non-goals',
+    '- Not this',
+    '',
+    '## Risk',
+    '- Low',
+    '',
+    '## Handoff',
+    '- Done',
+  ].join('\n');
+  const result = validate(body);
+  assert(result.warnings.length === 0, 'lowercase pass is recognized');
 }
 
 // --- Summary ---
