@@ -37,7 +37,8 @@ export class ProfileController {
   @Get(':uid/history')
   async getHistory(
     @Param('uid') uid: string,
+    @Query() query: CollectionQuery,
   ): Promise<ProfileCollection<HistoryItem>> {
-    return this.profileUsecase.getHistory(uid);
+    return this.profileUsecase.getHistory(uid, query);
   }
 }
