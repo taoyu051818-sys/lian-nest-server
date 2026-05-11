@@ -232,7 +232,11 @@ the audit log.
 |-------|------|---------|-------------|-------------|
 | `actionId` | string | — | Exact match | Filter by action id |
 | `status` | string | — | `success` or `error` | Filter by outcome |
-| `limit` | number | 50 | Max 500 | Entries to return |
+| `limit` | number | 50 | Max 500, clamped | Entries to return |
+
+When multiple filters are applied, they are AND-combined. The `limit`
+is clamped to `MAX_LIMIT = 500`; values above 500 are silently reduced.
+Invalid (non-numeric) limit values return `400 INVALID_LIMIT`.
 
 **Response:** `200 OK`
 
@@ -257,10 +261,31 @@ the audit log.
 ```
 
 The `filters` and `unfilteredTotal` fields are present only when
-query filters are applied. All `payload` and `result` fields pass
-through `sanitizeObject` — fields matching `api_key`, `token`,
-`secret`, `password`, `credential`, `auth` are redacted; long
-alphanumeric strings (>20 chars) are masked.
+query filters are applied.
+
+**Sanitization boundaries:**
+
+All `payload` and `result` fields pass through `sanitizeObject` before
+being stored or returned. The sanitization layer applies these rules:
+
+| Rule | Pattern | Replacement |
+|------|---------|-------------|
+| Key-name redaction | Fields matching `api_key`, `token`, `secret`, `password`, `credential`, `auth` (case-insensitive) | `***REDACTED***` |
+| Long opaque strings | Alphanumeric strings >20 chars | `***REDACTED***` |
+| GitHub PATs | `ghp_*`, `gho_*`, `ghu_*`, `ghs_*`, `ghr_*` | `[redacted-gh-token]` |
+| AWS keys | `AKIA*`, `ASIA*` (16 trailing chars) | `[redacted-aws-key]` |
+| JWT tokens | Three dot-separated base64 segments starting with `eyJ` | `[redacted-jwt]` |
+| Bearer / Basic auth | `Bearer <token>`, `Basic <b64>` | `Bearer [redacted]` / `Basic [redacted]` |
+| Private key blocks | `-----BEGIN ... PRIVATE KEY-----` | `[redacted-private-key]` |
+| Raw process output | ANSI escapes, `stdout:`/`stderr:` prefixes, single-line strings >2000 chars | Replaced with `{ "_warning": "raw process output redacted from audit" }` |
+| String truncation | Any string exceeding 500 chars | Truncated to 500 |
+
+**Retention limit:**
+
+The audit store retains at most **5000 entries** (`MAX_ENTRIES`). When a
+new entry is appended and the log exceeds this limit, the oldest entries
+are trimmed automatically (FIFO). This prevents unbounded disk growth
+during long-running sessions.
 
 **Errors:**
 
