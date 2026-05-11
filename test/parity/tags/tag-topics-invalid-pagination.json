@@ -1,34 +1,22 @@
 {
-  "id": "tag-topics-basic",
+  "id": "tag-topics-invalid-pagination",
   "endpoint": "GET /api/tags/:tag/topics",
-  "description": "Standard topics-by-tag list with pagination envelope from NodeBB tag topics",
+  "description": "Tag topics coerces invalid pagination to defaults",
   "request": {
     "method": "GET",
     "path": "/api/tags/<TAG>/topics",
     "params": { "tag": "<TAG>" },
-    "query": { "page": 1, "perPage": 20 }
+    "query": { "page": -1, "perPage": 999 }
   },
   "expected": {
     "status": 200,
     "contentType": "application/json",
     "body": {
-      "topics": [
-        {
-          "tid": "<POSITIVE_INT>",
-          "uid": "<POSITIVE_INT>",
-          "cid": "<POSITIVE_INT>",
-          "title": "<STRING>",
-          "slug": "<STRING>",
-          "mainPid": "<POSITIVE_INT>",
-          "postcount": "<NON_NEG_INT>",
-          "viewcount": "<NON_NEG_INT>",
-          "timestamp": "<POSITIVE_INT>"
-        }
-      ],
+      "topics": [],
       "source": "nodebb",
       "totalCount": "<NON_NEG_INT>",
-      "page": "<POSITIVE_INT>",
-      "perPage": "<POSITIVE_INT>"
+      "page": 1,
+      "perPage": 100
     },
     "bodySchema": {
       "type": "object",
@@ -41,7 +29,7 @@
         "source": { "type": "string", "enum": ["nodebb", "fallback"] },
         "totalCount": { "type": "integer", "minimum": 0 },
         "page": { "type": "integer", "minimum": 1 },
-        "perPage": { "type": "integer", "minimum": 1 }
+        "perPage": { "type": "integer", "minimum": 1, "maximum": 100 }
       },
       "additionalProperties": false,
       "$defs": {
@@ -64,5 +52,5 @@
       }
     }
   },
-  "notes": "Topics list maps from NodeBB tag topics with pagination envelope. When NodeBB is unreachable or returns an error, the response falls back to an empty list with source=fallback and default pagination."
+  "notes": "Negative page is coerced to 1. perPage exceeding 100 is clamped to 100. Non-numeric values fall back to defaults (page=1, perPage=20)."
 }

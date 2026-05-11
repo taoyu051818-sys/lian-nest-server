@@ -1,6 +1,6 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { TagsUsecase } from './tags.usecase';
-import { TagsResponse, TagTopicsResponse } from './tags.types';
+import { TagsResponse, TagTopicsQuery, TagTopicsResponse } from './tags.types';
 
 @Controller('api/tags')
 export class TagsController {
@@ -12,7 +12,10 @@ export class TagsController {
   }
 
   @Get(':tag/topics')
-  async listTopics(@Param('tag') tag: string): Promise<TagTopicsResponse> {
-    return this.tagsUsecase.listTopics(tag);
+  async listTopics(
+    @Param('tag') tag: string,
+    @Query() query: TagTopicsQuery,
+  ): Promise<TagTopicsResponse> {
+    return this.tagsUsecase.listTopics(tag, query);
   }
 }

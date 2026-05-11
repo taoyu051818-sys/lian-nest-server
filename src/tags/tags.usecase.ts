@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { NodebbTagsProvider } from '../nodebb/providers/nodebb-tags.provider';
 import { BodyStatus } from '../nodebb/types';
-import { TagItem, TagsResponse, TagTopicItem, TagTopicsResponse } from './tags.types';
+import { TagItem, TagsResponse, TagTopicItem, TagTopicsQuery, TagTopicsResponse } from './tags.types';
 
 @Injectable()
 export class TagsUsecase {
@@ -23,14 +23,17 @@ export class TagsUsecase {
     return { tags, source: 'nodebb' };
   }
 
-  async listTopics(tag: string): Promise<TagTopicsResponse> {
+  async listTopics(tag: string, query: TagTopicsQuery = {}): Promise<TagTopicsResponse> {
+    const page = Math.max(1, Math.floor(Number(query.page) || 1));
+    const perPage = Math.max(1, Math.min(100, Math.floor(Number(query.perPage) || 20)));
+
     const response = await this.tagsProvider.listTopics(tag);
 
     if (response.status !== BodyStatus.OK || !response.data) {
-      return { topics: [], source: 'fallback' };
+      return { topics: [], source: 'fallback', totalCount: 0, page, perPage };
     }
 
-    const topics: TagTopicItem[] = response.data.topics.map((topic) => ({
+    const allTopics: TagTopicItem[] = response.data.topics.map((topic) => ({
       tid: topic.tid,
       uid: topic.uid,
       cid: topic.cid,
@@ -42,6 +45,10 @@ export class TagsUsecase {
       timestamp: topic.timestamp,
     }));
 
-    return { topics, source: 'nodebb' };
+    const totalCount = allTopics.length;
+    const start = (page - 1) * perPage;
+    const topics = allTopics.slice(start, start + perPage);
+
+    return { topics, source: 'nodebb', totalCount, page, perPage };
   }
 }

@@ -24,8 +24,17 @@ export interface TagTopicItem {
   timestamp: number;
 }
 
+/** Query params for GET /api/tags/:tag/topics */
+export interface TagTopicsQuery {
+  page?: number;
+  perPage?: number;
+}
+
 /** Response shape for GET /api/tags/:tag/topics */
 export interface TagTopicsResponse {
   topics: TagTopicItem[];
   source: 'nodebb' | 'fallback';
+  totalCount: number;
+  page: number;
+  perPage: number;
 }
