@@ -8,6 +8,7 @@ import { toNodebbAuthMode } from './nodebb/types';
 import { PostsModule } from './posts';
 import { ProfileModule } from './profile';
 import { TagsModule } from './tags';
+import { TopicsModule } from './topics';
 import { UsersModule } from './users';
 
 @Module({
@@ -19,6 +20,7 @@ import { UsersModule } from './users';
     PostsModule,
     ProfileModule,
     TagsModule,
+    TopicsModule,
     UsersModule,
     NodebbModule.registerAsync({
       inject: [ConfigService],
