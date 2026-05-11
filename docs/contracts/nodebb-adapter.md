@@ -164,6 +164,55 @@ Cross-referencing `docs/contracts/route-inventory.md` "Requires auth" annotation
 
 ---
 
+## 8. Adapter boundary guard
+
+A CLI guard script (`scripts/guards/check-nodebb-adapter-boundary.js`) enforces
+that business modules consume NodeBB **only** through the provider barrel
+(`src/nodebb/index.ts`).  It scans all `.ts` files under `src/` (excluding
+`src/nodebb/**` and test files) for boundary violations.
+
+### 8.1 Rules enforced
+
+| Rule | What it catches | Rationale |
+|------|----------------|-----------|
+| `no-http-import` | Imports of `http`, `https`, `node-fetch`, `axios`, `got` | Business code must not make direct HTTP calls to NodeBB |
+| `no-direct-adapter-import` | Imports of `nodebb-client` internals | The client is an adapter-private abstraction |
+| `no-direct-token-import` | Direct imports of `NODEBB_CLIENT` token | Providers must be injected via the barrel, not the raw token |
+| `no-direct-fetch` | `fetch()` calls targeting `/api/v3/` paths | No URL construction outside the adapter |
+
+### 8.2 Running the guard
+
+```bash
+# Human-readable output (default)
+node scripts/guards/check-nodebb-adapter-boundary.js
+
+# Machine-readable JSON
+node scripts/guards/check-nodebb-adapter-boundary.js --json
+
+# Warning-only mode (exit 0 even on violations)
+node scripts/guards/check-nodebb-adapter-boundary.js --warn-only
+
+# Custom src root
+node scripts/guards/check-nodebb-adapter-boundary.js --src-root ./dist/src
+```
+
+Exit codes: `0` = clean, `1` = violations found, `2` = usage error.
+
+### 8.3 Enforcement mode
+
+The guard currently runs in **warning-only** mode because the existing codebase
+has known violations (direct `NODEBB_CLIENT` imports in some modules).  Once
+all violations are resolved, remove `--warn-only` to enforce at CI level.
+
+### 8.4 Relationship to Jest boundary spec
+
+The existing `src/nodebb/nodebb-boundary.spec.ts` covers HTTP-library imports
+only (runtime Jest test).  The CLI guard extends coverage to adapter-internal
+symbols, injection tokens, and direct fetch patterns.  Both should pass for a
+healthy codebase.
+
+---
+
 ## References
 
 - [NodeBB auth-mode boundary](../architecture/nodebb-auth-mode-boundary.md) — ownership rules, handler prohibitions, implementation slices
