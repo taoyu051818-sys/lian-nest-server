@@ -34,11 +34,14 @@ const FORBIDDEN_NODE_MODULES = ['fs', 'fs/promises'];
 // docs/ai-native/backend-worker-layers.md § Feature Slices.
 const FEATURE_SLICES = [
   'auth',
+  'categories',
   'feed',
   'messages',
   'posts',
   'profile',
   'tags',
+  'topics',
+  'users',
 ];
 
 // Narrow infrastructure allowlist: specific packages permitted in specific directories.
@@ -83,6 +86,21 @@ function featureSliceFor(filePath) {
   return FEATURE_SLICES.includes(topDir) ? topDir : null;
 }
 
+// Matches any import from a path ending in repositories/providers/...
+const REPOSITORY_PROVIDER_IMPORT = /(?:from\s+|import\s+|require\s*\()\s*['"][^'"]*\/repositories\/providers\/[^'"]*['"]/;
+
+function checkProviderDirectImport(filePath, content) {
+  const rel = path.relative(SRC_ROOT, filePath);
+  const topDir = rel.split(path.sep)[0];
+  // Only flag feature slices and other business modules (not infrastructure wrappers)
+  if (['database', 'redis', 'repositories', 'nodebb', 'common'].includes(topDir)) return null;
+  if (!REPOSITORY_PROVIDER_IMPORT.test(content)) return null;
+  const label = FEATURE_SLICES.includes(topDir)
+    ? 'feature-slice/' + topDir + '/' + path.basename(filePath)
+    : rel;
+  return label + ' imports repository provider directly — use @Inject(REPOSITORY_TOKENS.*)';
+}
+
 function check() {
   const exclude = new Set([REPOSITORIES_DIR]);
   const files = collectTsFiles(SRC_ROOT, exclude);
@@ -90,6 +108,8 @@ function check() {
 
   for (const file of files) {
     const content = fs.readFileSync(file, 'utf-8');
+
+    // Check 1: forbidden data-store driver packages
     for (const pkg of [...FORBIDDEN_PACKAGES, ...FORBIDDEN_NODE_MODULES]) {
       if (packageImportPattern(pkg).test(content)) {
         if (!isAllowedByInfraAllowlist(file, pkg)) {
@@ -101,6 +121,10 @@ function check() {
         }
       }
     }
+
+    // Check 2: direct repository provider imports (module-import regression)
+    const providerViolation = checkProviderDirectImport(file, content);
+    if (providerViolation) violations.push(providerViolation);
   }
 
   return violations;
@@ -123,6 +147,7 @@ console.error(
   '\nStorage drivers must be imported only inside src/repositories/,\n' +
   'src/database/ (Prisma), or src/redis/ (ioredis).\n' +
   'Feature slices (' + FEATURE_SLICES.join(', ') + ') must use repository interfaces.\n' +
+  'Feature modules must not import repository providers directly — use @Inject(REPOSITORY_TOKENS.*).\n' +
   'See docs/architecture/repository-boundary-guard.md'
 );
 process.exit(1);
