@@ -1,19 +1,20 @@
-import { Controller, Get, Post, Param, Query, Res } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { NotificationsUseCase } from '../use-cases/notifications.use-case';
 import { NotificationListResponseDto } from '../dto/notification.dto';
+import { JwtAuthGuard, CurrentUser } from '../../auth';
 
 @Controller('api/notifications')
+@UseGuards(JwtAuthGuard)
 export class NotificationsController {
   constructor(private readonly notificationsUseCase: NotificationsUseCase) {}
 
   @Get()
   async listNotifications(
+    @CurrentUser('sub') uid: number,
     @Query('page') page = '1',
     @Query('perPage') perPage = '20',
   ): Promise<NotificationListResponseDto> {
-    // TODO: Extract uid from auth context (session/JWT)
-    const uid = 0;
     return this.notificationsUseCase.listNotifications(
       uid,
     );
@@ -21,10 +22,9 @@ export class NotificationsController {
 
   @Get('unread-count')
   async getUnreadCount(
+    @CurrentUser('sub') uid: number,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ count: number }> {
-    // TODO: Extract uid from auth context (session/JWT)
-    const uid = 0;
     const result = await this.notificationsUseCase.getUnreadCount(uid);
     if (result.fallback) {
       res.set('X-Fallback', 'true');
@@ -33,9 +33,10 @@ export class NotificationsController {
   }
 
   @Post(':nid/read')
-  async markRead(@Param('nid') nid: string): Promise<void> {
-    // TODO: Extract uid from auth context (session/JWT)
-    const uid = 0;
+  async markRead(
+    @CurrentUser('sub') uid: number,
+    @Param('nid') nid: string,
+  ): Promise<void> {
     return this.notificationsUseCase.markRead(uid, nid);
   }
 }
