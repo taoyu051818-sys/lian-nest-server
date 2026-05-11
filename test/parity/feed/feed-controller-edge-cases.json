@@ -1,0 +1,275 @@
+[
+  {
+    "id": "feed-item-invalid-id-empty",
+    "endpoint": "GET /api/feed/:feedItemId",
+    "description": "Empty feedItemId returns 404",
+    "request": {
+      "method": "GET",
+      "path": "/api/feed/",
+      "params": { "feedItemId": "" },
+      "query": {},
+      "headers": {}
+    },
+    "expected": {
+      "status": 404,
+      "contentType": "application/json",
+      "body": { "statusCode": 404, "error": "Not Found" },
+      "bodySchema": {
+        "type": "object",
+        "required": ["statusCode", "error"],
+        "properties": {
+          "statusCode": { "type": "integer", "const": 404 },
+          "error": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "notes": "Empty string fails /^t(\\d+)$/ regex in GetFeedItemUsecase.parseFeedItemId."
+  },
+  {
+    "id": "feed-item-invalid-id-no-prefix",
+    "endpoint": "GET /api/feed/:feedItemId",
+    "description": "Numeric ID without 't' prefix returns 404",
+    "request": {
+      "method": "GET",
+      "path": "/api/feed/123",
+      "params": { "feedItemId": "123" },
+      "query": {},
+      "headers": {}
+    },
+    "expected": {
+      "status": 404,
+      "contentType": "application/json",
+      "body": { "statusCode": 404, "error": "Not Found" },
+      "bodySchema": {
+        "type": "object",
+        "required": ["statusCode", "error"],
+        "properties": {
+          "statusCode": { "type": "integer", "const": 404 },
+          "error": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "notes": "ID '123' lacks required 't' prefix and fails /^t(\\d+)$/ regex."
+  },
+  {
+    "id": "feed-item-invalid-id-alphabetic",
+    "endpoint": "GET /api/feed/:feedItemId",
+    "description": "Alphabetic feedItemId returns 404",
+    "request": {
+      "method": "GET",
+      "path": "/api/feed/abc",
+      "params": { "feedItemId": "abc" },
+      "query": {},
+      "headers": {}
+    },
+    "expected": {
+      "status": 404,
+      "contentType": "application/json",
+      "body": { "statusCode": 404, "error": "Not Found" },
+      "bodySchema": {
+        "type": "object",
+        "required": ["statusCode", "error"],
+        "properties": {
+          "statusCode": { "type": "integer", "const": 404 },
+          "error": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "notes": "Alphabetic string 'abc' fails /^t(\\d+)$/ regex in parseFeedItemId."
+  },
+  {
+    "id": "feed-item-invalid-id-uppercase-prefix",
+    "endpoint": "GET /api/feed/:feedItemId",
+    "description": "Uppercase 'T' prefix returns 404 (case-sensitive)",
+    "request": {
+      "method": "GET",
+      "path": "/api/feed/T1",
+      "params": { "feedItemId": "T1" },
+      "query": {},
+      "headers": {}
+    },
+    "expected": {
+      "status": 404,
+      "contentType": "application/json",
+      "body": { "statusCode": 404, "error": "Not Found" },
+      "bodySchema": {
+        "type": "object",
+        "required": ["statusCode", "error"],
+        "properties": {
+          "statusCode": { "type": "integer", "const": 404 },
+          "error": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "notes": "Uppercase 'T1' fails lowercase /^t(\\d+)$/ regex."
+  },
+  {
+    "id": "feed-item-invalid-id-fractional",
+    "endpoint": "GET /api/feed/:feedItemId",
+    "description": "Fractional feedItemId returns 404",
+    "request": {
+      "method": "GET",
+      "path": "/api/feed/t1.5",
+      "params": { "feedItemId": "t1.5" },
+      "query": {},
+      "headers": {}
+    },
+    "expected": {
+      "status": 404,
+      "contentType": "application/json",
+      "body": { "statusCode": 404, "error": "Not Found" },
+      "bodySchema": {
+        "type": "object",
+        "required": ["statusCode", "error"],
+        "properties": {
+          "statusCode": { "type": "integer", "const": 404 },
+          "error": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "notes": "Fractional 't1.5' fails /^t(\\d+)$/ regex because digits-only after 't' does not match '1.5'."
+  },
+  {
+    "id": "feed-query-coercion-page-string",
+    "endpoint": "GET /api/feed",
+    "description": "String page value '2' coerces to number 2",
+    "request": {
+      "method": "GET",
+      "path": "/api/feed",
+      "query": { "page": "2", "perPage": "10" },
+      "params": {},
+      "headers": {}
+    },
+    "expected": {
+      "status": 200,
+      "contentType": "application/json",
+      "body": {
+        "page": 2,
+        "perPage": 10
+      },
+      "bodySchema": {
+        "type": "object",
+        "required": ["items", "totalCount", "page", "perPage"],
+        "properties": {
+          "items": { "type": "array" },
+          "totalCount": { "type": "integer", "minimum": 0 },
+          "page": { "type": "integer", "const": 2 },
+          "perPage": { "type": "integer", "const": 10 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "notes": "class-transformer @Type(() => Number) coerces string '2' to integer 2 via ValidationPipe."
+  },
+  {
+    "id": "feed-query-boundary-perpage-min",
+    "endpoint": "GET /api/feed",
+    "description": "perPage=1 is accepted at lower boundary",
+    "request": {
+      "method": "GET",
+      "path": "/api/feed",
+      "query": { "perPage": 1 },
+      "params": {},
+      "headers": {}
+    },
+    "expected": {
+      "status": 200,
+      "contentType": "application/json",
+      "body": { "perPage": 1 },
+      "bodySchema": {
+        "type": "object",
+        "required": ["items", "totalCount", "page", "perPage"],
+        "properties": {
+          "perPage": { "type": "integer", "const": 1 }
+        },
+        "additionalProperties": true
+      }
+    },
+    "notes": "perPage=1 satisfies @Min(1) @Max(50) boundary."
+  },
+  {
+    "id": "feed-query-boundary-perpage-max",
+    "endpoint": "GET /api/feed",
+    "description": "perPage=50 is accepted at upper boundary",
+    "request": {
+      "method": "GET",
+      "path": "/api/feed",
+      "query": { "perPage": 50 },
+      "params": {},
+      "headers": {}
+    },
+    "expected": {
+      "status": 200,
+      "contentType": "application/json",
+      "body": { "perPage": 50 },
+      "bodySchema": {
+        "type": "object",
+        "required": ["items", "totalCount", "page", "perPage"],
+        "properties": {
+          "perPage": { "type": "integer", "const": 50 }
+        },
+        "additionalProperties": true
+      }
+    },
+    "notes": "perPage=50 satisfies @Min(1) @Max(50) boundary."
+  },
+  {
+    "id": "feed-query-reject-fractional-page",
+    "endpoint": "GET /api/feed",
+    "description": "Fractional page value is rejected",
+    "request": {
+      "method": "GET",
+      "path": "/api/feed",
+      "query": { "page": 1.5 },
+      "params": {},
+      "headers": {}
+    },
+    "expected": {
+      "status": 400,
+      "contentType": "application/json",
+      "body": { "statusCode": 400, "error": "Bad Request" },
+      "bodySchema": {
+        "type": "object",
+        "required": ["statusCode", "error"],
+        "properties": {
+          "statusCode": { "type": "integer", "const": 400 },
+          "error": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "notes": "page=1.5 fails @IsInt() validation in FeedQueryDto."
+  },
+  {
+    "id": "feed-query-reject-negative-page",
+    "endpoint": "GET /api/feed",
+    "description": "Negative page value is rejected",
+    "request": {
+      "method": "GET",
+      "path": "/api/feed",
+      "query": { "page": -1 },
+      "params": {},
+      "headers": {}
+    },
+    "expected": {
+      "status": 400,
+      "contentType": "application/json",
+      "body": { "statusCode": 400, "error": "Bad Request" },
+      "bodySchema": {
+        "type": "object",
+        "required": ["statusCode", "error"],
+        "properties": {
+          "statusCode": { "type": "integer", "const": 400 },
+          "error": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "notes": "page=-1 fails @Min(1) validation in FeedQueryDto."
+  }
+]
