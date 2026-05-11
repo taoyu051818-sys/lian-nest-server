@@ -393,6 +393,68 @@ Key differences from standard mode:
 
 See [self-cycle-autopilot-plan-mode.md](self-cycle-autopilot-plan-mode.md) for full documentation.
 
+## Pre-Cycle Status Check Commands
+
+Before starting a new self-cycle through the WebUI, the operator must verify
+that the system is ready. These commands produce the signals the WebUI reads
+to populate its readiness indicators.
+
+### Health Gate
+
+```powershell
+# Quick health check (exit 0 = green)
+node scripts/post-merge-health-gate.js --quick
+
+# Write the marker so the runner's Step 2 can read it
+./scripts/ai/write-main-health-state.ps1 -State green -Checks "quick-pass"
+```
+
+The WebUI health indicator reflects `.github/ai-state/main-health.json`.
+If the marker is missing or stale, the **Launch Worker** button is disabled.
+
+### Provider Pool Capacity
+
+```powershell
+# View provider pool state (read-only)
+cat .github/ai-state/provider-pool.json
+```
+
+The WebUI Resources tab reads this file. At least one provider must show
+`status: available` with `headroom > 0` for the runner to proceed past Step 4.
+
+### State Reconciliation
+
+```powershell
+# Detect drift between issues, PRs, and labels
+./scripts/ai/state-reconciler.ps1 -Repo owner/name
+```
+
+Drift warnings do not block the cycle but should be resolved before launching
+to avoid workers targeting stale or already-completed issues.
+
+### Launch Gate Dry-Run
+
+```powershell
+# Validate a task file against health policy, conflict groups, and locks
+./scripts/ai/check-launch-gate.ps1 -TaskFile ./tasks/issue-<N>.json -HealthFile ./.github/ai-state/main-health.json
+```
+
+A green launch gate result means the task can proceed. The WebUI action
+readiness panel mirrors this check.
+
+### Quick Status Sequence
+
+Run all checks in one pass before launching from the WebUI:
+
+```powershell
+node scripts/post-merge-health-gate.js --quick
+cat .github/ai-state/provider-pool.json
+./scripts/ai/state-reconciler.ps1 -Repo owner/name
+```
+
+If all three pass (exit 0, available provider, no critical drift), the WebUI
+**Launch Worker** action is ready.
+
 ## Future Work
 
 - [x] Auto-generate task files from GitHub issues with agent labels (`-IssueLabel`)

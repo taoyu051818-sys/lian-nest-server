@@ -263,6 +263,46 @@ The handoff is not considered complete until at least one full cycle
 
 ---
 
+## Pre-Cycle Status Check (WebUI Launch)
+
+Before launching the next round of tasks from the WebUI, run these status
+checks to confirm the system is ready. The WebUI reads the resulting state
+files to populate its readiness indicators and action buttons.
+
+| Check | Command | Pass Condition | WebUI Surface |
+|-------|---------|----------------|---------------|
+| Health gate | `node scripts/post-merge-health-gate.js --quick` | Exit 0, state `green` | Health indicator badge |
+| Health marker | `cat .github/ai-state/main-health.json` | File exists, `state: green` | Launch Worker button enabled |
+| Provider capacity | `cat .github/ai-state/provider-pool.json` | At least one `available` with `headroom > 0` | Resources tab headroom |
+| State drift | `./scripts/ai/state-reconciler.ps1 -Repo owner/name` | No critical drift | Queue tab warnings |
+| Launch gate | `./scripts/ai/check-launch-gate.ps1 -TaskFile <file>` | Exit 0, no blocked tasks | Action readiness panel |
+
+### Sequence
+
+```powershell
+# 1. Health check + write marker
+node scripts/post-merge-health-gate.js --quick
+./scripts/ai/write-main-health-state.ps1 -State green -Checks "quick-pass"
+
+# 2. Provider capacity
+cat .github/ai-state/provider-pool.json
+
+# 3. State reconciliation
+./scripts/ai/state-reconciler.ps1 -Repo owner/name
+
+# 4. Launch gate (if a task file is ready)
+./scripts/ai/check-launch-gate.ps1 -TaskFile ./tasks/issue-<N>.json
+```
+
+If health is green, providers have capacity, and the launch gate passes, the
+WebUI **Launch Worker** button is enabled. The operator previews the task
+assignment in the Operation Console, confirms, and executes.
+
+**Blocked when:** Health not green, no available providers, or launch gate
+reports a blocked task. Resolve the blocker before proceeding.
+
+---
+
 ## Daily Workflow (Self-Cycle Active)
 
 The self-cycle runner and supporting scripts are operational. The daily workflow
