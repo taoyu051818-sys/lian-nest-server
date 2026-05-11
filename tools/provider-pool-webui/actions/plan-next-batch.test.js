@@ -596,6 +596,285 @@ console.log("\nPreview: zero headroom provider\n");
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// --- Preview: output shape completeness on success --------------------------
+
+console.log("\nPreview: output shape completeness\n");
+
+{
+  const dir = tmpDir();
+  const statePath = path.join(dir, "provider-pool.json");
+  const queuePath = path.join(dir, "queue.json");
+
+  writeJson(statePath, makeState());
+  writeJson(queuePath, makeQueue([]));
+
+  const res = mod.preview({ statePath, queuePath });
+  assert(res.ok === true, "preview ok");
+  assert(Array.isArray(res.skipped), "skipped is array even when empty");
+  assert(res.skipped.length === 0, "skipped empty when nothing queued");
+  assert(res.capacity.skippedCount === 0, "skippedCount 0 when nothing queued");
+  assert(res.capacity.planned === 0, "planned 0 when nothing queued");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// --- Preview: error responses include path hints -----------------------------
+
+console.log("\nPreview: error responses include paths\n");
+
+{
+  const dir = tmpDir();
+  const missingState = path.join(dir, "no-state.json");
+  const missingQueue = path.join(dir, "no-queue.json");
+
+  const resState = mod.preview({ statePath: missingState, queuePath: missingQueue });
+  assert(resState.statePath === missingState, "state error includes statePath");
+
+  const statePath = path.join(dir, "provider-pool.json");
+  writeJson(statePath, makeState());
+  const resQueue = mod.preview({ statePath, queuePath: missingQueue });
+  assert(resQueue.queuePath === missingQueue, "queue error includes queuePath");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// --- Preview: plan entries default null for missing optional fields ----------
+
+console.log("\nPreview: plan entry null defaults\n");
+
+{
+  const dir = tmpDir();
+  const statePath = path.join(dir, "provider-pool.json");
+  const queuePath = path.join(dir, "queue.json");
+
+  writeJson(statePath, makeState());
+  writeJson(queuePath, makeQueue([
+    { issueNumber: 1300, state: "queued" },
+  ]));
+
+  const res = mod.preview({ statePath, queuePath });
+  assert(res.ok === true, "preview ok");
+  assert(res.plan[0].conflictGroup === null, "missing conflictGroup defaults to null");
+  assert(res.plan[0].actorRole === null, "missing actorRole defaults to null");
+  assert(typeof res.plan[0].issueNumber === "number", "issueNumber is number");
+  assert(typeof res.plan[0].providerId === "string", "providerId is string");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// --- Execute: success output includes skipped --------------------------------
+
+console.log("\nExecute: success output includes skipped\n");
+
+{
+  const dir = tmpDir();
+  const statePath = path.join(dir, "provider-pool.json");
+  const queuePath = path.join(dir, "queue.json");
+
+  writeJson(statePath, makeState());
+  writeJson(queuePath, makeQueue([
+    { issueNumber: 1400, state: "queued", conflictGroup: "wave-e" },
+    { issueNumber: 1401, state: "queued", conflictGroup: "wave-e" },
+  ]));
+
+  const res = mod.execute({
+    statePath,
+    queuePath,
+    allowlist: [1400, 1401],
+    reason: "skipped check",
+  });
+
+  assert(res.ok === true, "execute ok");
+  assert(res.plan.length === 1, "1 planned (conflict dedup)");
+  assert(Array.isArray(res.skipped), "skipped is array");
+  assert(res.skipped.length === 1, "1 skipped for conflict");
+  assert(res.skipped[0].issueNumber === 1401, "skipped issue correct");
+  assert(typeof res.skipped[0].reason === "string", "skipped reason is string");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// --- Execute: no secrets in written batch plan file -------------------------
+
+console.log("\nExecute: no secrets in batch plan file\n");
+
+{
+  const dir = tmpDir();
+  const statePath = path.join(dir, "provider-pool.json");
+  const queuePath = path.join(dir, "queue.json");
+  const batchPath = path.join(dir, "batch-plan.json");
+
+  const state = {
+    providers: [
+      {
+        id: "prov-sec",
+        status: "available",
+        maxConcurrency: 2,
+        currentConcurrency: 0,
+        secret: "provider-s3cret",
+        apiKey: "pk-s3cret",
+        token: "tok-s3cret",
+      },
+    ],
+  };
+  writeJson(statePath, state);
+  writeJson(queuePath, makeQueue([
+    {
+      issueNumber: 1500,
+      state: "queued",
+      secret: "entry-s3cret",
+      token: "entry-tok",
+      apiKey: "entry-key",
+    },
+  ]));
+
+  const res = mod.execute({
+    statePath,
+    queuePath,
+    batchPath,
+    allowlist: [1500],
+    reason: "security check",
+  });
+
+  assert(res.ok === true, "execute ok");
+
+  const fileContent = fs.readFileSync(batchPath, "utf-8");
+  assert(!fileContent.includes("provider-s3cret"), "no provider secret in file");
+  assert(!fileContent.includes("pk-s3cret"), "no provider apiKey in file");
+  assert(!fileContent.includes("tok-s3cret"), "no provider token in file");
+  assert(!fileContent.includes("entry-s3cret"), "no entry secret in file");
+  assert(!fileContent.includes("entry-tok"), "no entry token in file");
+  assert(!fileContent.includes("entry-key"), "no entry apiKey in file");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// --- Execute: batch plan file capturedAt is ISO string ----------------------
+
+console.log("\nExecute: batch plan capturedAt shape\n");
+
+{
+  const dir = tmpDir();
+  const statePath = path.join(dir, "provider-pool.json");
+  const queuePath = path.join(dir, "queue.json");
+  const batchPath = path.join(dir, "batch-plan.json");
+
+  writeJson(statePath, makeState());
+  writeJson(queuePath, makeQueue([
+    { issueNumber: 1600, state: "queued" },
+  ]));
+
+  const res = mod.execute({
+    statePath,
+    queuePath,
+    batchPath,
+    allowlist: [1600],
+    reason: "timestamp check",
+  });
+
+  assert(res.ok === true, "execute ok");
+
+  const written = JSON.parse(fs.readFileSync(batchPath, "utf-8"));
+  assert(typeof written.capturedAt === "string", "capturedAt is string");
+  assert(!isNaN(Date.parse(written.capturedAt)), "capturedAt is valid ISO date");
+  assert(written.schemaVersion === 1, "schemaVersion is 1");
+  assert(Array.isArray(written.skipped), "batch plan has skipped array");
+  assert(written.plan[0].issueNumber === 1600, "plan entry preserved");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// --- Execute: empty plan returns skipped array ------------------------------
+
+console.log("\nExecute: empty plan returns skipped\n");
+
+{
+  const dir = tmpDir();
+  const statePath = path.join(dir, "provider-pool.json");
+  const queuePath = path.join(dir, "queue.json");
+
+  writeJson(statePath, { providers: [] });
+  writeJson(queuePath, makeQueue([
+    { issueNumber: 1700, state: "queued" },
+  ]));
+
+  const res = mod.execute({
+    statePath,
+    queuePath,
+    allowlist: [1700],
+    reason: "empty plan skipped check",
+  });
+
+  assert(res.ok === true, "execute ok with empty plan");
+  assert(res.plan.length === 0, "no planned issues");
+  assert(Array.isArray(res.skipped), "skipped is array");
+  assert(res.skipped.length === 1, "1 skipped");
+  assert(res.skipped[0].issueNumber === 1700, "skipped issue correct");
+  assert(res.skipped[0].reason.includes("No provider capacity"), "skipped reason mentions capacity");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// --- Preview: multiple providers with mixed capacity ------------------------
+
+console.log("\nPreview: mixed provider capacity assignment\n");
+
+{
+  const dir = tmpDir();
+  const statePath = path.join(dir, "provider-pool.json");
+  const queuePath = path.join(dir, "queue.json");
+
+  const state = {
+    providers: [
+      { id: "prov-a", status: "available", maxConcurrency: 1, currentConcurrency: 0 },
+      { id: "prov-b", status: "available", maxConcurrency: 2, currentConcurrency: 0 },
+    ],
+  };
+  writeJson(statePath, state);
+  writeJson(queuePath, makeQueue([
+    { issueNumber: 1800, state: "queued" },
+    { issueNumber: 1801, state: "queued" },
+    { issueNumber: 1802, state: "queued" },
+  ]));
+
+  const res = mod.preview({ statePath, queuePath });
+  assert(res.ok === true, "preview ok");
+  assert(res.plan.length === 3, "all 3 planned");
+  assert(res.plan[0].providerId === "prov-a", "first assigned to prov-a");
+  assert(res.plan[1].providerId === "prov-b", "second assigned to prov-b");
+  assert(res.plan[2].providerId === "prov-b", "third assigned to prov-b");
+  assert(res.capacity.availableProviders === 2, "2 providers counted");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// --- Preview: plan entry shape is consistent with all keys ------------------
+
+console.log("\nPreview: plan entry shape consistency\n");
+
+{
+  const dir = tmpDir();
+  const statePath = path.join(dir, "provider-pool.json");
+  const queuePath = path.join(dir, "queue.json");
+
+  writeJson(statePath, makeState());
+  writeJson(queuePath, makeQueue([
+    { issueNumber: 1900, state: "queued", conflictGroup: "wave-f", actorRole: "execution" },
+    { issueNumber: 1901, state: "queued" },
+  ]));
+
+  const res = mod.preview({ statePath, queuePath });
+  assert(res.ok === true, "preview ok");
+
+  const entryKeys = Object.keys(res.plan[0]).sort();
+  assert(entryKeys.join(",") === "actorRole,conflictGroup,issueNumber,providerId", "plan entry keys consistent");
+
+  const entryKeys2 = Object.keys(res.plan[1]).sort();
+  assert(entryKeys2.join(",") === "actorRole,conflictGroup,issueNumber,providerId", "plan entry keys consistent for defaults");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 // --- Summary -----------------------------------------------------------------
 
 console.log("\n" + passed + " passed, " + failed + " failed\n");
