@@ -1,0 +1,186 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/provider-assignment-state.schema.json",
+  "title": "ProviderAssignmentState",
+  "description": "Maps active workers to provider slots and records quota state for scheduling decisions. Written by the launcher after worker dispatch and read by the launch gate and monitoring. See docs/ai-native/provider-assignment-state-schema.md for field-level documentation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "capturedAt",
+    "assignments",
+    "providers",
+    "global"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version pinned to 1. Consumers must reject records with a different version."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this assignment snapshot was captured."
+    },
+    "assignments": {
+      "type": "array",
+      "description": "Active worker-to-provider assignments. Each entry represents one running worker assigned to a provider slot.",
+      "items": {
+        "$ref": "#/definitions/Assignment"
+      }
+    },
+    "providers": {
+      "type": "array",
+      "description": "Per-provider state including capacity, quota status, and assigned worker count.",
+      "items": {
+        "$ref": "#/definitions/ProviderState"
+      }
+    },
+    "global": {
+      "$ref": "#/definitions/GlobalSummary",
+      "description": "Aggregate assignment and capacity summary across all providers."
+    }
+  },
+  "definitions": {
+    "Assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskId",
+        "providerId",
+        "assignedAt"
+      ],
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique identifier for the worker task, matching the heartbeat taskId."
+        },
+        "providerId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider the worker is assigned to, matching a provider id in provider-pool-policy.json."
+        },
+        "assignedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the worker was assigned to this provider."
+        },
+        "issueNumber": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "GitHub issue number this task targets, if applicable."
+        },
+        "prNumber": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "GitHub pull request number produced by this task, if applicable."
+        },
+        "taskType": {
+          "type": "string",
+          "enum": ["execution", "research", "review"],
+          "description": "Type of task from the task contract."
+        },
+        "actorRole": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Role that is performing the work, from the task contract rolePacket."
+        }
+      }
+    },
+    "ProviderState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "providerId",
+        "status",
+        "assignedWorkerCount",
+        "maxConcurrency"
+      ],
+      "properties": {
+        "providerId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider identifier, matching a provider id in provider-pool-policy.json."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["available", "exhausted", "disabled"],
+          "description": "Current provider status. available = has capacity, exhausted = quota/rate limit hit, disabled = auth failure or manual disable."
+        },
+        "assignedWorkerCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of workers currently assigned to this provider."
+        },
+        "maxConcurrency": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum concurrent workers allowed on this provider, from provider-pool-policy.json."
+        },
+        "quotaState": {
+          "type": "string",
+          "enum": ["healthy", "approaching_limit", "exhausted", "unknown"],
+          "description": "Quota health signal. healthy = well within limits, approaching_limit = near capacity, exhausted = quota hit, unknown = no signal."
+        },
+        "lastQuotaCheckAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 timestamp of the last quota state check for this provider."
+        },
+        "cooldownExpiresAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the exhaustion cooldown expires. Null when not in cooldown."
+        },
+        "consecutiveFailures": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of consecutive failures on this provider. Resets to 0 on successful assignment."
+        }
+      }
+    },
+    "GlobalSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "totalActiveAssignments",
+        "totalAvailableSlots",
+        "totalMaxConcurrency"
+      ],
+      "properties": {
+        "totalActiveAssignments": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of active worker assignments across all providers."
+        },
+        "totalAvailableSlots": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total remaining capacity across available providers (sum of maxConcurrency minus assignedWorkerCount for available providers)."
+        },
+        "totalMaxConcurrency": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Global maximum worker concurrency from provider-pool-policy.json."
+        },
+        "availableProviders": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of providers with status=available."
+        },
+        "exhaustedProviders": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of providers with status=exhausted."
+        },
+        "disabledProviders": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of providers with status=disabled."
+        }
+      }
+    }
+  }
+}
