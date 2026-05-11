@@ -1,0 +1,208 @@
+{
+  "policyVersion": 1,
+  "description": "Controls what the provider management UI may display or mutate. API keys are local-only and never surfaced through the UI. This policy governs read and write boundaries for any provider dashboard, CLI tool, or orchestrator surface that exposes provider pool state.",
+  "sourceDocs": [
+    "docs/ai-native/provider-pool.md",
+    "docs/ai-native/provider-pool-guard.md",
+    ".github/ai-policy/provider-pool-policy.json"
+  ],
+
+  "displayPolicy": {
+    "allowed": [
+      {
+        "field": "provider.id",
+        "visibility": "full",
+        "notes": "Provider identifier is safe to display."
+      },
+      {
+        "field": "provider.label",
+        "visibility": "full",
+        "notes": "Human-readable label for the provider."
+      },
+      {
+        "field": "provider.status",
+        "visibility": "full",
+        "notes": "One of: available, exhausted, disabled."
+      },
+      {
+        "field": "provider.currentConcurrency",
+        "visibility": "full",
+        "notes": "Number of active workers on this provider."
+      },
+      {
+        "field": "provider.maxConcurrency",
+        "visibility": "full",
+        "notes": "Concurrency cap for this provider."
+      },
+      {
+        "field": "provider.cooldownExpiresAt",
+        "visibility": "full",
+        "notes": "ISO 8601 timestamp when cooldown ends. Null if not in cooldown."
+      },
+      {
+        "field": "provider.lastFailureClass",
+        "visibility": "full",
+        "notes": "One of: exhaustion, auth, runtime, null."
+      },
+      {
+        "field": "global.globalMaxWorkers",
+        "visibility": "full",
+        "notes": "Hard ceiling on total concurrent workers."
+      },
+      {
+        "field": "global.activeWorkers",
+        "visibility": "full",
+        "notes": "Total workers currently running across all providers."
+      },
+      {
+        "field": "global.availableProviders",
+        "visibility": "full",
+        "notes": "Count of providers with available capacity."
+      },
+      {
+        "field": "concurrency.providerSelectionStrategy",
+        "visibility": "full",
+        "notes": "How the next provider is chosen (e.g. least-loaded)."
+      },
+      {
+        "field": "exhaustion.triggers",
+        "visibility": "full",
+        "notes": "Trigger conditions and cooldown durations."
+      }
+    ],
+    "forbidden": [
+      {
+        "field": "provider.secret",
+        "reason": "API keys, tokens, and credentials must never be displayed in any UI surface."
+      },
+      {
+        "field": "provider.sourcePath",
+        "reason": "Local filesystem paths to credential stores must not be exposed."
+      },
+      {
+        "field": "raw-api-response",
+        "reason": "Provider responses may contain account identifiers or billing details."
+      },
+      {
+        "field": "env.ANTHROPIC_API_KEY",
+        "reason": "Environment variable secrets must not be read or displayed by the UI."
+      }
+    ]
+  },
+
+  "mutationPolicy": {
+    "allowed": [
+      {
+        "action": "disable-provider",
+        "target": "provider.status",
+        "newValue": "disabled",
+        "requiresConfirmation": true,
+        "notes": "Manually disable a provider. Sets status to disabled. Cannot be auto-recovered."
+      },
+      {
+        "action": "enable-provider",
+        "target": "provider.status",
+        "newValue": "available",
+        "requiresConfirmation": true,
+        "precondition": "Provider must not have an active auth failure.",
+        "notes": "Re-enable a manually disabled provider. Blocked if lastFailureClass is auth."
+      },
+      {
+        "action": "reset-cooldown",
+        "target": "provider.cooldownExpiresAt",
+        "newValue": null,
+        "requiresConfirmation": true,
+        "notes": "Clear an active cooldown. Provider becomes available immediately."
+      },
+      {
+        "action": "adjust-max-concurrency",
+        "target": "provider.maxConcurrency",
+        "validation": "Must be a positive integer. Must not exceed globalMaxWorkers.",
+        "requiresConfirmation": true,
+        "notes": "Change per-provider concurrency cap. Affects next dispatch only."
+      },
+      {
+        "action": "adjust-global-max-workers",
+        "target": "concurrency.globalMaxWorkers",
+        "validation": "Must be a positive integer. Must be >= sum of all provider maxConcurrency values that are active.",
+        "requiresConfirmation": true,
+        "notes": "Change the global worker ceiling. Affects next dispatch only."
+      }
+    ],
+    "forbidden": [
+      {
+        "action": "set-secret",
+        "target": "provider.secret",
+        "reason": "Secrets must never be written through the UI. Configure locally via env vars, credential manager, or ~/.claude."
+      },
+      {
+        "action": "modify-source",
+        "target": "provider.source",
+        "reason": "Secret source type is a policy decision, not a runtime toggle."
+      },
+      {
+        "action": "add-provider",
+        "target": "providers[]",
+        "reason": "Adding a provider requires updating policy file, state file, and local secret configuration. Not a UI operation."
+      },
+      {
+        "action": "remove-provider",
+        "target": "providers[]",
+        "reason": "Removing a provider requires policy file update and orchestrator coordination. Not a UI operation."
+      },
+      {
+        "action": "modify-failure-classification",
+        "target": "failureClassification",
+        "reason": "Failure patterns are policy-level decisions. UI must not alter classification rules."
+      },
+      {
+        "action": "modify-exhaustion-triggers",
+        "target": "exhaustion.triggers",
+        "reason": "Cooldown durations and trigger conditions are policy-level decisions."
+      }
+    ]
+  },
+
+  "securityModel": {
+    "secretHandling": "never-display-never-store",
+    "rules": [
+      "API keys are injected from local-only sources (env vars, credential manager, ~/.claude).",
+      "The UI reads provider state from .github/ai-state/provider-pool.json, which never contains secrets.",
+      "The UI writes mutation commands back to the state file or emits control events — never to the policy file.",
+      "Secrets are never logged, cached, or transmitted by the UI layer.",
+      "The UI does not proxy API calls to the provider. Workers handle their own API traffic."
+    ],
+    "auditTrail": {
+      "enabled": true,
+      "logMutations": true,
+      "logPath": "provider-ui-audit.ndjson",
+      "fields": ["timestamp", "action", "target", "actor", "previousValue", "newValue"],
+      "notes": "All mutations are logged for traceability. Logs never contain secrets."
+    }
+  },
+
+  "uiBoundaries": {
+    "readsFrom": [
+      ".github/ai-policy/provider-pool-policy.json",
+      ".github/ai-state/provider-pool.json"
+    ],
+    "writesTo": [
+      ".github/ai-state/provider-pool.json"
+    ],
+    "neverWritesTo": [
+      ".github/ai-policy/provider-pool-policy.json",
+      ".env",
+      ".env.*",
+      "src/**",
+      "prisma/**",
+      "package.json"
+    ],
+    "notes": "The UI is a state consumer and limited state mutator. It never modifies policy files, source code, or secrets."
+  },
+
+  "metadata": {
+    "createdAt": "2026-05-11",
+    "issue": 554,
+    "maintainer": "ai-policy-worker"
+  }
+}
