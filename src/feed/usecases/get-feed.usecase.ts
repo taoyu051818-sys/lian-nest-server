@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { FeedQueryDto, FeedResponseDto } from '../dto';
+import { FeedQueryDto, FeedResponseDto, FeedItemDto } from '../dto';
+import { NodebbTopicsProvider } from '../../nodebb/providers/nodebb-topics.provider';
+import { NodebbPostsProvider } from '../../nodebb/providers/nodebb-posts.provider';
+import { NodebbUsersProvider } from '../../nodebb/providers/nodebb-users.provider';
+import { BodyStatus } from '../../nodebb/types';
 
 export interface GetFeedInput extends FeedQueryDto {
   userId: number;
@@ -7,13 +11,60 @@ export interface GetFeedInput extends FeedQueryDto {
 
 @Injectable()
 export class GetFeedUsecase {
-  async execute(_input: GetFeedInput): Promise<FeedResponseDto> {
-    // TODO(#33): Implement feed retrieval via repository.
-    // Steps:
-    //   1. Resolve followed channels/users for the requesting user.
-    //   2. Query post metadata repository for recent posts.
-    //   3. Enrich with author info (NodebbUsersProvider or cache).
-    //   4. Paginate and return.
-    throw new Error('GetFeedUsecase not implemented');
+  constructor(
+    private readonly topicsProvider: NodebbTopicsProvider,
+    private readonly postsProvider: NodebbPostsProvider,
+    private readonly usersProvider: NodebbUsersProvider,
+  ) {}
+
+  async execute(input: GetFeedInput): Promise<FeedResponseDto> {
+    const page = input.page ?? 1;
+    const perPage = input.perPage ?? 20;
+
+    const topicsRes = await this.topicsProvider.list({ page });
+
+    if (topicsRes.status !== BodyStatus.OK || !topicsRes.data) {
+      return { items: [], totalCount: 0, page, perPage };
+    }
+
+    const topics = topicsRes.data.topics;
+    if (topics.length === 0) {
+      return { items: [], totalCount: 0, page, perPage };
+    }
+
+    const items: FeedItemDto[] = await Promise.all(
+      topics.map((topic) => this.mapTopicToFeedItem(topic)),
+    );
+
+    return {
+      items,
+      totalCount: items.length,
+      page,
+      perPage,
+    };
+  }
+
+  private async mapTopicToFeedItem(topic: {
+    tid: number;
+    uid: number;
+    title: string;
+    mainPid: number;
+    timestamp: number;
+  }): Promise<FeedItemDto> {
+    const [postRes, userRes] = await Promise.all([
+      this.postsProvider.getByPid(topic.mainPid),
+      this.usersProvider.getByUid(topic.uid),
+    ]);
+
+    return {
+      id: `t${topic.tid}`,
+      postId: topic.mainPid,
+      topicId: topic.tid,
+      title: topic.title,
+      snippet: postRes.data?.content?.substring(0, 200) ?? '',
+      authorUid: topic.uid,
+      authorUsername: userRes.data?.username ?? 'unknown',
+      createdAt: new Date(topic.timestamp * 1000).toISOString(),
+    };
   }
 }

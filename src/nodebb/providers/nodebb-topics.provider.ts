@@ -2,6 +2,10 @@ import { Inject, Injectable } from '@nestjs/common';
 import { NodebbClient, NODEBB_CLIENT } from '../nodebb-client';
 import { NodebbAuth, NodebbNormalizedResponse, NodebbTopic } from '../types';
 
+export interface NodebbTopicsListResponse {
+  topics: NodebbTopic[];
+}
+
 @Injectable()
 export class NodebbTopicsProvider {
   constructor(
@@ -13,6 +17,17 @@ export class NodebbTopicsProvider {
     auth?: NodebbAuth,
   ): Promise<NodebbNormalizedResponse<NodebbTopic>> {
     return this.client.get<NodebbTopic>(`/api/v3/topics/${tid}`, auth);
+  }
+
+  async list(
+    options?: { page?: number },
+    auth?: NodebbAuth,
+  ): Promise<NodebbNormalizedResponse<NodebbTopicsListResponse>> {
+    const params = new URLSearchParams();
+    if (options?.page != null) params.set('page', String(options.page));
+    const qs = params.toString();
+    const path = qs ? `/api/v3/topics?${qs}` : '/api/v3/topics';
+    return this.client.get<NodebbTopicsListResponse>(path, auth);
   }
 
   async create(
