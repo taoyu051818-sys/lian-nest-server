@@ -5,6 +5,7 @@ import { PostsService } from './posts.service';
 
 const mockPostsService = {
   getPostDetail: jest.fn(),
+  listReplies: jest.fn(),
 };
 
 describe('PostsController', () => {
@@ -97,10 +98,14 @@ describe('PostsController', () => {
   // ---- Replies -------------------------------------------------------------
 
   describe('listReplies', () => {
-    it('should throw NotImplementedException', () => {
-      expect(() => controller.listReplies('1', {})).toThrow(
-        NotImplementedException,
-      );
+    it('should delegate to PostsService.listReplies', async () => {
+      const mockResult = { items: [], totalCount: 0, page: 1, perPage: 20 };
+      mockPostsService.listReplies.mockResolvedValue(mockResult);
+
+      const result = await controller.listReplies('42', { page: 1, perPage: 20 });
+
+      expect(mockPostsService.listReplies).toHaveBeenCalledWith('42', { page: 1, perPage: 20 });
+      expect(result).toBe(mockResult);
     });
   });
 

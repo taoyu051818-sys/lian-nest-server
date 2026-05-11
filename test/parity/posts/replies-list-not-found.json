@@ -1,0 +1,21 @@
+{
+  "id": "replies-list-not-found",
+  "endpoint": "GET /api/posts/:postId/replies",
+  "description": "Replies list for a non-existent postId returns 404",
+  "request": {
+    "method": "GET",
+    "path": "/api/posts/999999999/replies",
+    "params": { "postId": "999999999" },
+    "query": { "page": 1, "perPage": 20 }
+  },
+  "expected": {
+    "status": 404,
+    "contentType": "application/json",
+    "body": {
+      "statusCode": 404,
+      "error": "Not Found",
+      "code": "NOT_FOUND"
+    }
+  },
+  "notes": "Same 404 behavior as post-detail-not-found. Invalid or non-existent postId returns NotFoundException."
+}

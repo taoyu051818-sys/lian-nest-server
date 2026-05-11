@@ -5,6 +5,7 @@ import { NodebbPostsProvider, NodebbTopicsProvider, BodyStatus } from '../nodebb
 
 const mockPostsProvider = {
   getByPid: jest.fn(),
+  getByTid: jest.fn(),
 };
 
 const mockTopicsProvider = {
@@ -224,10 +225,106 @@ describe('PostsService', () => {
   // ---- Replies (stubs) -----------------------------------------------------
 
   describe('listReplies', () => {
-    it('should throw NotImplementedException', () => {
-      expect(() => service.listReplies('1', {})).toThrow(
-        NotImplementedException,
+    const parentPost = {
+      pid: 42,
+      tid: 10,
+      uid: 5,
+      content: 'Parent post',
+      timestamp: 1700000000,
+    };
+
+    it('should return mapped replies for a valid post', async () => {
+      mockPostsProvider.getByPid.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: parentPost,
+        error: null,
+      });
+      mockPostsProvider.getByTid.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: {
+          posts: [
+            parentPost,
+            { pid: 43, tid: 10, uid: 6, content: 'Reply 1', timestamp: 1700000100 },
+            { pid: 44, tid: 10, uid: 7, content: 'Reply 2', timestamp: 1700000200, edited: 1700000300 },
+          ],
+          postcount: 3,
+        },
+        error: null,
+      });
+
+      const result = await service.listReplies('42', { page: 1, perPage: 20 });
+
+      expect(result.items).toHaveLength(2);
+      expect(result.items[0].id).toBe('43');
+      expect(result.items[0].postId).toBe('42');
+      expect(result.items[0].content).toBe('Reply 1');
+      expect(result.items[0].author.uid).toBe(6);
+      expect(result.items[1].id).toBe('44');
+      expect(result.items[1].updatedAt).toBeDefined();
+      expect(result.totalCount).toBe(2);
+      expect(result.page).toBe(1);
+      expect(result.perPage).toBe(20);
+    });
+
+    it('should return empty items when topic has no posts', async () => {
+      mockPostsProvider.getByPid.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: parentPost,
+        error: null,
+      });
+      mockPostsProvider.getByTid.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { posts: [], postcount: 1 },
+        error: null,
+      });
+
+      const result = await service.listReplies('42', {});
+
+      expect(result.items).toHaveLength(0);
+      expect(result.totalCount).toBe(0);
+    });
+
+    it('should throw NotFoundException for invalid postId', async () => {
+      await expect(service.listReplies('abc', {})).rejects.toThrow(
+        NotFoundException,
       );
+    });
+
+    it('should throw NotFoundException when parent post not found', async () => {
+      mockPostsProvider.getByPid.mockResolvedValue({
+        status: BodyStatus.NOT_FOUND,
+        statusCode: 404,
+        data: null,
+        error: 'not found',
+      });
+
+      await expect(service.listReplies('999', {})).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('should return empty when topic fetch fails', async () => {
+      mockPostsProvider.getByPid.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: parentPost,
+        error: null,
+      });
+      mockPostsProvider.getByTid.mockResolvedValue({
+        status: BodyStatus.NOT_FOUND,
+        statusCode: 404,
+        data: null,
+        error: 'not found',
+      });
+
+      const result = await service.listReplies('42', {});
+
+      expect(result.items).toHaveLength(0);
+      expect(result.totalCount).toBe(0);
     });
   });
 
