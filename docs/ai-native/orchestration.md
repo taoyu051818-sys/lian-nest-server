@@ -17,8 +17,10 @@ task.json → batch-launch.ps1 → launch gate → git worktree → run-claude-p
 | `scripts/ai/batch-launch.ps1` | Entry point — validates task, runs launch gate, creates worktree, launches worker |
 | `scripts/ai/check-launch-gate.ps1` | Pre-launch gate — validates tasks against main health and conflict metadata |
 | `scripts/ai/run-claude-print.ps1` | Worker runner — invokes Claude Code with constrained tools |
+| `scripts/ai/worktree-janitor.ps1` | Dry-run janitor — classifies and optionally removes stale worktrees |
 | `scripts/ai/task.schema.json` | JSON Schema for task contracts |
 | `docs/ai-native/orchestration.md` | This file |
+| `docs/ai-native/local-ops-doctor.md` | Local ops diagnostics and manual cleanup steps |
 
 ## Task Contract
 
@@ -85,6 +87,20 @@ Creates worktrees and runs workers sequentially. The launcher enforces:
 ```
 
 Runs the worker directly against an existing worktree.
+
+### Worktree Janitor
+
+```powershell
+# Dry-run report (default)
+./scripts/ai/worktree-janitor.ps1
+
+# Remove merged worktrees only
+./scripts/ai/worktree-janitor.ps1 -RemoveMerged
+```
+
+Classifies `.claude/worktrees/` entries as merged, dirty, stale, or active.
+Default mode is dry-run — no deletions. See [local-ops-doctor.md](local-ops-doctor.md)
+for manual cleanup steps.
 
 ## Task JSON Examples
 
