@@ -46,6 +46,11 @@ closure procedure (steps 7 onward: merge queue, health gate, next wave).
 
 Workers receive a JSON contract specifying exact boundaries. See [worker-task-contract.md](worker-task-contract.md).
 
+## Backend Worker Layers
+
+Backend workers are organized into layers with defined launch order and
+parallelism rules. See [backend-worker-layers.md](backend-worker-layers.md).
+
 ## PR Review Gate
 
 Every PR must pass the review gate before merge. See [pr-review-gate.md](pr-review-gate.md).
