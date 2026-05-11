@@ -64,6 +64,26 @@ with each other and with code tasks, provided no file overlap exists.
 If two tasks touch the same file, they are in the same conflict group — even if
 the semantic dependency is unclear. The orchestrator MUST NOT launch them in parallel.
 
+### Rule 5: Shared Locks for Common Resources
+
+Tasks may declare a `sharedLocks` array to claim fine-grained locks on common
+resources (e.g. `package`, `prisma-schema`, `app-module`, `docs-index`). The
+boundary guard uses these declarations to allow access to files that would
+otherwise be forbidden or outside `allowedFiles`.
+
+If two tasks in the same batch claim the same lock, the launch gate flags a
+conflict. This extends the conflict group model to allow coordinated access to
+shared files without broader boundary relaxation.
+
+**Supported lock names and their file patterns:**
+
+| Lock name | Files |
+|-----------|-------|
+| `package` | `package.json`, `package-lock.json` |
+| `prisma-schema` | `prisma/**` |
+| `app-module` | `src/app.module.ts` |
+| `docs-index` | `docs/**/*.md` |
+
 ---
 
 ## Coordinator Responsibilities
