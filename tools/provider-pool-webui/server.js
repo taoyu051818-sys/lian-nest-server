@@ -20,6 +20,7 @@ const REPO_ROOT = path.resolve(__dirname, "../..");
 const POLICY_PATH = path.join(REPO_ROOT, ".github/ai-policy/provider-pool-policy.json");
 const STATE_PATH = path.join(REPO_ROOT, ".github/ai-state/provider-pool.json");
 const QUEUE_STATE_PATH = path.join(REPO_ROOT, ".github/ai-state/webui-queue-state.json");
+const PLANNING_CONSOLE_PATH = path.join(REPO_ROOT, ".github/ai-state/webui-planning-console.json");
 const ACTIONS_DIR = path.join(__dirname, "actions");
 const AUDIT_PATH = path.join(__dirname, ".audit-log.json");
 
@@ -43,11 +44,12 @@ ENDPOINTS
   GET /api/workers        Active worker slots derived from provider state
   GET /api/resources      Concurrency utilization and headroom
   GET /api/queue          Queue state projection (empty if no file)
+  GET /api/planning       Planning console state (empty if no file)
   GET /api/health         Server health check
   GET /api/actions        List available action modules
   POST /api/actions/preview  Preview an action (dry-run, no side effects)
   POST /api/actions/execute  Execute an action (requires confirmation for dangerous)
-  GET /api/audit          View action execution audit trail
+  GET /api/audit          View action execution audit trail (supports ?actionId=...&status=...&limit=N)
 
 DESCRIPTION
   Local-only HTTP server for viewing provider pool state and policy.
@@ -428,6 +430,24 @@ function handleRequest(req, res) {
     return;
   }
 
+  if (route === "/api/planning") {
+    const planning = readJsonFile(PLANNING_CONSOLE_PATH);
+    if (!planning) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        schemaVersion: 1,
+        capturedAt: null,
+        candidates: [],
+        summary: { ready: 0, blocked: 0, done: 0, total: 0 },
+      }));
+      return;
+    }
+    const sanitized = sanitizeObject(planning);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(sanitized, null, 2));
+    return;
+  }
+
   // --- Action endpoints -------------------------------------------------------
 
   if (route === "/api/actions" && req.method === "GET") {
@@ -556,9 +576,48 @@ function handleRequest(req, res) {
   }
 
   if (route === "/api/audit" && req.method === "GET") {
-    const log = readAuditLog();
+    let log = readAuditLog();
+    const params = url.searchParams;
+
+    // Apply filters
+    const actionIdFilter = params.get("actionId");
+    const statusFilter = params.get("status");
+    const limitParam = params.get("limit");
+
+    if (actionIdFilter) {
+      log = log.filter((entry) => entry.actionId === actionIdFilter);
+    }
+
+    if (statusFilter) {
+      log = log.filter((entry) => entry.status === statusFilter);
+    }
+
+    // Apply limit (capped at 500 for safety)
+    const MAX_LIMIT = 500;
+    let limit = log.length;
+    if (limitParam !== null) {
+      const parsedLimit = Number(limitParam);
+      if (!Number.isInteger(parsedLimit) || parsedLimit < 1) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Invalid limit parameter" }));
+        return;
+      }
+      limit = Math.min(parsedLimit, MAX_LIMIT);
+    }
+
+    const filtered = log.slice(0, limit);
+    const filters = {};
+    if (actionIdFilter) filters.actionId = actionIdFilter;
+    if (statusFilter) filters.status = statusFilter;
+    if (limitParam !== null) filters.limit = limit;
+
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ entries: log, total: log.length }, null, 2));
+    res.end(JSON.stringify({
+      entries: filtered,
+      total: filtered.length,
+      unfilteredTotal: readAuditLog().length,
+      filters: Object.keys(filters).length > 0 ? filters : undefined,
+    }, null, 2));
     return;
   }
 
@@ -582,6 +641,7 @@ server.listen(args.port, "127.0.0.1", () => {
     `  Workers API: http://127.0.0.1:${addr.port}/api/workers\n` +
     `  Resources:   http://127.0.0.1:${addr.port}/api/resources\n` +
     `  Queue:       http://127.0.0.1:${addr.port}/api/queue\n` +
+    `  Planning:    http://127.0.0.1:${addr.port}/api/planning\n` +
     `  Actions:     http://127.0.0.1:${addr.port}/api/actions\n` +
     `  Audit:       http://127.0.0.1:${addr.port}/api/audit\n` +
     `  Health:      http://127.0.0.1:${addr.port}/api/health\n`

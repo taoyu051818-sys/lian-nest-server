@@ -1492,6 +1492,112 @@ tr.row-disabled td {
   background: var(--surface-border);
 }
 
+/* --- Action Forms (Server Module Integration) --- */
+
+.action-form {
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--surface-border);
+}
+
+.action-form__field {
+  margin-bottom: var(--sp-2);
+}
+
+.action-form__field:last-child {
+  margin-bottom: 0;
+}
+
+.action-form__label {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-1);
+}
+
+.action-form__select,
+.action-form__input {
+  width: 100%;
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--surface-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  transition: border-color var(--transition-fast);
+}
+
+.action-form__textarea {
+  width: 100%;
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--surface-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  resize: vertical;
+  min-height: 48px;
+  transition: border-color var(--transition-fast);
+}
+
+.action-form__select:focus,
+.action-form__input:focus,
+.action-form__textarea:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 1px var(--accent-blue-bg);
+}
+
+.action-form__select option {
+  background: var(--surface-bg);
+  color: var(--text-primary);
+}
+
+/* Server action card variant */
+
+.action-card--server {
+  border-left: 3px solid var(--accent-blue);
+}
+
+.action-card__badges {
+  display: flex;
+  gap: var(--sp-1);
+  align-items: center;
+}
+
+/* Server action result container */
+
+.server-action-result {
+  margin-top: var(--sp-2);
+}
+
+.execute-result__payload {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: var(--sp-2);
+  margin-top: var(--sp-2);
+  background: var(--surface-bg);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--surface-border);
+  line-height: 1.6;
+}
+
+/* Server audit row highlight */
+
+.audit-row--server {
+  background: rgba(96, 165, 250, 0.04);
+}
+
 /* --- Action Console Responsive --- */
 
 @media (max-width: 768px) {
@@ -1505,5 +1611,9 @@ tr.row-disabled td {
 
   .audit-entry::before {
     left: calc(-1 * var(--sp-4) + 0px);
+  }
+
+  .action-form__textarea {
+    min-height: 64px;
   }
 }
