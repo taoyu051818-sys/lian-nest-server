@@ -1,0 +1,192 @@
+{
+  "policyVersion": 1,
+  "description": "Machine-readable launch policy controlling worker scheduling based on main branch health and lock-aware conflict resolution.",
+  "sourceDocs": [
+    "docs/ai-native/main-health-policy.md",
+    "docs/ai-native/launch-gate.md",
+    "docs/ai-native/parallel-work-policy.md",
+    "docs/ai-native/worker-task-contract.md"
+  ],
+
+  "healthStates": {
+    "green": {
+      "label": "Healthy",
+      "gateResult": "All checks pass",
+      "meaning": "Main is healthy. All worker types may launch."
+    },
+    "yellow": {
+      "label": "Degraded",
+      "gateResult": "Non-critical failure (test env flake, boundary guard warning)",
+      "meaning": "Main has a known issue that does not block source compilation. Limited worker types may launch."
+    },
+    "red": {
+      "label": "Broken",
+      "gateResult": "Critical failure (build broken, type-check fails, Prisma schema invalid)",
+      "meaning": "Main is broken. Only recovery workers may launch."
+    },
+    "black": {
+      "label": "Unrecoverable",
+      "gateResult": "Manual intervention required",
+      "meaning": "Main is in an unrecoverable state. No automated workers may launch."
+    }
+  },
+
+  "workerTypes": {
+    "runtime-feature": {
+      "description": "NestJS source, API endpoints, services",
+      "classification": {
+        "explicitField": "mainHealthPolicy = gate-all",
+        "heuristic": "allowedFiles includes src/ (not high-risk foundation)"
+      }
+    },
+    "foundation-fix": {
+      "description": "Dependency, Prisma, build config repairs",
+      "classification": {
+        "explicitField": "mainHealthPolicy = gate-all AND risk = high AND allowedFiles in src/prisma|src/generated|src/database",
+        "heuristic": "allowedFiles includes src/ AND risk = high"
+      }
+    },
+    "docs": {
+      "description": "Documentation, contracts, policy files",
+      "classification": {
+        "explicitField": "mainHealthPolicy = gate-docs-only",
+        "heuristic": "allowedFiles exclusively under docs/"
+      }
+    },
+    "health-repair": {
+      "description": "Health gate, CI repair, diagnostics",
+      "classification": {
+        "explicitField": "mainHealthPolicy = gate-all AND allowedFiles in scripts/",
+        "heuristic": "allowedFiles exclusively under scripts/ (no src/)"
+      }
+    },
+    "test-only": {
+      "description": "Add or fix tests, no source change",
+      "classification": {
+        "heuristic": "allowedFiles exclusively under test/"
+      }
+    },
+    "research": {
+      "description": "Read-only exploration and reporting",
+      "classification": {
+        "explicitField": "mainHealthPolicy = gate-none",
+        "heuristic": "taskType = research"
+      }
+    }
+  },
+
+  "launchPermissionMatrix": {
+    "description": "Which worker types may launch in each health state.",
+    "matrix": {
+    "green": ["runtime-feature", "foundation-fix", "docs", "health-repair", "test-only", "research"],
+    "yellow": ["foundation-fix", "docs", "health-repair", "research"],
+    "red": ["foundation-fix", "health-repair", "research"],
+    "black": []
+    },
+    "rationale": {
+      "runtime-feature": "Requires green main because changes must compile and pass tests on a healthy base.",
+      "foundation-fix": "Allowed in all non-black states to repair broken state.",
+      "docs": "Allowed in yellow because docs cannot worsen a build failure.",
+      "health-repair": "Always allowed (except black) — blocking would create deadlock where main stays broken.",
+      "test-only": "Blocked in red because test failures may mask the real breakage.",
+      "research": "Read-only, cannot worsen any state."
+    }
+  },
+
+  "conflictGroups": {
+    "enforcement": "Tasks in the same conflict group MUST NOT run in parallel.",
+    "docsExemption": "Tasks whose allowedFiles are exclusively under docs/ are exempt from duplicate-group rejection.",
+    "groups": {
+      "auth-core": { "tasks": ["A1", "A2", "A3", "A4", "A5", "A6"], "reason": "Serial chain, each builds on the previous" },
+      "posts": { "tasks": ["P1", "P2", "P3", "P4"], "reason": "P2-P4 depend on P1, share posts.service.ts" },
+      "feed": { "tasks": ["F1"], "reason": "Independent after A2" },
+      "messages": { "tasks": ["M1"], "reason": "Independent after A2" },
+      "notifications": { "tasks": ["N1"], "reason": "Independent after A2" },
+      "profile": { "tasks": ["PR1"], "reason": "Independent after A2" },
+      "runtime-foundation": { "tasks": ["foundation worker"], "reason": "Prisma/DB bootstrap, must complete first" },
+      "health-diagnostics": { "tasks": ["health gate worker"], "reason": "CI diagnostics, depends on foundation" },
+      "ai-native-docs": { "tasks": ["docs workers"], "reason": "Docs-only, low conflict" },
+      "migration-docs": { "tasks": ["migration matrix", "acceptance checklist"], "reason": "Docs-only, low conflict" },
+      "appmodule-wire-search": { "sharedLocks": ["app-module"], "reason": "Shared lock: app-module" },
+      "appmodule-wire-groups": { "sharedLocks": ["app-module"], "reason": "Shared lock: app-module" },
+      "appmodule-wire-topics": { "sharedLocks": ["app-module"], "reason": "Shared lock: app-module" }
+    }
+  },
+
+  "sharedLocks": {
+    "description": "Fine-grained locks on common resources. Tasks claiming the same lock cannot run in parallel.",
+    "locks": {
+      "package": {
+        "files": ["package.json", "package-lock.json"],
+        "rule": "Single-writer: only one task may modify package files at a time."
+      },
+      "prisma-schema": {
+        "files": ["prisma/**"],
+        "rule": "Single-writer: only one task may modify Prisma schema at a time."
+      },
+      "app-module": {
+        "files": ["src/app.module.ts"],
+        "rule": "Single-writer: NestJS module imports are a flat list with positional merge semantics. Two workers wiring different modules produce last-write-wins conflict."
+      },
+      "docs-index": {
+        "files": ["docs/**/*.md"],
+        "rule": "Low-conflict: docs-only tasks may share this lock if no file overlap."
+      }
+    }
+  },
+
+  "timeoutDefaults": {
+    "description": "Default budget values by worker type. Task JSON may override.",
+    "byWorkerType": {
+      "foundation-fix": { "softTimeMinutes": 20, "hardTimeMinutes": 40, "maxExtensionMinutes": 15 },
+      "health-repair": { "softTimeMinutes": 25, "hardTimeMinutes": 50, "maxExtensionMinutes": 10 },
+      "docs": { "softTimeMinutes": 20, "hardTimeMinutes": 40, "maxExtensionMinutes": 10 },
+      "runtime-feature": { "softTimeMinutes": 30, "hardTimeMinutes": 60, "maxExtensionMinutes": 15 },
+      "test-only": { "softTimeMinutes": 20, "hardTimeMinutes": 40, "maxExtensionMinutes": 10 },
+      "research": { "softTimeMinutes": 15, "hardTimeMinutes": 30, "maxExtensionMinutes": 10 }
+    }
+  },
+
+  "dependencyFacts": {
+    "description": "Default blockedBy chains by worker type. Task JSON may override.",
+    "chains": {
+      "foundation-fix": [],
+      "health-repair": ["foundation-fix"],
+      "docs": ["foundation-fix", "health-repair"],
+      "runtime-feature": ["foundation-fix", "health-repair", "docs"],
+      "test-only": ["foundation-fix", "health-repair"],
+      "research": []
+    }
+  },
+
+  "postMergeStopConditions": {
+    "description": "Actions the orchestrator MUST take when health gate fails after a merge.",
+    "steps": [
+      "Classify the failure using post-merge-health-gate categories.",
+      "Set health state (yellow or red) based on classification.",
+      "Cancel or defer in-flight workers whose type is not permitted in the current state.",
+      "Block new launches for disallowed worker types until health recovers.",
+      "Dispatch a recovery worker if failure is red-state.",
+      "Re-run health gate after recovery PR merges.",
+      "Resume normal launches only when state returns to green (or yellow for permitted types)."
+    ],
+    "inFlightHandling": {
+      "prNotOpened": "Abort the worker. Comment on the issue explaining the health stop.",
+      "prOpenNotReviewed": "Hold the PR. Do not request review until main recovers. Re-validate after recovery.",
+      "prApprovedNotMerged": "Block merge. Re-validate after main recovers.",
+      "prMergedCausedFailure": "The merged PR is the recovery target. Launch a revert or fix worker."
+    }
+  },
+
+  "blackStateRules": {
+    "description": "Black state is unrecoverable by automation. All workers blocked. Requires manual intervention.",
+    "allowedWorkers": [],
+    "escalation": "Notify repo owner. No automated recovery path."
+  },
+
+  "metadata": {
+    "createdAt": "2026-05-11",
+    "issue": 356,
+    "maintainer": "ai-policy-worker"
+  }
+}
