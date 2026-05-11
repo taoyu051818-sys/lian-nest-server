@@ -43,4 +43,8 @@ export class ConfigService {
   get isDevelopment(): boolean {
     return this.env.NODE_ENV === 'development';
   }
+
+  get redisUrl(): string {
+    return this.env.REDIS_URL;
+  }
 }
