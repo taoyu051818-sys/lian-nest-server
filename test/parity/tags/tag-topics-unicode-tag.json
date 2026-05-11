@@ -1,0 +1,71 @@
+{
+  "id": "tag-topics-unicode-tag",
+  "endpoint": "GET /api/tags/:tag/topics",
+  "description": "Tag topics endpoint correctly handles unicode tag names including CJK, emoji, accented latin, and zero-width joiner sequences",
+  "request": {
+    "method": "GET",
+    "path": "/api/tags/<UNICODE_TAG>/topics",
+    "params": { "tag": "<UNICODE_TAG>" },
+    "query": { "page": 1, "perPage": 20 }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "topics": "<ARRAY>",
+      "source": "nodebb",
+      "totalCount": "<NON_NEG_INT>",
+      "page": 1,
+      "perPage": 20
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["topics", "source", "totalCount", "page", "perPage"],
+      "properties": {
+        "topics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TagTopicItem" }
+        },
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] },
+        "totalCount": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "minimum": 1 },
+        "perPage": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "TagTopicItem": {
+          "type": "object",
+          "required": ["tid", "uid", "cid", "title", "slug", "mainPid", "postcount", "viewcount", "timestamp"],
+          "properties": {
+            "tid": { "type": "integer", "minimum": 1 },
+            "uid": { "type": "integer", "minimum": 1 },
+            "cid": { "type": "integer", "minimum": 1 },
+            "title": { "type": "string" },
+            "slug": { "type": "string" },
+            "mainPid": { "type": "integer", "minimum": 1 },
+            "postcount": { "type": "integer", "minimum": 0 },
+            "viewcount": { "type": "integer", "minimum": 0 },
+            "timestamp": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "unicodeExamples": [
+    { "label": "CJK", "tag": "技术" },
+    { "label": "Japanese", "tag": "テスト" },
+    { "label": "Korean", "tag": "태그" },
+    { "label": "Emoji", "tag": "🔥react" },
+    { "label": "Accented Latin", "tag": "café" },
+    { "label": "Mixed Unicode + ASCII", "tag": "node.js入门" },
+    { "label": "Arabic", "tag": "برمجة" },
+    { "label": "Devanagari", "tag": "प्रोग्रामिंग" },
+    { "label": "Thai", "tag": "การเขียนโค้ด" },
+    { "label": "Cyrillic", "tag": "программирование" },
+    { "label": "Multi-byte emoji combo", "tag": "👨‍💻👩‍💻" },
+    { "label": "Zero-width joiner", "tag": "🏳️‍🌈" },
+    { "label": "Unicode with spaces", "tag": "机器 学习" }
+  ],
+  "notes": "Verifies that unicode tag names (CJK, emoji, accented characters, zero-width joiner sequences) are passed through the controller and usecase to the provider without encoding or mutation, and that the response envelope conforms to the standard schema."
+}
