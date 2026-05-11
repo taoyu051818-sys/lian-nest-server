@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import type { InjectionToken, OptionalFactoryDependency } from '@nestjs/common';
 import { NodebbAuthMode, normalizeOk, normalizeError } from './types';
 import type { NodebbAuth, NodebbNormalizedResponse } from './types';
 import { NodebbClient, NODEBB_CLIENT } from './nodebb-client';
@@ -7,6 +8,11 @@ import { NodebbPostsProvider } from './providers/nodebb-posts.provider';
 import { NodebbUsersProvider } from './providers/nodebb-users.provider';
 import { NodebbNotificationsProvider } from './providers/nodebb-notifications.provider';
 import { NodebbTagsProvider } from './providers/nodebb-tags.provider';
+
+interface NodebbModuleAsyncOptions {
+  useFactory: (...args: unknown[]) => NodebbModuleConfig;
+  inject?: (InjectionToken | OptionalFactoryDependency)[];
+}
 
 // ---------------------------------------------------------------------------
 // Module configuration
@@ -146,15 +152,6 @@ const NODEBB_MODULE_CONFIG = 'NODEBB_MODULE_CONFIG';
 @Global()
 @Module({})
 export class NodebbModule {
-  /**
-   * Register the module with explicit configuration.
-   *
-   * Other modules can then inject NodebbClient, NodebbTopicsProvider, etc.
-   * without importing NodebbModule themselves (it is @Global).
-   *
-   * Do NOT wire this into AppModule yet — a later aggregator (issue #4)
-   * will compose feature modules.
-   */
   static register(config: NodebbModuleConfig) {
     if (!config.baseUrl) {
       throw new Error(
@@ -166,6 +163,37 @@ export class NodebbModule {
       module: NodebbModule,
       providers: [
         { provide: NODEBB_MODULE_CONFIG, useValue: config },
+        {
+          provide: NODEBB_CLIENT,
+          useFactory: (cfg: NodebbModuleConfig) => new NodebbHttpClient(cfg),
+          inject: [NODEBB_MODULE_CONFIG],
+        },
+        NodebbTopicsProvider,
+        NodebbPostsProvider,
+        NodebbUsersProvider,
+        NodebbNotificationsProvider,
+        NodebbTagsProvider,
+      ],
+      exports: [
+        NODEBB_CLIENT,
+        NodebbTopicsProvider,
+        NodebbPostsProvider,
+        NodebbUsersProvider,
+        NodebbNotificationsProvider,
+        NodebbTagsProvider,
+      ],
+    };
+  }
+
+  static registerAsync(options: NodebbModuleAsyncOptions) {
+    return {
+      module: NodebbModule,
+      providers: [
+        {
+          provide: NODEBB_MODULE_CONFIG,
+          useFactory: options.useFactory,
+          inject: options.inject ?? [],
+        },
         {
           provide: NODEBB_CLIENT,
           useFactory: (cfg: NodebbModuleConfig) => new NodebbHttpClient(cfg),
