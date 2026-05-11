@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { UsersController } from './users.controller';
 import { UsersUsecase } from './users.usecase';
 import { NodebbUsersProvider } from '../nodebb/providers/nodebb-users.provider';
@@ -50,7 +50,7 @@ describe('UsersController', () => {
   });
 
   describe('getPosts', () => {
-    it('should delegate to usecase', async () => {
+    it('should delegate to usecase with query', async () => {
       const spy = jest.spyOn(usecase, 'getPosts').mockResolvedValue({
         posts: [
           {
@@ -62,11 +62,36 @@ describe('UsersController', () => {
           },
         ],
         source: 'nodebb',
+        totalPosts: 1,
+        page: 1,
+        perPage: 20,
       });
-      const result = await controller.getPosts('1');
-      expect(spy).toHaveBeenCalledWith('1');
+      const result = await controller.getPosts('1', {});
+      expect(spy).toHaveBeenCalledWith('1', {});
       expect(result.posts).toHaveLength(1);
       expect(result.source).toBe('nodebb');
+    });
+
+    it('should pass page and perPage query to usecase', async () => {
+      const spy = jest.spyOn(usecase, 'getPosts').mockResolvedValue({
+        posts: [],
+        source: 'nodebb',
+        totalPosts: 0,
+        page: 2,
+        perPage: 5,
+      });
+      await controller.getPosts('1', { page: '2', perPage: '5' });
+      expect(spy).toHaveBeenCalledWith('1', { page: '2', perPage: '5' });
+    });
+
+    it('should propagate BadRequestException for invalid page', async () => {
+      jest.spyOn(usecase, 'getPosts').mockRejectedValue(new BadRequestException('Invalid page: abc'));
+      await expect(controller.getPosts('1', { page: 'abc' })).rejects.toThrow(BadRequestException);
+    });
+
+    it('should propagate BadRequestException for perPage exceeding 100', async () => {
+      jest.spyOn(usecase, 'getPosts').mockRejectedValue(new BadRequestException('perPage must not exceed 100'));
+      await expect(controller.getPosts('1', { perPage: '200' })).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -88,17 +113,17 @@ describe('UsersController', () => {
 
     it('should propagate NotFoundException for non-numeric uid on posts', async () => {
       jest.spyOn(usecase, 'getPosts').mockRejectedValue(new NotFoundException('Invalid uid: abc'));
-      await expect(controller.getPosts('abc')).rejects.toThrow(NotFoundException);
+      await expect(controller.getPosts('abc', {})).rejects.toThrow(NotFoundException);
     });
 
     it('should propagate NotFoundException for zero uid on posts', async () => {
       jest.spyOn(usecase, 'getPosts').mockRejectedValue(new NotFoundException('Invalid uid: 0'));
-      await expect(controller.getPosts('0')).rejects.toThrow(NotFoundException);
+      await expect(controller.getPosts('0', {})).rejects.toThrow(NotFoundException);
     });
 
     it('should propagate NotFoundException for negative uid on posts', async () => {
       jest.spyOn(usecase, 'getPosts').mockRejectedValue(new NotFoundException('Invalid uid: -1'));
-      await expect(controller.getPosts('-1')).rejects.toThrow(NotFoundException);
+      await expect(controller.getPosts('-1', {})).rejects.toThrow(NotFoundException);
     });
   });
 });

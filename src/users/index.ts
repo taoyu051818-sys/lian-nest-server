@@ -1,4 +1,4 @@
 export { UsersModule } from './users.module';
 export { UsersController } from './users.controller';
 export { UsersUsecase } from './users.usecase';
-export { UserDetail, UserPostItem, UserPostsResponse } from './types';
+export { PostsPaginationQuery, UserDetail, UserPostItem, UserPostsResponse } from './types';

@@ -17,8 +17,17 @@ export interface UserPostItem {
   timestamp: string;
 }
 
+/** Pagination query parameters for GET /api/users/:uid/posts */
+export interface PostsPaginationQuery {
+  page?: string;
+  perPage?: string;
+}
+
 /** Response shape for GET /api/users/:uid/posts */
 export interface UserPostsResponse {
   posts: UserPostItem[];
   source: 'nodebb' | 'fallback';
+  totalPosts?: number;
+  page?: number;
+  perPage?: number;
 }

@@ -1,6 +1,6 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { UsersUsecase } from './users.usecase';
-import { UserDetail, UserPostsResponse } from './types';
+import { PostsPaginationQuery, UserDetail, UserPostsResponse } from './types';
 
 @Controller('api/users')
 export class UsersController {
@@ -12,7 +12,10 @@ export class UsersController {
   }
 
   @Get(':uid/posts')
-  async getPosts(@Param('uid') uid: string): Promise<UserPostsResponse> {
-    return this.usersUsecase.getPosts(uid);
+  async getPosts(
+    @Param('uid') uid: string,
+    @Query() query: PostsPaginationQuery,
+  ): Promise<UserPostsResponse> {
+    return this.usersUsecase.getPosts(uid, query);
   }
 }
