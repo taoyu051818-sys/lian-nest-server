@@ -26,6 +26,9 @@ Instead of manually calling each script (state-reconciler, health writer, launch
 
 # Plan-first: propose next batch via plan-next-batch.ps1, stop for review
 ./scripts/ai/run-self-cycle.ps1 -PlanFirst -IssueLabel "agent:codex-action-needed" -Repo owner/name
+
+# Override max-task safety limit (default 10)
+./scripts/ai/run-self-cycle.ps1 -TaskFile ./tasks/batch.json -MaxTasks 25
 ```
 
 ## Parameters
@@ -40,6 +43,7 @@ Instead of manually calling each script (state-reconciler, health writer, launch
 | `-SkipReconcile` | No | `$false` | Skip the state-reconciler step |
 | `-DryRunFixture` | Yes* | — | Path to fixture directory with pre-built task and health JSON. Runs through launch gate without live GitHub. Mutually exclusive with `-TaskFile` and `-IssueLabel`. |
 | `-PlanFirst` | No | `$false` | Run `plan-next-batch.ps1 -Json` to propose the next batch, then stop for human review. Requires `-IssueLabel` and `-Repo`. Does not auto-launch workers. |
+| `-MaxTasks` | No | `10` | Maximum number of tasks allowed in a single cycle. Blocks with exit code 1 if exceeded. Warning at 80% capacity. Valid range: 1–100. |
 
 *One of `-TaskFile`, `-IssueLabel`, or `-DryRunFixture` is required.
 
@@ -145,6 +149,7 @@ The runner stops and surfaces a decision to the operator in these cases:
 | No issues found | Label matches zero open issues | Verify label name, check issue state |
 | Main health RED/BLACK | Health marker indicates broken main | Fix main health before continuing |
 | Launch gate failure | Task blocked by policy, duplicate conflict group, or shared lock conflict | Resolve conflict or wait for health improvement |
+| Max-task safety limit | Task count exceeds `-MaxTasks` | Reduce batch size or re-run with higher `-MaxTasks` |
 | Execute confirmation | Running with `-Execute` flag | Explicitly confirm worker launch |
 
 ## Exit Codes
@@ -152,7 +157,7 @@ The runner stops and surfaces a decision to the operator in these cases:
 | Code | Meaning |
 |------|---------|
 | 0 | Cycle completed (dry-run, discovery-complete, plan-proposed, or all steps passed) |
-| 1 | Cycle blocked by health state or launch gate |
+| 1 | Cycle blocked by health state, launch gate, or max-task safety limit |
 | 2 | Cycle errored (missing file, script failure) |
 
 ## Output
@@ -180,6 +185,40 @@ The runner does NOT replace any existing script. It calls them in sequence:
 - **No runtime changes** — the runner only orchestrates existing scripts.
 - **Skeleton mode** — in execute mode the runner still requires human re-confirmation before launching. This is the primary safety gate.
 - **Idempotent** — running the same cycle twice produces the same result.
+
+## Max-Task Safety Contract
+
+High parallelism increases the blast radius of misconfigured or conflicting tasks.
+The `-MaxTasks` parameter caps how many tasks a single cycle can process.
+
+| Behavior | Detail |
+|----------|--------|
+| Default limit | 10 tasks per cycle |
+| Warning threshold | 80% of `-MaxTasks` (e.g. 8 tasks with default limit) |
+| Hard block | Task count exceeds `-MaxTasks` → exit code 1, `blocked-by-max-tasks` |
+| Override | Pass `-MaxTasks <N>` explicitly (valid range: 1–100) |
+
+The check runs at two points:
+
+1. **IssueLabel path** — after task compilation, before dry-run preview or execute mode.
+2. **TaskFile path** — after loading the task file, before the state reconciler.
+
+### Why a Default of 10
+
+- Keeps the blast radius bounded for automated cycles.
+- High-risk tasks (conflicting `allowedFiles`, same `conflictGroup`) are more likely to collide at larger batch sizes.
+- Operators can raise the limit explicitly once they have validated the batch.
+
+### Dry-Run / Execute Expectations
+
+| Mode | What happens | Safety gate |
+|------|-------------|-------------|
+| Dry-run (default) | Prints every step, makes no changes | No confirmation needed |
+| Execute (`-Execute`) | Launches workers after human confirmation | Explicit re-run or confirmation required |
+
+**Always dry-run first** when batching more than one task. The dry-run output
+shows the compiled task contracts, conflict groups, and gate results — use it
+to verify there are no surprises before passing `-Execute`.
 
 ## Fixture-Based Dry-Run
 
