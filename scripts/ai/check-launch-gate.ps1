@@ -58,6 +58,18 @@
     Tasks whose conflictGroup matches an active group will be blocked.
     When omitted, running-worker conflict detection is skipped.
 
+.PARAMETER ResourceFile
+    Path to the local resource state JSON. Defaults to
+    ./.github/ai-state/local-resource.json. When present, CPU, memory,
+    disk, and process capacity are checked against resource policy
+    thresholds. Blocks launch when any resource is at critical level.
+    When omitted, local resource checks are skipped.
+
+.PARAMETER ResourcePolicyFile
+    Path to the local resource policy JSON. Defaults to
+    ./.github/ai-policy/local-resource-policy.json. Provides thresholds
+    for CPU, memory, disk, and process count evaluation.
+
 .PARAMETER Json
     Output the report as JSON instead of console text.
 
@@ -104,6 +116,10 @@ param(
     [string]$ProviderPoolFile = "./.github/ai-state/provider-pool.json",
 
     [string]$RunningTasksFile = "",
+
+    [string]$ResourceFile = "./.github/ai-state/local-resource.json",
+
+    [string]$ResourcePolicyFile = "./.github/ai-policy/local-resource-policy.json",
 
     [switch]$Json,
 
@@ -367,6 +383,212 @@ if (Test-Path $ProviderPoolFile) {
 }
 
 # ---------------------------------------------------------------------------
+# Load local resource state (optional, fail-closed)
+# ---------------------------------------------------------------------------
+
+$resourceLoaded = $false
+$resourcePolicyLoaded = $false
+$resourceState = $null
+$resourcePolicy = $null
+$resourceWarnings = @()
+$resourceBlocking = $false
+$resourceGlobalState = "unknown"
+$resourceChecks = $null
+
+# Resource policy thresholds (hardcoded fallback when policy file absent)
+$defaultResourceThresholds = @{
+    "cpu"         = @{ warn = 75;  block = 90 }
+    "memory"      = @{ warn = 80;  block = 92 }
+    "disk"        = @{ warn = 85;  block = 95 }
+    "processCount" = @{ warn = 25; block = 30 }
+}
+
+$resourceThresholds = $defaultResourceThresholds
+
+# Load resource policy
+if (Test-Path $ResourcePolicyFile) {
+    try {
+        $rpRaw = Get-Content -Path $ResourcePolicyFile -Raw -Encoding UTF8
+        $resourcePolicy = $rpRaw | ConvertFrom-Json
+        $resourcePolicyLoaded = $true
+        $rpVersion = Get-Prop $resourcePolicy "policyVersion"
+        Write-Step "Loaded local resource policy from ${ResourcePolicyFile} (version $rpVersion)"
+
+        # Extract thresholds from policy
+        foreach ($resName in @("cpu", "memory", "disk", "processCount")) {
+            $resSection = Get-Prop $resourcePolicy $resName
+            if ($resSection) {
+                $thresholds = Get-Prop $resSection "thresholds"
+                if ($thresholds) {
+                    $blockVal = $null
+                    $warnVal = $null
+                    $launchBlock = Get-Prop $thresholds "launchBlock"
+                    if ($launchBlock) { $blockVal = [double](Get-Prop $launchBlock "value" 0) }
+                    $launchWarn = Get-Prop $thresholds "launchWarn"
+                    if ($launchWarn) { $warnVal = [double](Get-Prop $launchWarn "value" 0) }
+                    if ($null -ne $blockVal -or $null -ne $warnVal) {
+                        $resourceThresholds[$resName] = @{
+                            warn  = if ($null -ne $warnVal)  { $warnVal }  else { $resourceThresholds[$resName].warn }
+                            block = if ($null -ne $blockVal) { $blockVal } else { $resourceThresholds[$resName].block }
+                        }
+                    }
+                }
+            }
+        }
+        Write-Step "Using resource thresholds from policy file"
+    } catch {
+        Write-Warn "Could not parse $ResourcePolicyFile — using hardcoded defaults"
+    }
+} else {
+    Write-Step "No local resource policy at $ResourcePolicyFile — using hardcoded defaults"
+}
+
+# Load local resource state
+if (Test-Path $ResourceFile) {
+    try {
+        $resRaw = Get-Content -Path $ResourceFile -Raw -Encoding UTF8
+        $resourceState = $resRaw | ConvertFrom-Json
+        $resourceLoaded = $true
+
+        # Read global resource state
+        $globalObj = Get-Prop $resourceState "global"
+        if ($globalObj) {
+            $resourceGlobalState = Get-Prop $globalObj "resourceState" "unknown"
+        }
+
+        Write-Step "Loaded local resource state from ${ResourceFile} (state: $resourceGlobalState)"
+
+        # Check global resource state
+        if ($resourceGlobalState -eq "critical") {
+            $resourceBlocking = $true
+            $resourceWarnings += "Local resources CRITICAL — launch blocked."
+        } elseif ($resourceGlobalState -eq "unknown") {
+            $resourceBlocking = $true
+            $resourceWarnings += "Local resource state unknown (stale or missing data) — launch blocked (fail-closed)."
+        } elseif ($resourceGlobalState -eq "constrained") {
+            $resourceWarnings += "Local resources CONSTRAINED — one or more resources above warning threshold."
+        }
+
+        # Evaluate individual resource metrics against policy thresholds
+        $resourceChecks = [ordered]@{}
+
+        # CPU check
+        $cpuObj = Get-Prop $resourceState "cpu"
+        if ($cpuObj) {
+            $cpuPct = Get-Prop $cpuObj "usagePercent"
+            if ($null -ne $cpuPct) {
+                $cpuPct = [double]$cpuPct
+                $cpuThreshold = $resourceThresholds["cpu"]
+                $cpuLevel = "healthy"
+                if ($cpuPct -ge $cpuThreshold.block) {
+                    $cpuLevel = "block"
+                    $resourceBlocking = $true
+                    $resourceWarnings += "CPU at ${cpuPct}% — exceeds block threshold ($($cpuThreshold.block)%)."
+                } elseif ($cpuPct -ge $cpuThreshold.warn) {
+                    $cpuLevel = "warn"
+                    $resourceWarnings += "CPU at ${cpuPct}% — exceeds warning threshold ($($cpuThreshold.warn)%)."
+                }
+                $resourceChecks["cpu"] = [ordered]@{
+                    usagePercent = $cpuPct
+                    level        = $cpuLevel
+                    warn         = $cpuThreshold.warn
+                    block        = $cpuThreshold.block
+                }
+            }
+        }
+
+        # Memory check
+        $memObj = Get-Prop $resourceState "memory"
+        if ($memObj) {
+            $memPct = Get-Prop $memObj "usagePercent"
+            if ($null -ne $memPct) {
+                $memPct = [double]$memPct
+                $memThreshold = $resourceThresholds["memory"]
+                $memLevel = "healthy"
+                if ($memPct -ge $memThreshold.block) {
+                    $memLevel = "block"
+                    $resourceBlocking = $true
+                    $resourceWarnings += "Memory at ${memPct}% — exceeds block threshold ($($memThreshold.block)%)."
+                } elseif ($memPct -ge $memThreshold.warn) {
+                    $memLevel = "warn"
+                    $resourceWarnings += "Memory at ${memPct}% — exceeds warning threshold ($($memThreshold.warn)%)."
+                }
+                $resourceChecks["memory"] = [ordered]@{
+                    usagePercent = $memPct
+                    level        = $memLevel
+                    warn         = $memThreshold.warn
+                    block        = $memThreshold.block
+                }
+            }
+        }
+
+        # Disk check
+        $diskObj = Get-Prop $resourceState "disk"
+        if ($diskObj) {
+            $diskPct = Get-Prop $diskObj "usagePercent"
+            if ($null -ne $diskPct) {
+                $diskPct = [double]$diskPct
+                $diskThreshold = $resourceThresholds["disk"]
+                $diskLevel = "healthy"
+                if ($diskPct -ge $diskThreshold.block) {
+                    $diskLevel = "block"
+                    $resourceBlocking = $true
+                    $resourceWarnings += "Disk at ${diskPct}% — exceeds block threshold ($($diskThreshold.block)%)."
+                } elseif ($diskPct -ge $diskThreshold.warn) {
+                    $diskLevel = "warn"
+                    $resourceWarnings += "Disk at ${diskPct}% — exceeds warning threshold ($($diskThreshold.warn)%)."
+                }
+                $resourceChecks["disk"] = [ordered]@{
+                    usagePercent = $diskPct
+                    level        = $diskLevel
+                    warn         = $diskThreshold.warn
+                    block        = $diskThreshold.block
+                }
+            }
+        }
+
+        # Process count check
+        $procObj = Get-Prop $resourceState "process"
+        if ($procObj) {
+            $procCount = Get-Prop $procObj "runningCount"
+            if ($null -ne $procCount) {
+                $procCount = [int]$procCount
+                $procThreshold = $resourceThresholds["processCount"]
+                $procLevel = "healthy"
+                if ($procCount -ge $procThreshold.block) {
+                    $procLevel = "block"
+                    $resourceBlocking = $true
+                    $resourceWarnings += "Process count at $procCount — exceeds block threshold ($($procThreshold.block))."
+                } elseif ($procCount -ge $procThreshold.warn) {
+                    $procLevel = "warn"
+                    $resourceWarnings += "Process count at $procCount — exceeds warning threshold ($($procThreshold.warn))."
+                }
+                $resourceChecks["processCount"] = [ordered]@{
+                    runningCount = $procCount
+                    level        = $procLevel
+                    warn         = $procThreshold.warn
+                    block        = $procThreshold.block
+                }
+            }
+        }
+
+        foreach ($w in $resourceWarnings) {
+            if ($resourceBlocking) {
+                Write-Fail "Resource guard: $w"
+            } else {
+                Write-Warn "Resource guard: $w"
+            }
+        }
+    } catch {
+        Write-Fail "Could not parse $ResourceFile — blocking launch (fail-closed)"
+        $resourceBlocking = $true
+        $resourceWarnings += "Failed to parse resource state file — fail-closed enforcement."
+    }
+} else {
+    Write-Step "No local resource file at $ResourceFile — resource checks skipped"
+}
+
+# ---------------------------------------------------------------------------
 # Dry-run mode: print config and exit
 # ---------------------------------------------------------------------------
 
@@ -378,12 +600,19 @@ if ($DryRun) {
         policyFile       = $PolicyFile
         providerPoolFile = $ProviderPoolFile
         runningTasksFile = $RunningTasksFile
+        resourceFile     = $ResourceFile
+        resourcePolicyFile = $ResourcePolicyFile
         policyLoaded     = $policyLoaded
         policyVersion    = $policyVersion
         providerPoolLoaded = $providerPoolLoaded
+        resourceLoaded   = $resourceLoaded
+        resourcePolicyLoaded = $resourcePolicyLoaded
+        resourceGlobalState  = $resourceGlobalState
+        resourceThresholds   = $resourceThresholds
         permissionMatrixSource = if ($policyLoaded) { "policy-file" } else { "hardcoded-defaults" }
         permissionMatrix = $permissionMatrix
         providerPoolWarnings = $providerPoolWarnings
+        resourceWarnings     = $resourceWarnings
     }
     if ($Json) {
         $dryRunReport | ConvertTo-Json -Depth 6
@@ -398,6 +627,8 @@ if ($DryRun) {
         Write-Host "Policy file:       $PolicyFile (loaded: $policyLoaded)"
         Write-Host "Provider pool:     $ProviderPoolFile (loaded: $providerPoolLoaded)"
         Write-Host "Running tasks:     $(if ($RunningTasksFile) { $RunningTasksFile } else { '(none)' })"
+        Write-Host "Resource state:    $ResourceFile (loaded: $resourceLoaded, state: $resourceGlobalState)"
+        Write-Host "Resource policy:   $ResourcePolicyFile (loaded: $resourcePolicyLoaded)"
         Write-Host "Matrix source:     $(if ($policyLoaded) { 'policy-file' } else { 'hardcoded-defaults' })"
         if ($policyVersion) { Write-Host "Policy version:    $policyVersion" }
         Write-Host ""
@@ -414,6 +645,15 @@ if ($DryRun) {
             }
         } else {
             Write-Host "Provider pool: no warnings" -ForegroundColor Green
+        }
+
+        if ($resourceWarnings.Count -gt 0) {
+            Write-Host "Resource guard warnings:" -ForegroundColor Yellow
+            foreach ($w in $resourceWarnings) {
+                Write-Host "  $w" -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "Resource guard: $(if ($resourceLoaded) { 'no warnings' } else { 'not loaded' })" -ForegroundColor $(if ($resourceLoaded) { 'Green' } else { 'DarkGray' })
         }
         Write-Host ""
         Write-Ok "Dry run complete. No tasks evaluated."
@@ -628,12 +868,18 @@ $report = [ordered]@{
     policyVersion = $policyVersion
     providerPoolLoaded = $providerPoolLoaded
     providerPoolWarnings = $providerPoolWarnings
+    resourceLoaded       = $resourceLoaded
+    resourcePolicyLoaded = $resourcePolicyLoaded
+    resourceGlobalState  = $resourceGlobalState
+    resourceBlocking     = $resourceBlocking
+    resourceWarnings     = $resourceWarnings
+    resourceChecks       = if ($resourceChecks) { $resourceChecks } else { $null }
     taskCount     = $taskList.Count
     tasks         = $results
     duplicateConflictGroups = $duplicateGroups
     sharedLockConflicts     = $sharedLockConflicts
     runningWorkerConflicts  = $runningWorkerConflicts
-    allAllowed    = (-not $anyBlocked)
+    allAllowed    = ((-not $anyBlocked) -and (-not $resourceBlocking))
 }
 
 # ---------------------------------------------------------------------------
@@ -658,6 +904,19 @@ if ($Json) {
     Write-Host $resolvedState -ForegroundColor $color
     Write-Host "Policy:          $(if ($policyLoaded) { "loaded (v$policyVersion)" } else { "hardcoded defaults" })"
     Write-Host "Provider pool:   $(if ($providerPoolLoaded) { "loaded ($(($providerPoolWarnings.Count)) warnings)" } else { "not loaded" })"
+    Write-Host "Resource guard:  " -NoNewline
+    if ($resourceLoaded) {
+        $resColor = switch ($resourceGlobalState) {
+            "healthy"    { "Green" }
+            "constrained" { "Yellow" }
+            "critical"   { "Red" }
+            default      { "Red" }
+        }
+        Write-Host "$resourceGlobalState" -ForegroundColor $resColor -NoNewline
+        Write-Host " ($($resourceWarnings.Count) warnings)"
+    } else {
+        Write-Host "not loaded" -ForegroundColor DarkGray
+    }
     Write-Host "Tasks evaluated: $($taskList.Count)"
     Write-Host ""
 
@@ -709,12 +968,20 @@ if ($Json) {
         Write-Host ""
     }
 
-    if ($anyBlocked) {
-        Write-Fail "Gate CHECK FAILED — one or more tasks blocked or conflicts detected."
+    if ($resourceWarnings.Count -gt 0) {
+        Write-Host "Resource guard warnings:" -ForegroundColor $(if ($resourceBlocking) { "Red" } else { "Yellow" })
+        foreach ($rw in $resourceWarnings) {
+            Write-Host "  $rw" -ForegroundColor $(if ($resourceBlocking) { "Red" } else { "Yellow" })
+        }
+        Write-Host ""
+    }
+
+    if ($anyBlocked -or $resourceBlocking) {
+        Write-Fail "Gate CHECK FAILED — one or more tasks blocked, conflicts detected, or resources critical."
     } else {
         Write-Ok "Gate CHECK PASSED — all tasks cleared for launch."
     }
 }
 
 # Exit code
-if ($anyBlocked) { exit 1 } else { exit 0 }
+if ($anyBlocked -or $resourceBlocking) { exit 1 } else { exit 0 }
