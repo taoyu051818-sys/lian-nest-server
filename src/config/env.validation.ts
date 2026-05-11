@@ -5,6 +5,10 @@ export interface EnvironmentVariables {
   PORT: number;
   LOG_LEVEL: string;
   DATABASE_URL: string;
+  NODEBB_URL: string;
+  NODEBB_AUTH_MODE: string;
+  NODEBB_API_TOKEN: string;
+  NODEBB_SESSION_COOKIE: string;
 }
 
 export const envValidationSchema = Joi.object<EnvironmentVariables>({
@@ -16,4 +20,10 @@ export const envValidationSchema = Joi.object<EnvironmentVariables>({
     .valid('error', 'warn', 'info', 'debug', 'verbose')
     .default('info'),
   DATABASE_URL: Joi.string().uri().required(),
+  NODEBB_URL: Joi.string().uri().allow('').default(''),
+  NODEBB_AUTH_MODE: Joi.string()
+    .valid('api_token', 'session', 'none')
+    .default('api_token'),
+  NODEBB_API_TOKEN: Joi.string().allow('').default(''),
+  NODEBB_SESSION_COOKIE: Joi.string().allow('').default(''),
 });

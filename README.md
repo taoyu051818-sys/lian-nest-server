@@ -24,10 +24,37 @@ Role prompts for AI workers and reviewers live in [ops/agent-prompts/](ops/agent
 
 ## Architecture
 
+### Modules
+
+- **ConfigModule** (`src/config/`) — Global module; validates `process.env` with Joi at startup and exposes `ConfigService`.
+- **HealthModule** (`src/health/`) — `GET /api/health` liveness probe.
+- **NodebbModule** (`src/nodebb/`) — Single gateway for all outbound NodeBB API calls. Provides typed providers for topics, posts, users, notifications, and tags. See [docs/architecture/nodebb-integration.md](docs/architecture/nodebb-integration.md).
+- **RepositoryModule** (`src/repositories/`) — Provider interfaces and skeletons for persistence layer. See [docs/architecture/repositories.md](docs/architecture/repositories.md).
+- **GlobalExceptionFilter** (`src/common/filters/`) — Uniform `{ ok, error }` envelope for all error responses.
+
+### Database & Schema
+
 - [Database Strategy](docs/architecture/database-strategy.md) — PostgreSQL, Redis, and NodeBB ownership boundaries
 - [ORM Recommendation](docs/architecture/orm-recommendation.md) — Prisma vs Drizzle vs TypeORM evaluation
 - [Schema Slices](docs/architecture/schema-slices.md) — Initial Prisma schema for users, sessions, posts, recommendations, AI records, and audit
 - [Implementation Sequence](docs/architecture/implementation-sequence.md) — Phased rollout plan after bootstrap
+
+## Quick start
+
+```bash
+npm install
+npm run start:dev
+```
+
+## Scripts
+
+| Command            | Description                     |
+|--------------------|---------------------------------|
+| `npm run check`    | TypeScript type-check (no emit) |
+| `npm run build`    | Production build                |
+| `npm test`         | Run all tests                   |
+| `npm run start`    | Start the server                |
+| `npm run start:dev`| Start with file watching        |
 
 ## Migration & Route Parity
 
