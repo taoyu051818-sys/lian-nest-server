@@ -49,6 +49,12 @@ Use this script when you have a batch of low-risk PRs that are all:
 
 # Execute with guards
 .\scripts\ai\merge-clean-pr-batch.ps1 -PRs 42,45 -Repo owner/name -Execute -RunGuards
+
+# Print manifest JSON schema (no merge)
+.\scripts\ai\merge-clean-pr-batch.ps1 -ManifestSchema
+
+# Print guard fixture templates (no merge)
+.\scripts\ai\merge-clean-pr-batch.ps1 -ShowFixtures
 ```
 
 ## Parameters
@@ -63,6 +69,8 @@ Use this script when you have a batch of low-risk PRs that are all:
 | `-RunHealthGate` | No       | Run post-merge health command after successful batch           |
 | `-PostHealthCommand` | No   | Custom health command for `-RunHealthGate` (default: `scripts/post-merge-health-gate.js`) |
 | `-RunGuards`     | No       | Run local guard checks before merge (fail-closed on violations) |
+| `-ManifestSchema`| No       | Print the merge batch manifest JSON schema and exit              |
+| `-ShowFixtures`  | No       | Print guard fixture templates and exit                           |
 
 \* Either `-PRs` or `-AllowlistFile` is required, not both.
 \** Falls back to `GH_REPO` environment variable.
@@ -188,13 +196,114 @@ the health state of main afterward.
 }
 ```
 
+### Example Manifest (Failed Merge)
+
+When a merge fails mid-batch, the script stops and writes a manifest with
+partial outcomes. Successfully merged PRs show `merged`; the failing PR
+shows `failed: <reason>`.
+
+```json
+{
+  "timestamp": "2026-05-11T17:35:00.0000000Z",
+  "repository": "owner/name",
+  "mode": "execute",
+  "prs": [
+    { "number": 42, "title": "feat: add TagsModule", "status": "merged" },
+    { "number": 45, "title": "docs: update SOP", "status": "failed: Not mergeable" }
+  ],
+  "preCommit": "abc1234def5678",
+  "postCommit": null,
+  "healthGate": "skipped",
+  "postHealthCommand": "scripts/post-merge-health-gate.js"
+}
+```
+
+Note: `postCommit` is `null` when the batch does not complete. `healthGate`
+is `skipped` because the health gate only runs after a fully successful batch.
+
+### Example Manifest (Health Gate Failure)
+
+When all PRs merge but the health gate fails, the manifest records the
+failure for post-incident review.
+
+```json
+{
+  "timestamp": "2026-05-11T17:40:00.0000000Z",
+  "repository": "owner/name",
+  "mode": "execute",
+  "prs": [
+    { "number": 42, "title": "feat: add TagsModule", "status": "merged" }
+  ],
+  "preCommit": "abc1234def5678",
+  "postCommit": "9876fedcba4321",
+  "healthGate": "fail",
+  "postHealthCommand": "scripts/post-merge-health-gate.js"
+}
+```
+
+### Example Manifest (Health Gate Not Found)
+
+When `-RunHealthGate` is specified but the health script is missing from
+disk, the manifest records `not-found`.
+
+```json
+{
+  "timestamp": "2026-05-11T17:45:00.0000000Z",
+  "repository": "owner/name",
+  "mode": "execute",
+  "prs": [
+    { "number": 42, "title": "feat: add TagsModule", "status": "merged" }
+  ],
+  "preCommit": "abc1234def5678",
+  "postCommit": "9876fedcba4321",
+  "healthGate": "not-found",
+  "postHealthCommand": "scripts/post-merge-health-gate.js"
+}
+```
+
+### Blocked PRs (No Manifest)
+
+When any PR fails eligibility or guard checks, the batch is **aborted
+before any merges** and **no manifest is written**. The script prints
+the excluded PRs and their reasons, then exits with code 1.
+
+This is by design — a manifest only records what actually happened
+(dry-run validation or real merges), not what was blocked.
+
 ### Using Manifests for Audit
 
 After a batch, review the manifest to confirm:
+
+| Scenario             | What to check                                                    |
+| -------------------- | ---------------------------------------------------------------- |
+| Successful batch     | All `prs[].status` = `merged`, `healthGate` = `pass`             |
+| Dry-run              | All `prs[].status` = `eligible`, `healthGate` = `skipped`        |
+| Failed merge         | Mixed statuses (`merged` + `failed:`), `postCommit` = `null`     |
+| Health gate failure  | All `prs[].status` = `merged`, `healthGate` = `fail`             |
+| Health gate missing  | All `prs[].status` = `merged`, `healthGate` = `not-found`        |
+| Blocked/excluded     | No manifest written (batch aborted before merge)                 |
+
+Additional audit checks:
 1. Only allowlisted PRs appear in `prs`.
-2. All entries show `merged` (no `failed`).
-3. `preCommit` and `postCommit` bracket the merge window.
-4. `healthGate` is `pass` (if `-RunHealthGate` was used).
+2. `preCommit` and `postCommit` bracket the merge window (both non-null
+   only when all PRs merged successfully).
+3. `repository` matches the target repo.
+
+### Manifest Schema
+
+To print the JSON Schema for the merge batch manifest (for validation
+or tooling integration), use `-ManifestSchema`:
+
+```powershell
+.\scripts\ai\merge-clean-pr-batch.ps1 -ManifestSchema
+```
+
+This outputs the full JSON Schema describing all manifest fields, their
+types, required status, and allowed values. Use it to:
+
+- Validate a manifest file against the expected structure
+- Generate TypeScript/JSON interfaces for manifest consumers
+- Understand the complete set of fields without reading the script
 
 ## Guard Integration
 
