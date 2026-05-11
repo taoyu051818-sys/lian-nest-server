@@ -1,0 +1,189 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/task-ledger.schema.json",
+  "title": "TaskLedgerEntry",
+  "description": "Entry schema for task-ledger.ndjson — an append-only NDJSON ledger recording task lifecycle events and produced/consumed facts. Each line is a single JSON object. See docs/ai-native/task-ledger-schema.md for field-level documentation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "eventType",
+    "recordedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1. Consumers must reject records with a different version."
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier for the worker task, matching the heartbeat taskId and worker-telemetry taskId."
+    },
+    "eventType": {
+      "type": "string",
+      "enum": [
+        "task.launch",
+        "task.complete",
+        "task.fail",
+        "task.timeout",
+        "task.progress",
+        "fact.produced",
+        "fact.consumed",
+        "validation.pass",
+        "validation.fail",
+        "gate.pass",
+        "gate.block"
+      ],
+      "description": "Dot-namespaced event type. task.* for lifecycle, fact.* for fact tracking, validation.* for command outcomes, gate.* for gate decisions."
+    },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this event was recorded."
+    },
+    "issueNumber": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub issue number this task targets, if applicable."
+    },
+    "prNumber": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub pull request number produced by this task, if applicable."
+    },
+    "branch": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "Git branch or worktree name for the task."
+    },
+    "taskType": {
+      "type": ["string", "null"],
+      "enum": ["execution", "research", "review"],
+      "description": "Type of task from the task contract."
+    },
+    "actorRole": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "Role that performed the work, from the task contract rolePacket."
+    },
+    "pmPhase": {
+      "type": ["string", "null"],
+      "description": "Wave or phase identifier for aggregating events across a planning cycle."
+    },
+    "severity": {
+      "type": ["string", "null"],
+      "enum": ["info", "warning", "error", "critical"],
+      "description": "Severity of the event. info for normal lifecycle, warning for non-critical issues, error for failures, critical for data-loss or security risk."
+    },
+    "description": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "Human-readable description of the event."
+    },
+    "facts": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "produced": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["factId", "description"],
+            "properties": {
+              "factId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Unique identifier for the produced fact (e.g. 'fact:prisma-schema:User', 'fact:api:GET /users')."
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Human-readable description of what the fact asserts."
+              },
+              "confidence": {
+                "type": "string",
+                "enum": ["definite", "likely", "conditional"],
+                "description": "Confidence level: definite = guaranteed, likely = expected but not certain, conditional = depends on runtime findings."
+              }
+            }
+          },
+          "description": "Facts produced by this event. Downstream tasks can declare these in their dependsOnFacts."
+        },
+        "consumed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["factId"],
+            "properties": {
+              "factId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Unique identifier for the consumed fact."
+              },
+              "source": {
+                "type": ["string", "null"],
+                "description": "Where this fact was originally produced (issue number, PR, doc path)."
+              }
+            }
+          },
+          "description": "Facts consumed by this event. These must have been previously produced by another task or event."
+        }
+      },
+      "description": "Produced and consumed facts for this event. Tracks the fact-to-task protocol."
+    },
+    "validation": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "The validation command that was executed."
+        },
+        "exitCode": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Process exit code. 0 = pass, non-zero = fail."
+        },
+        "durationMs": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Wall-clock duration of the command in milliseconds."
+        }
+      },
+      "description": "Validation command details for validation.pass and validation.fail events."
+    },
+    "gate": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "gateType": {
+          "type": "string",
+          "enum": ["launch", "pr-review", "merge", "post-merge-health"],
+          "description": "Which gate produced this result."
+        },
+        "decision": {
+          "type": "string",
+          "enum": ["pass", "block", "warn", "override"],
+          "description": "Gate outcome."
+        },
+        "markerId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9._-]+$",
+          "description": "Machine-readable idempotency marker for the gate result."
+        }
+      },
+      "description": "Gate result details for gate.pass and gate.block events."
+    },
+    "meta": {
+      "type": ["object", "null"],
+      "description": "Arbitrary key-value metadata for downstream analysis. Must not contain secrets, tokens, or raw log content."
+    }
+  }
+}
