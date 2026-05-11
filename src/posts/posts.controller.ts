@@ -88,10 +88,10 @@ export class PostsController {
 
   @Get(':postId/replies')
   listReplies(
-    @Param('postId') _postId: string,
-    @Query() _query: ListRepliesQuery,
-  ): { items: PostReply[]; totalCount: number; page: number; perPage: number } {
-    throw new NotImplementedException('PostsController.listReplies');
+    @Param('postId') postId: string,
+    @Query() query: ListRepliesQuery,
+  ): Promise<{ items: PostReply[]; totalCount: number; page: number; perPage: number }> {
+    return this.postsService.listReplies(postId, query);
   }
 
   @Post(':postId/replies')

@@ -127,11 +127,51 @@ export class PostsService {
 
   // ---- Replies -------------------------------------------------------------
 
-  listReplies(
-    _postId: string,
-    _query: ListRepliesQuery,
-  ): { items: PostReply[]; totalCount: number; page: number; perPage: number } {
-    throw new NotImplementedException('PostsService.listReplies');
+  async listReplies(
+    postId: string,
+    query: ListRepliesQuery,
+  ): Promise<{ items: PostReply[]; totalCount: number; page: number; perPage: number }> {
+    const pid = Number(postId);
+    if (!Number.isFinite(pid) || pid < 1) {
+      throw new NotFoundException(`Post ${postId} not found`);
+    }
+
+    const page = query.page ?? 1;
+    const perPage = query.perPage ?? 20;
+
+    const postRes = await this.postsProvider.getByPid(pid);
+    if (postRes.status === BodyStatus.NOT_FOUND || !postRes.data) {
+      throw new NotFoundException(`Post ${postId} not found`);
+    }
+    const parentPost = postRes.data;
+
+    const topicRes = await this.postsProvider.getByTid(parentPost.tid, { page });
+    if (topicRes.status !== BodyStatus.OK || !topicRes.data) {
+      return { items: [], totalCount: 0, page, perPage };
+    }
+
+    const topicPosts = topicRes.data.posts ?? [];
+    const totalCount = Math.max(0, (topicRes.data.postcount ?? 0) - 1);
+
+    const items: PostReply[] = topicPosts
+      .filter((p) => p.pid !== pid)
+      .map((p) => ({
+        id: String(p.pid),
+        postId,
+        author: {
+          uid: p.uid,
+          username: '',
+          avatar: null,
+          reputation: 0,
+        },
+        content: p.content,
+        createdAt: new Date(p.timestamp * 1000).toISOString(),
+        ...(p.edited
+          ? { updatedAt: new Date(p.edited * 1000).toISOString() }
+          : {}),
+      }));
+
+    return { items, totalCount, page, perPage };
   }
 
   createReply(_postId: string, _body: CreateReplyBody): PostReply {

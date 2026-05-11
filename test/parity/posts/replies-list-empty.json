@@ -1,0 +1,62 @@
+{
+  "id": "replies-list-empty",
+  "endpoint": "GET /api/posts/:postId/replies",
+  "description": "Replies list for a post with no replies returns empty items",
+  "request": {
+    "method": "GET",
+    "path": "/api/posts/<POST_ID>/replies",
+    "params": { "postId": "<POST_ID>" },
+    "query": { "page": 1, "perPage": 20 }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "items": [],
+      "totalCount": 0,
+      "page": 1,
+      "perPage": 20
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["items", "totalCount", "page", "perPage"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PostReply" }
+        },
+        "totalCount": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "minimum": 1 },
+        "perPage": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "PostReply": {
+          "type": "object",
+          "required": ["id", "postId", "author", "content", "createdAt"],
+          "properties": {
+            "id": { "type": "string" },
+            "postId": { "type": "string" },
+            "author": { "$ref": "#/$defs/PostAuthor" },
+            "content": { "type": "string" },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "updatedAt": { "type": "string", "format": "date-time" }
+          },
+          "additionalProperties": false
+        },
+        "PostAuthor": {
+          "type": "object",
+          "required": ["uid", "username", "avatar", "reputation"],
+          "properties": {
+            "uid": { "type": "integer", "minimum": 1 },
+            "username": { "type": "string" },
+            "avatar": { "type": ["string", "null"] },
+            "reputation": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "notes": "POST_ID must reference a valid NodeBB post that is the only post in its topic (postcount=1). totalCount should be postcount-1 = 0."
+}
