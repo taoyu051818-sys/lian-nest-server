@@ -3,7 +3,8 @@
 Defines the automated loop that replaces Codex as the manual orchestrator:
 issue queue → worker launch → PR → review → merge → health gate → next wave.
 
-> **Status:** Design document. Implementation follow-up required.
+> **Status:** Implemented. All loop phases have corresponding scripts.
+> See [self-cycle-runner.md](self-cycle-runner.md) for the orchestrator.
 >
 > **Related:** [codex-retirement-runbook.md](codex-retirement-runbook.md)
 > exit criteria #1 and #8, [SOP.md](SOP.md) for the current manual lifecycle.
@@ -131,20 +132,27 @@ for the full list.
 
 ---
 
-## Implementation Follow-Up
+## Implementation Status
 
-This document is a design specification. The following work is required to
-implement the loop model:
+All loop phases have corresponding scripts. The orchestrator chains them
+via `run-self-cycle.ps1`.
 
-| Item | Status | Issue |
-|------|--------|-------|
-| Task queue reader (GitHub labels or local manifest) | Not started | TBD |
-| Runner main loop script | Not started | TBD |
-| Health gate auto-trigger integration | Not started | TBD |
-| Recovery worker auto-dispatch | Not started | TBD |
-| Queue polling / idle behavior | Not started | TBD |
-| Fallback mode with logging | Not started | TBD |
-| Integration tests (dry-run mode) | Not started | TBD |
+| Item | Status | Script |
+|------|--------|--------|
+| Task queue reader (GitHub labels) | **Done** | `run-self-cycle.ps1 -IssueLabel` |
+| Runner main loop script | **Done** | `run-self-cycle.ps1` |
+| Launch gate | **Done** | `check-launch-gate.ps1` |
+| Batch worker dispatch | **Done** | `batch-launch.ps1` |
+| State reconciliation | **Done** | `state-reconciler.ps1` |
+| Health gate | **Done** | `post-merge-health-gate.js` |
+| Health state writer | **Done** | `write-main-health-state.ps1` |
+| Result publishing | **Done** | `publish-agent-result.ps1` |
+| Batch planning | **Done** | `plan-next-batch.ps1` |
+| Controlled merge | **Done** | `merge-clean-pr-batch.ps1` |
+| Worktree cleanup | **Done** | `worktree-janitor.ps1` |
+| Health gate auto-trigger after merge | **Pending** | Requires CI wiring |
+| Recovery worker auto-dispatch on red | **Pending** | Policy defined, trigger not wired |
+| Fallback mode with logging | **Pending** | Manual fallback procedure documented in [codex-retirement-runbook.md](codex-retirement-runbook.md#safe-fallback) |
 
 ---
 
