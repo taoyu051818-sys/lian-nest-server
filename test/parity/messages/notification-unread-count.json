@@ -1,0 +1,25 @@
+{
+  "id": "notification-unread-count",
+  "endpoint": "GET /api/notifications/unread-count",
+  "description": "Returns unread notification count for authenticated user",
+  "request": {
+    "method": "GET",
+    "path": "/api/notifications/unread-count"
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "count": "<NON_NEG_INT>"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["count"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "notes": "When NodeBB is unreachable, fallback returns { count: 0 } with X-Fallback: true header."
+}

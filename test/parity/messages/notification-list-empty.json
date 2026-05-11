@@ -1,0 +1,30 @@
+{
+  "id": "notification-list-empty",
+  "endpoint": "GET /api/notifications",
+  "description": "Authenticated user with no notifications receives empty collection",
+  "request": {
+    "method": "GET",
+    "path": "/api/notifications"
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "notifications": [],
+      "totalCount": 0
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["notifications", "totalCount"],
+      "properties": {
+        "notifications": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "totalCount": { "type": "integer", "const": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "notes": "Empty state must return 200, not 404. Validates graceful empty-collection behavior."
+}
