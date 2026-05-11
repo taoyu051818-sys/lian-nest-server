@@ -94,6 +94,37 @@ The provider delegates to `client.get()` and returns the `NodebbNormalizedRespon
 **Empty-result contract:**
 A successful search with no matches returns `{ status: 'ok', data: { matches: [], matchCount: 0, pagination: { page: 1, pageCount: 0, itemsPerPage: 10 } } }`. The `matches` array is always present (never `null`).
 
+### 2.7 NodebbGroupsProvider (`src/nodebb/providers/nodebb-groups.provider.ts`)
+
+| Method        | Auth required? | Auth param | Callers pass auth? |
+|---------------|---------------|------------|--------------------|
+| `list(auth?)` | No (optional) | `auth?`    | No callers yet     |
+
+**DTO contract (`NodebbGroup`):**
+
+| Field        | Type                        | Required | Notes                          |
+|--------------|-----------------------------|----------|--------------------------------|
+| `name`       | `string`                    | Yes      | Display name                   |
+| `slug`       | `string`                    | Yes      | URL-safe identifier            |
+| `description`| `string`                    | Yes      | Group description              |
+| `memberCount`| `number`                    | Yes      | Current member count           |
+| `hidden`     | `number`                    | Yes      | 0 = visible, 1 = hidden        |
+| `deleted`    | `number`                    | Yes      | 0 = active, 1 = deleted        |
+| `system`     | `number`                    | Yes      | 0 = user-created, 1 = system   |
+| `createtime` | `number`                    | Yes      | Unix timestamp                 |
+| `cover`      | `{ thumb?: string; url?: string }` | No  | Optional cover image           |
+
+**Error normalization contract:**
+The provider delegates to `client.get()` and returns the `NodebbNormalizedResponse` envelope as-is — it does not transform or wrap errors. Callers receive:
+- `BodyStatus.OK` with populated or empty `NodebbGroup[]` array on success
+- `BodyStatus.NOT_FOUND` when the client returns HTTP 404
+- `BodyStatus.ERROR` for all other HTTP error codes (401, 429, 500, 502, etc.)
+
+**Empty-result contract:**
+A successful list with no groups returns `{ status: 'ok', data: [] }`. The `data` array is always present (never `null`).
+
+**Callers:** None found in the codebase. The provider exists but is not yet exported from the barrel or consumed by any service or controller. GroupsModule wiring is out of scope for this contract slice.
+
 ---
 
 ## 3. Controller uid placeholder matrix
