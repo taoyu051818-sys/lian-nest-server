@@ -27,6 +27,9 @@ Instead of manually calling each script (state-reconciler, health writer, launch
 # Plan-first: propose next batch via plan-next-batch.ps1, stop for review
 ./scripts/ai/run-self-cycle.ps1 -PlanFirst -IssueLabel "agent:codex-action-needed" -Repo owner/name
 
+# Autopilot plan mode: non-stop dry-run through all steps
+./scripts/ai/run-self-cycle.ps1 -AutopilotPlan -IssueLabel "agent:codex-action-needed" -Repo owner/name
+
 # Override max-task safety limit (default 10)
 ./scripts/ai/run-self-cycle.ps1 -TaskFile ./tasks/batch.json -MaxTasks 25
 ```
@@ -44,6 +47,7 @@ Instead of manually calling each script (state-reconciler, health writer, launch
 | `-DryRunFixture` | Yes* | — | Path to fixture directory with pre-built task and health JSON. Runs through launch gate without live GitHub. Mutually exclusive with `-TaskFile` and `-IssueLabel`. |
 | `-PlanFirst` | No | `$false` | Run `plan-next-batch.ps1 -Json` to propose the next batch, then stop for human review. Requires `-IssueLabel` and `-Repo`. Does not auto-launch workers. |
 | `-MaxTasks` | No | `10` | Maximum number of tasks allowed in a single cycle. Blocks with exit code 1 if exceeded. Warning at 80% capacity. Valid range: 1–100. |
+| `-AutopilotPlan` | No | `$false` | Autopilot plan mode. Chains all dry-run steps without human review gates. Always dry-run (never launches workers). Produces a comprehensive plan. Requires `-IssueLabel` and `-Repo`. See [self-cycle-autopilot-plan-mode.md](self-cycle-autopilot-plan-mode.md). |
 
 *One of `-TaskFile`, `-IssueLabel`, or `-DryRunFixture` is required.
 
@@ -185,6 +189,7 @@ The runner does NOT replace any existing script. It calls them in sequence:
 - **No runtime changes** — the runner only orchestrates existing scripts.
 - **Skeleton mode** — in execute mode the runner still requires human re-confirmation before launching. This is the primary safety gate.
 - **Idempotent** — running the same cycle twice produces the same result.
+- **Autopilot plan mode** — `-AutopilotPlan` chains all dry-run steps without human stops, but never launches workers. See [self-cycle-autopilot-plan-mode.md](self-cycle-autopilot-plan-mode.md).
 
 ## Max-Task Safety Contract
 
@@ -319,9 +324,27 @@ The `-PlanFirst` flag connects the self-cycle runner to `plan-next-batch.ps1` fo
 
 `-PlanFirst` delegates to the dedicated planner script (`plan-next-batch.ps1`), which adds migration matrix awareness and slice readiness filtering on top of basic issue discovery. Without `-PlanFirst`, the runner's built-in Step 0 does simpler compilation without matrix context.
 
+## Autopilot Plan Mode
+
+The `-AutopilotPlan` flag chains all dry-run steps without stopping for human review between steps. It always operates in dry-run mode (never launches workers) and produces a comprehensive plan showing what would happen if `-Execute` were passed.
+
+```powershell
+# Autopilot plan — non-stop dry-run through all steps
+./scripts/ai/run-self-cycle.ps1 -AutopilotPlan -IssueLabel "agent:codex-action-needed" -Repo owner/name
+```
+
+Key differences from standard mode:
+- **No human stops.** Discovery, health, provider pool, and launch gate checks run without pausing for review.
+- **Always dry-run.** The `-Execute` flag is forced to `$false` when `-AutopilotPlan` is set.
+- **Blocked steps warn, don't exit.** Health red, provider exhaustion, and launch gate failures are recorded as warnings but do not terminate the pipeline.
+- **Autopilot plan summary.** The final output includes a summary showing what would happen if `-Execute` were passed.
+
+See [self-cycle-autopilot-plan-mode.md](self-cycle-autopilot-plan-mode.md) for full documentation.
+
 ## Future Work
 
 - [x] Auto-generate task files from GitHub issues with agent labels (`-IssueLabel`)
+- [x] Autopilot plan mode for non-stop dry-run planning (`-AutopilotPlan`)
 - [ ] Parallel launch with conflict group awareness
 - [ ] Post-cycle result publishing to issues/PRs
 - [ ] Integration with merge queue assistant for end-to-end close
@@ -337,3 +360,4 @@ The `-PlanFirst` flag connects the self-cycle runner to `plan-next-batch.ps1` fo
 - [Main Health Policy](main-health-policy.md) — health state definitions and writer workflow
 - [write-main-health-state.ps1](../../scripts/ai/write-main-health-state.ps1) — Health marker writer
 - [ai-state/README.md](../../.github/ai-state/README.md) — Marker schema and downstream consumers
+- [Autopilot Plan Mode](self-cycle-autopilot-plan-mode.md) — Non-stop dry-run planning through all steps
