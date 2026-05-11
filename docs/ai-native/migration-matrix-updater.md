@@ -103,11 +103,27 @@ When `matrixType` is `"slice"`, the script automatically targets
 5. **Repo-owner** reviews and commits suggested changes (or uses `-Write`).
 6. **State reconciler** can verify matrix/issue consistency.
 
+## Route Parity Matrix Guard
+
+After any matrix update, run the guard script to verify Progress Summary counts
+match the actual matrix rows:
+
+```bash
+node scripts/check-route-parity.js
+```
+
+The guard parses every family endpoint table in `route-parity-matrix.md`, counts
+statuses, and compares against the Progress Summary section. Mismatches cause a
+non-zero exit, preventing stale summary counts from landing on `main`.
+
+Use this in CI or as a local pre-commit check to catch drift early.
+
 ## See Also
 
 - [Migration Matrix](../migration/migration-matrix.md)
 - [Legacy Shutdown Matrix](../migration/legacy-shutdown-matrix.md)
 - [Route Parity Tracker](../migration/route-parity-tracker.md)
+- [Route Parity Matrix](../migration/route-parity-matrix.md)
 - [State Reconciler](state-reconciler.md)
 - [Orchestration](orchestration.md)
 - [#131](https://github.com/nicholasxsxs/lian-nest-server/issues/131)
