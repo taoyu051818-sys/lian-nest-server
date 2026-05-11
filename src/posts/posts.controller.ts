@@ -63,9 +63,9 @@ export class PostsController {
 
   @Get(':postId/reactions')
   listReactions(
-    @Param('postId') _postId: string,
-  ): PostReactionSummary[] {
-    throw new NotImplementedException('PostsController.listReactions');
+    @Param('postId') postId: string,
+  ): Promise<PostReactionSummary[]> {
+    return this.postsService.listReactions(postId);
   }
 
   @Post(':postId/reactions')

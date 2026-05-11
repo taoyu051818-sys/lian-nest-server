@@ -6,6 +6,7 @@ import { PostsService } from './posts.service';
 const mockPostsService = {
   getPostDetail: jest.fn(),
   listPosts: jest.fn(),
+  listReactions: jest.fn(),
   listReplies: jest.fn(),
 };
 
@@ -79,10 +80,16 @@ describe('PostsController', () => {
   // ---- Reactions -----------------------------------------------------------
 
   describe('listReactions', () => {
-    it('should throw NotImplementedException', () => {
-      expect(() => controller.listReactions('1')).toThrow(
-        NotImplementedException,
-      );
+    it('should delegate to PostsService.listReactions', async () => {
+      const mockResult = [
+        { type: 'like', count: 0, reactedByMe: false },
+      ];
+      mockPostsService.listReactions.mockResolvedValue(mockResult);
+
+      const result = await controller.listReactions('42');
+
+      expect(mockPostsService.listReactions).toHaveBeenCalledWith('42');
+      expect(result).toBe(mockResult);
     });
   });
 

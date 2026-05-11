@@ -8,18 +8,19 @@ import {
   NodebbTopicsProvider,
   BodyStatus,
 } from '../nodebb';
-import type {
-  PostDetail,
-  PostListItem,
-  PostPaginatedList,
-  PostReactionSummary,
-  PostReply,
-  CreatePostBody,
-  UpdatePostBody,
-  CreateReactionBody,
-  CreateReplyBody,
-  ListPostsQuery,
-  ListRepliesQuery,
+import {
+  PostReactionType,
+  type PostDetail,
+  type PostListItem,
+  type PostPaginatedList,
+  type PostReactionSummary,
+  type PostReply,
+  type CreatePostBody,
+  type UpdatePostBody,
+  type CreateReactionBody,
+  type CreateReplyBody,
+  type ListPostsQuery,
+  type ListRepliesQuery,
 } from './types';
 
 /**
@@ -133,8 +134,22 @@ export class PostsService {
 
   // ---- Reactions -----------------------------------------------------------
 
-  listReactions(_postId: string): PostReactionSummary[] {
-    throw new NotImplementedException('PostsService.listReactions');
+  async listReactions(postId: string): Promise<PostReactionSummary[]> {
+    const pid = Number(postId);
+    if (!Number.isFinite(pid) || pid < 1) {
+      throw new NotFoundException(`Post ${postId} not found`);
+    }
+
+    const postRes = await this.postsProvider.getByPid(pid);
+    if (postRes.status === BodyStatus.NOT_FOUND || !postRes.data) {
+      throw new NotFoundException(`Post ${postId} not found`);
+    }
+
+    return Object.values(PostReactionType).map((type) => ({
+      type,
+      count: 0,
+      reactedByMe: false,
+    }));
   }
 
   addReaction(_postId: string, _body: CreateReactionBody): PostReactionSummary {
