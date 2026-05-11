@@ -18,6 +18,14 @@
 .PARAMETER OutputFile
     Path to write the compiled task JSON. If omitted, writes to stdout.
 
+.PARAMETER OutputMode
+    Output schema version: 'v1' (default) or 'v2'. In v2 mode the compiler
+    promotes nested role/attention/review fields to top-level, renames
+    validationCommands→validation and budgets→budget, and emits task-v2
+    schema fields (workerClass, writeSet, sharedLocks, dependsOnFacts,
+    producesFacts, telemetry, rollbackPlan, sourceOfTruthDocs, blockedBy,
+    mainHealthPolicy, generatedCodePolicy).
+
 .PARAMETER DryRun
     Print diagnostics without emitting task JSON. Default mode.
 
@@ -29,6 +37,9 @@
 
 .EXAMPLE
     ./scripts/ai/compile-issue-to-task-json.ps1 -IssueFile ./fixtures/issue-149.json -OutputFile ./tasks/issue-149.json
+
+.EXAMPLE
+    ./scripts/ai/compile-issue-to-task-json.ps1 -IssueFile ./fixtures/issue-149.json -OutputMode v2
 #>
 
 [CmdletBinding()]
@@ -38,6 +49,9 @@ param(
 
     [Parameter(Mandatory = $false)]
     [string]$OutputFile,
+
+    [ValidateSet("v1", "v2")]
+    [string]$OutputMode = "v1",
 
     [switch]$DryRun,
 
@@ -60,8 +74,30 @@ USAGE
 OPTIONS
     -IssueFile <path>    Path to an issue JSON file. If omitted, reads from stdin.
     -OutputFile <path>   Path to write the compiled task JSON. If omitted, writes to stdout.
+    -OutputMode <mode>   Output schema version: 'v1' (default) or 'v2'.
+                         v2 promotes nested fields to top-level, renames
+                         validationCommands→validation and budgets→budget,
+                         and emits task-v2 schema fields.
     -DryRun              Print diagnostics without emitting task JSON (default mode).
     -Help                Show this help message.
+
+OUTPUT MODES
+    -OutputMode v1 (default)
+        Emits task JSON conforming to task.schema.json (v1). Role, attention,
+        and review fields stay nested inside rolePacket, attentionAreas, and
+        reviewAndAcceptance wrappers.
+
+    -OutputMode v2
+        Emits task JSON conforming to task-v2.schema.json. Promotes nested
+        fields to top-level (actorRole, roleDescription, attentionFocus,
+        knownBlindspots, requiredReviewRoles, acceptanceOwner). Renames
+        validationCommands→validation and budgets→budget. Adds v2-only
+        fields from input: workerClass, writeSet, sharedLocks, dependsOnFacts,
+        producesFacts, telemetry, rollbackPlan, sourceOfTruthDocs, blockedBy,
+        mainHealthPolicy, generatedCodePolicy. v1 compat wrappers are kept
+        for launcher normalization.
+
+    workerClass defaults to conflictGroup if not provided in input.
 
 LLM CONTRACT
     When the input JSON contains "llmExtracted": true, the compiler applies
@@ -324,10 +360,87 @@ foreach ($field in $optionalFields) {
 
 Write-Ok "Task JSON built (issue #$($task.targetIssue), type=$($task.taskType), risk=$($task.risk))"
 
+# ── v2 output mode ──────────────────────────────────────────────────────────
+# When OutputMode=v2, transform the task JSON to match task-v2.schema.json:
+#   - Promote nested role/attention/review fields to top-level
+#   - Rename validationCommands→validation, budgets→budget
+#   - Add v2-only fields from input (workerClass, writeSet, sharedLocks, etc.)
+#   - Keep v1 compat wrappers so the launcher can normalize both
+
+if ($OutputMode -eq "v2") {
+    Write-Step "Applying v2 output mode transformations"
+
+    # Promote rolePacket → top-level actorRole / roleDescription
+    if ($issue.PSObject.Properties.Name -contains "rolePacket") {
+        $task["actorRole"] = $issue.rolePacket.actorRole
+        if ($issue.rolePacket.PSObject.Properties.Name -contains "description") {
+            $task["roleDescription"] = $issue.rolePacket.description
+        }
+    }
+
+    # Promote attentionAreas → top-level attentionFocus / knownBlindspots
+    if ($issue.PSObject.Properties.Name -contains "attentionAreas") {
+        if ($issue.attentionAreas.PSObject.Properties.Name -contains "focus") {
+            $task["attentionFocus"] = @($issue.attentionAreas.focus)
+        }
+        if ($issue.attentionAreas.PSObject.Properties.Name -contains "knownBlindspots") {
+            $task["knownBlindspots"] = @($issue.attentionAreas.knownBlindspots)
+        }
+    }
+
+    # Promote reviewAndAcceptance → top-level requiredReviewRoles / acceptanceOwner
+    if ($issue.PSObject.Properties.Name -contains "reviewAndAcceptance") {
+        if ($issue.reviewAndAcceptance.PSObject.Properties.Name -contains "requiredReviewRoles") {
+            $task["requiredReviewRoles"] = @($issue.reviewAndAcceptance.requiredReviewRoles)
+        }
+        if ($issue.reviewAndAcceptance.PSObject.Properties.Name -contains "acceptanceOwner") {
+            $task["acceptanceOwner"] = $issue.reviewAndAcceptance.acceptanceOwner
+        }
+    }
+
+    # Rename validationCommands → validation
+    if ($task.Contains("validationCommands")) {
+        $task["validation"] = $task["validationCommands"]
+        $task.Remove("validationCommands")
+    }
+
+    # Rename budgets → budget
+    if ($task.Contains("budgets")) {
+        $task["budget"] = $task["budgets"]
+        $task.Remove("budgets")
+    }
+
+    # workerClass: required in v2 schema, derive from conflictGroup if not provided
+    $hasWorkerClass = $issue.PSObject.Properties.Name -contains "workerClass" -and
+        -not [string]::IsNullOrWhiteSpace($issue.workerClass)
+    if ($hasWorkerClass) {
+        $task["workerClass"] = $issue.workerClass
+    } else {
+        # Derive from conflictGroup as a safe default
+        $task["workerClass"] = $issue.conflictGroup
+        Write-Warn "workerClass not provided in input; defaulting to conflictGroup '$($issue.conflictGroup)'"
+    }
+
+    # Pass through v2-only fields from input if present
+    $v2OptionalFields = @(
+        "writeSet", "sharedLocks", "dependsOnFacts", "producesFacts",
+        "telemetry", "rollbackPlan", "sourceOfTruthDocs", "blockedBy",
+        "mainHealthPolicy", "generatedCodePolicy"
+    )
+
+    foreach ($field in $v2OptionalFields) {
+        if ($issue.PSObject.Properties.Name -contains $field) {
+            $task[$field] = $issue.$field
+        }
+    }
+
+    Write-Ok "v2 transformations applied (workerClass=$($task.workerClass))"
+}
+
 # ── Dry run exit ─────────────────────────────────────────────────────────────
 
 if ($DryRun) {
-    Write-Step "DRY RUN -- printing compiled task JSON (not written to file)"
+    Write-Step "DRY RUN (mode=$OutputMode) -- printing compiled task JSON (not written to file)"
     Write-Host ""
     $task | ConvertTo-Json -Depth 10 | Write-Host
     Write-Host ""
@@ -338,10 +451,11 @@ if ($DryRun) {
 
     Write-Host ""
     Write-Host "To write output:" -ForegroundColor Yellow
+    $modeArg = if ($OutputMode -eq "v2") { " -OutputMode v2" } else { "" }
     if ($IssueFile) {
-        Write-Host "  ./scripts/ai/compile-issue-to-task-json.ps1 -IssueFile $IssueFile -DryRun:`$false -OutputFile ./tasks/task.json" -ForegroundColor Yellow
+        Write-Host "  ./scripts/ai/compile-issue-to-task-json.ps1 -IssueFile $IssueFile -DryRun:`$false$modeArg -OutputFile ./tasks/task.json" -ForegroundColor Yellow
     } else {
-        Write-Host "  ... | ./scripts/ai/compile-issue-to-task-json.ps1 -DryRun:`$false -OutputFile ./tasks/task.json" -ForegroundColor Yellow
+        Write-Host "  ... | ./scripts/ai/compile-issue-to-task-json.ps1 -DryRun:`$false$modeArg -OutputFile ./tasks/task.json" -ForegroundColor Yellow
     }
     exit 0
 }
