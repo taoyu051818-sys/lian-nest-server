@@ -5,6 +5,8 @@
 
 .DESCRIPTION
     Scans all git worktrees (excluding the main worktree) and classifies each as:
+      - locked        — branch holds an active (non-expired) launch lock; NEVER
+                        removed while the lock is active
       - merged        — branch is fully merged into main; safe to remove
       - merged+dirty  — branch is merged but has uncommitted changes; DO NOT
                         remove without recovering changes first
@@ -12,12 +14,17 @@
       - stale         — unmerged but no commits in the last 14 days
       - active        — unmerged with recent commits
 
+    When a launch locks file (.github/ai-state/launch-locks.json) exists,
+    worktrees whose branch matches an active lock are classified as "locked"
+    and are never removed, even if they would otherwise qualify for cleanup.
+
     Default mode is dry-run: prints a classification report with no side effects.
     The dry-run report shows what actions would be taken for each category,
     making it safe to run in CI or before launching new workers.
 
     Safety policy:
       - Only merged worktrees are ever removed (via -RemoveMerged).
+      - Locked worktrees are NEVER removed while their lock is active.
       - Dirty and stale worktrees are NEVER removed automatically.
       - Merged+dirty worktrees require -Force to remove.
       - No worktree is deleted without an explicit removal flag.
@@ -43,6 +50,15 @@
     When used with -RemoveMerged, also removes merged+dirty worktrees.
     Without this switch, merged+dirty worktrees are skipped with a warning.
 
+.PARAMETER LaunchLocksPath
+    Path to the launch locks state file. Defaults to
+    .github/ai-state/launch-locks.json. When the file exists, worktrees
+    whose branch matches an active (non-expired) lock are classified as
+    "locked" and are never removed.
+
+.PARAMETER Help
+    Display this help message and exit.
+
 .EXAMPLE
     # Dry-run report (default — no changes)
     ./scripts/ai/worktree-janitor.ps1
@@ -62,6 +78,10 @@
 .EXAMPLE
     # Remove merged worktrees, including those with uncommitted changes
     ./scripts/ai/worktree-janitor.ps1 -RemoveMerged -Force
+
+.EXAMPLE
+    # Display help
+    ./scripts/ai/worktree-janitor.ps1 -Help
 #>
 
 [CmdletBinding()]
@@ -70,11 +90,20 @@ param(
     [int]$StaleDays = 14,
     [switch]$RemoveMerged,
     [switch]$DryRun,
-    [switch]$Force
+    [switch]$Force,
+    [string]$LaunchLocksPath = ".github/ai-state/launch-locks.json",
+    [switch]$Help
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# ── Help ─────────────────────────────────────────────────────────────────────
+
+if ($Help) {
+    Get-Help $MyInvocation.MyCommand.Path -Full
+    exit 0
+}
 
 # DryRun takes precedence over RemoveMerged for safety
 if ($DryRun -and $RemoveMerged) {
@@ -142,6 +171,49 @@ if (-not $mainHead) {
     exit 2
 }
 
+# ── Load launch locks (if available) ────────────────────────────────────────
+
+$launchLocks = @{}
+$lockEntries = @()
+
+if (Test-Path $LaunchLocksPath) {
+    try {
+        $locksRaw = Get-Content -Path $LaunchLocksPath -Raw -Encoding UTF8
+        $locksJson = $locksRaw | ConvertFrom-Json
+
+        $lockEntries = @($locksJson.locks)
+        $now = Get-Date
+
+        foreach ($lock in $lockEntries) {
+            if (-not $lock.ownerTask -or -not $lock.ownerTask.branch) { continue }
+
+            $lockBranch = $lock.ownerTask.branch
+            $expiresAt = $null
+            if ($lock.expiresAt) {
+                try { $expiresAt = [DateTime]::Parse($lock.expiresAt) } catch { }
+            }
+
+            $isExpired = ($null -ne $expiresAt) -and ($expiresAt -lt $now)
+
+            $launchLocks[$lockBranch] = [ordered]@{
+                conflictGroup = $lock.conflictGroup
+                issue         = $lock.ownerTask.issue
+                workerClass   = $lock.ownerTask.workerClass
+                acquiredAt    = $lock.acquiredAt
+                expiresAt     = $lock.expiresAt
+                isExpired     = $isExpired
+            }
+        }
+
+        $activeCount = @($launchLocks.Values | Where-Object { -not $_.isExpired }).Count
+        Write-Info "Loaded $($launchLocks.Count) launch lock(s) ($activeCount active)"
+    } catch {
+        Write-Warn "Could not parse $LaunchLocksPath — lock awareness disabled: $_"
+    }
+} else {
+    Write-Info "No launch locks file at $LaunchLocksPath — lock awareness disabled"
+}
+
 # ── Classify each worktree ───────────────────────────────────────────────────
 
 $results = @()
@@ -187,20 +259,33 @@ foreach ($wt in $worktrees) {
     }
 
     # Classify
-    # Priority: merged > merged+dirty > dirty > stale > active
+    # Priority: locked > merged > merged+dirty > dirty > stale > active
     # A merged branch is always "merged" regardless of dirty state, but we
     # track merged+dirty as a distinct annotation so the report can warn.
+    # A branch with an active (non-expired) launch lock is "locked" and
+    # never removed, even if it would otherwise qualify.
     $status = "active"
     $mergedDirty = $false
-    if ($isMerged) {
-        $status = "merged"
-        if ($isDirty) { $mergedDirty = $true }
-    } elseif ($isDirty) {
-        $status = "dirty"
-    } elseif ($lastCommitDate) {
-        $daysSince = ($now - $lastCommitDate).Days
-        if ($daysSince -ge $StaleDays) {
-            $status = "stale"
+    $lockInfo = $null
+
+    if ($launchLocks.ContainsKey($branchRef)) {
+        $lockInfo = $launchLocks[$branchRef]
+        if (-not $lockInfo.isExpired) {
+            $status = "locked"
+        }
+    }
+
+    if ($status -ne "locked") {
+        if ($isMerged) {
+            $status = "merged"
+            if ($isDirty) { $mergedDirty = $true }
+        } elseif ($isDirty) {
+            $status = "dirty"
+        } elseif ($lastCommitDate) {
+            $daysSince = ($now - $lastCommitDate).Days
+            if ($daysSince -ge $StaleDays) {
+                $status = "stale"
+            }
         }
     }
 
@@ -210,6 +295,7 @@ foreach ($wt in $worktrees) {
         status        = $status
         mergedDirty   = $mergedDirty
         isDirty       = $isDirty
+        lockInfo      = $lockInfo
         isMerged      = $isMerged
         lastCommit    = if ($lastCommitDate) { $lastCommitDate.ToString("yyyy-MM-dd HH:mm") } else { "unknown" }
         staleDays     = if ($lastCommitDate) { ($now - $lastCommitDate).Days } else { $null }
@@ -226,12 +312,14 @@ Write-Host ""
 
 $merged       = @($results | Where-Object { $_.status -eq "merged" -and -not $_.mergedDirty })
 $mergedDirty  = @($results | Where-Object { $_.status -eq "merged" -and $_.mergedDirty })
+$locked       = @($results | Where-Object { $_.status -eq "locked" })
 $dirty        = @($results | Where-Object { $_.status -eq "dirty" })
 $stale        = @($results | Where-Object { $_.status -eq "stale" })
 $active       = @($results | Where-Object { $_.status -eq "active" })
 
 $colorMap = @{
     "merged" = "DarkGray"
+    "locked" = "Magenta"
     "dirty"  = "Yellow"
     "stale"  = "Red"
     "active" = "Green"
@@ -244,6 +332,10 @@ foreach ($r in $results) {
     if ($r.mergedDirty) { $extra += " [merged+dirty]" }
     elseif ($r.isDirty) { $extra += " [dirty]" }
     if ($r.staleDays -ne $null -and $r.status -eq "stale") { $extra += " [$($r.staleDays)d]" }
+    if ($r.lockInfo) {
+        $li = $r.lockInfo
+        $extra += " [lock: issue#$($li.issue) group=$($li.conflictGroup)]"
+    }
 
     Write-Host "  $tag " -ForegroundColor $color -NoNewline
     Write-Host "$($r.branch)  last=$($r.lastCommit)$extra" -ForegroundColor Gray
@@ -254,6 +346,7 @@ $mdCount = $mergedDirty.Count
 $summaryParts = @(
     "$($merged.Count) merged",
     "$mdCount merged+dirty",
+    "$($locked.Count) locked",
     "$($dirty.Count) dirty",
     "$($stale.Count) stale",
     "$($active.Count) active"
@@ -328,6 +421,18 @@ if ($RemoveMerged) {
             }
         }
         Write-Host "    Command: ./scripts/ai/worktree-janitor.ps1 -RemoveMerged" -ForegroundColor Yellow
+        Write-Host ""
+    }
+
+    # Show locked worktrees (protected by launch locks)
+    if ($locked.Count -gt 0) {
+        Write-Host "  Locked worktrees ($($locked.Count) found) — protected by launch locks:" -ForegroundColor Magenta
+        foreach ($r in $locked) {
+            $li = $r.lockInfo
+            $lockLabel = "issue#$($li.issue) group=$($li.conflictGroup)"
+            Write-Host "    - $($r.branch) [$lockLabel] ($($r.path))" -ForegroundColor Gray
+        }
+        Write-Host "    Policy: NEVER auto-removed while lock is active." -ForegroundColor Magenta
         Write-Host ""
     }
 
