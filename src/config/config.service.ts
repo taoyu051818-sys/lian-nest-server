@@ -43,4 +43,8 @@ export class ConfigService {
   get isDevelopment(): boolean {
     return this.env.NODE_ENV === 'development';
   }
+
+  get databaseUrl(): string {
+    return this.env.DATABASE_URL;
+  }
 }

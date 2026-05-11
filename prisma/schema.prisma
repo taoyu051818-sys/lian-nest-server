@@ -1,0 +1,144 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Slice 1: Users — core identity with NodeBB reference
+model User {
+  id           Int        @id @default(autoincrement())
+  uuid         String     @unique @db.Uuid
+  email        String     @unique
+  username     String     @unique
+  displayName  String?    @map("display_name")
+  avatarUrl    String?    @map("avatar_url")
+  passwordHash String     @map("password_hash")
+  role         UserRole   @default(USER)
+  status       UserStatus @default(ACTIVE)
+
+  // NodeBB reference
+  nodebbUid Int? @map("nodebb_uid")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  sessions          Session[]
+  postMeta          PostMeta[]
+  recommendationPref RecommendationPref?
+  aiInteractions    AiInteraction[]
+  auditEvents       AuditEvent[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+// Slice 2: Sessions — refresh tokens and session metadata
+model Session {
+  id           String   @id @default(cuid())
+  userId       Int      @map("user_id")
+  refreshToken String   @unique @map("refresh_token")
+  userAgent    String?  @map("user_agent")
+  ipAddress    String?  @map("ip_address")
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// Slice 3: Post Metadata — LIAN-side content bridging to NodeBB
+model PostMeta {
+  id       Int        @id @default(autoincrement())
+  authorId Int        @map("author_id")
+  title    String
+  slug     String     @unique
+  category String?
+  tags     String[]
+  status   PostStatus @default(DRAFT)
+
+  // NodeBB references
+  nodebbTid  Int?    @map("nodebb_tid")
+  nodebbPid  Int?    @map("nodebb_pid")
+  nodebbSlug String? @map("nodebb_slug")
+
+  publishedAt DateTime? @map("published_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  author User @relation(fields: [authorId], references: [id])
+
+  @@index([authorId])
+  @@index([status])
+  @@map("post_meta")
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+// Slice 4: Recommendation Preferences
+model RecommendationPref {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique @map("user_id")
+  interests String[]
+  weights   Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("recommendation_prefs")
+}
+
+// Slice 5: AI Interaction Records
+model AiInteraction {
+  id        String   @id @default(cuid())
+  userId    Int?     @map("user_id")
+  feature   String
+  input     Json
+  output    Json
+  model     String
+  tokens    Int?
+  latencyMs Int?     @map("latency_ms")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([feature])
+  @@map("ai_interactions")
+}
+
+// Slice 6: Audit Events
+model AuditEvent {
+  id        String   @id @default(cuid())
+  actorId   Int?     @map("actor_id")
+  action    String
+  target    String?
+  detail    Json?
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_events")
+}
