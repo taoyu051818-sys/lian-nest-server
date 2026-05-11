@@ -173,6 +173,7 @@ console.log("\nserver.js CLI tests\n");
     assert(out.includes("ENDPOINTS"), "CLI --help lists endpoints");
     assert(out.includes("/api/actions"), "CLI --help mentions /api/actions");
     assert(out.includes("/api/audit"), "CLI --help mentions /api/audit");
+    assert(out.includes("/api/planning"), "CLI --help mentions /api/planning");
   } catch {
     assert(false, "CLI --help exits 0");
   }
@@ -314,6 +315,22 @@ console.log("\nEADDRINUSE tests\n");
       assert(res.status === 404, "GET unknown route returns 404");
       const data = JSON.parse(res.body);
       assert(data.error === "Not found", "GET unknown route error message");
+    }
+
+    // GET /api/planning (no planning console file → empty projection)
+    {
+      const res = await fetch(`http://127.0.0.1:${port}/api/planning`);
+      assert(res.status === 200, "GET /api/planning returns 200 when file missing");
+      const data = JSON.parse(res.body);
+      assert(data.schemaVersion === 1, "GET /api/planning empty projection has schemaVersion 1");
+      assert(data.capturedAt === null, "GET /api/planning empty projection has capturedAt null");
+      assert(Array.isArray(data.candidates), "GET /api/planning empty projection has candidates array");
+      assert(data.candidates.length === 0, "GET /api/planning empty projection has empty candidates");
+      assert(typeof data.summary === "object", "GET /api/planning empty projection has summary object");
+      assert(data.summary.ready === 0, "GET /api/planning empty projection summary.ready is 0");
+      assert(data.summary.blocked === 0, "GET /api/planning empty projection summary.blocked is 0");
+      assert(data.summary.done === 0, "GET /api/planning empty projection summary.done is 0");
+      assert(data.summary.total === 0, "GET /api/planning empty projection summary.total is 0");
     }
 
     // Security headers
@@ -486,6 +503,13 @@ console.log("\nEADDRINUSE tests\n");
       } else {
         assert(true, "audit redaction: state file not present, skip (503)");
       }
+    }
+
+    {
+      const res = await fetch(`http://127.0.0.1:${port}/api/planning`);
+      assert(res.status === 200, "audit: planning endpoint returns 200");
+      const raw = JSON.stringify(JSON.parse(res.body));
+      assert(!/sk-ant-/.test(raw), "audit: no raw API key pattern in planning response");
     }
 
     // Verify health endpoint leaks no secrets
