@@ -29,8 +29,9 @@ export class ProfileController {
   @Get(':uid/liked')
   async getLiked(
     @Param('uid') uid: string,
+    @Query() query: CollectionQuery,
   ): Promise<ProfileCollection<LikedItem>> {
-    return this.profileUsecase.getLiked(uid);
+    return this.profileUsecase.getLiked(uid, query);
   }
 
   @Get(':uid/history')

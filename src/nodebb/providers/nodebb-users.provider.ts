@@ -10,6 +10,14 @@ export interface NodebbSavedEntry {
   timestamp: number;
 }
 
+/** Minimal shape for a liked/upvoted entry returned by NodeBB. */
+export interface NodebbLikedEntry {
+  id: string;
+  type: 'topic' | 'post';
+  targetId: string;
+  timestamp: number;
+}
+
 @Injectable()
 export class NodebbUsersProvider {
   constructor(
@@ -43,6 +51,23 @@ export class NodebbUsersProvider {
   ): Promise<NodebbNormalizedResponse<NodebbSavedEntry[]>> {
     return this.client.get<NodebbSavedEntry[]>(
       `/api/v3/users/${uid}/bookmarks`,
+      auth,
+    );
+  }
+
+  /**
+   * Fetch liked/upvoted items for a user.
+   *
+   * Calls NodeBB upvoted endpoint. The exact response shape is
+   * implementation-dependent; callers should treat errors as "no data"
+   * and fall back gracefully.
+   */
+  async getLiked(
+    uid: number,
+    auth?: NodebbAuth,
+  ): Promise<NodebbNormalizedResponse<NodebbLikedEntry[]>> {
+    return this.client.get<NodebbLikedEntry[]>(
+      `/api/v3/users/${uid}/upvoted`,
       auth,
     );
   }
