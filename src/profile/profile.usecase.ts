@@ -97,8 +97,11 @@ export class ProfileUsecase {
     page: number;
     pageSize: number;
   } {
-    const page = query?.page ?? DEFAULT_PAGE;
-    const pageSize = query?.pageSize ?? DEFAULT_PAGE_SIZE;
+    const rawPage = query?.page ?? DEFAULT_PAGE;
+    const rawPageSize = query?.pageSize ?? DEFAULT_PAGE_SIZE;
+
+    const page = Number(rawPage);
+    const pageSize = Number(rawPageSize);
 
     if (!Number.isInteger(page) || page < 1) {
       throw new BadRequestException('page must be a positive integer');

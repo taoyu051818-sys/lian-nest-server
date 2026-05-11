@@ -45,6 +45,6 @@ export interface ProfileCollection<T> {
 
 /** Query parameters for collection pagination */
 export interface CollectionQuery {
-  page?: number;
-  pageSize?: number;
+  page?: string | number;
+  pageSize?: string | number;
 }

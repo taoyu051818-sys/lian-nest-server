@@ -80,6 +80,22 @@ describe('ProfileController', () => {
       expect(spy).toHaveBeenCalledWith('1', { page: 2, pageSize: 5 });
       expect(result).toEqual(mockResponse);
     });
+
+    it('should forward string page and pageSize from @Query()', async () => {
+      const mockResponse = {
+        items: [],
+        total: 0,
+        page: 2,
+        pageSize: 5,
+        source: 'fallback' as const,
+      };
+      const spy = jest
+        .spyOn(usecase, 'getSaved')
+        .mockResolvedValue(mockResponse);
+      const result = await controller.getSaved('1', { page: '2', pageSize: '5' });
+      expect(spy).toHaveBeenCalledWith('1', { page: '2', pageSize: '5' });
+      expect(result).toEqual(mockResponse);
+    });
   });
 
   describe('getLiked', () => {
