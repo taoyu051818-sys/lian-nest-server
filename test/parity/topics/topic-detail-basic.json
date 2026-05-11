@@ -1,0 +1,44 @@
+{
+  "id": "topic-detail-basic",
+  "endpoint": "GET /api/topic/:tid",
+  "description": "Topic detail by tid returns mapped topic fields",
+  "request": {
+    "method": "GET",
+    "path": "/api/topic/<TOPIC_TID>",
+    "params": { "tid": "<TOPIC_TID>" }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "tid": "<POSITIVE_INT>",
+      "uid": "<POSITIVE_INT>",
+      "cid": "<POSITIVE_INT>",
+      "title": "<STRING>",
+      "slug": "<STRING>",
+      "mainPid": "<POSITIVE_INT>",
+      "postcount": "<NON_NEG_INT>",
+      "viewcount": "<NON_NEG_INT>",
+      "timestamp": "<POSITIVE_INT>",
+      "source": "nodebb"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["tid", "uid", "cid", "title", "slug", "mainPid", "postcount", "viewcount", "timestamp", "source"],
+      "properties": {
+        "tid": { "type": "integer", "minimum": 1 },
+        "uid": { "type": "integer", "minimum": 1 },
+        "cid": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "slug": { "type": "string" },
+        "mainPid": { "type": "integer", "minimum": 1 },
+        "postcount": { "type": "integer", "minimum": 0 },
+        "viewcount": { "type": "integer", "minimum": 0 },
+        "timestamp": { "type": "integer", "minimum": 0 },
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "notes": "TOPIC_TID must reference a valid seeded NodeBB topic. Fields are mapped directly from NodebbTopic with source=nodebb."
+}
