@@ -11,6 +11,7 @@ describe('ProfileUsecase', () => {
     getByUid: jest.fn(),
     getBySlug: jest.fn(),
     getSaved: jest.fn(),
+    getLiked: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -323,10 +324,155 @@ describe('ProfileUsecase', () => {
   });
 
   describe('getLiked', () => {
-    it('should throw not-implemented error with uid', async () => {
-      await expect(usecase.getLiked('42')).rejects.toThrow(
-        'getLiked(42) not implemented',
-      );
+    it('should return mapped items with source nodebb on success', async () => {
+      mockUsersProvider.getLiked.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [
+          { id: 'l1', type: 'topic', targetId: '100', timestamp: 1735689600000 },
+          { id: 'l2', type: 'post', targetId: '200', timestamp: 1735776000000 },
+        ],
+        error: null,
+      });
+
+      const result = await usecase.getLiked('42');
+
+      expect(result.source).toBe('nodebb');
+      expect(result.items).toHaveLength(2);
+      expect(result.items[0]).toEqual({
+        id: 'l1',
+        type: 'topic',
+        targetId: '100',
+        likedAt: '2025-01-01T00:00:00.000Z',
+      });
+      expect(result.page).toBe(1);
+      expect(result.pageSize).toBe(10);
+      expect(mockUsersProvider.getLiked).toHaveBeenCalledWith(42);
+    });
+
+    it('should return empty nodebb collection when data is empty array', async () => {
+      mockUsersProvider.getLiked.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
+      const result = await usecase.getLiked('42');
+
+      expect(result.source).toBe('nodebb');
+      expect(result.items).toEqual([]);
+      expect(result.total).toBe(0);
+    });
+
+    it('should return fallback when provider returns error status', async () => {
+      mockUsersProvider.getLiked.mockResolvedValue({
+        status: BodyStatus.ERROR,
+        statusCode: 500,
+        data: null,
+        error: 'Internal error',
+      });
+
+      const result = await usecase.getLiked('42');
+
+      expect(result.source).toBe('fallback');
+      expect(result.items).toEqual([]);
+      expect(result.total).toBe(0);
+    });
+
+    it('should return fallback when provider throws', async () => {
+      mockUsersProvider.getLiked.mockRejectedValue(new Error('network error'));
+
+      const result = await usecase.getLiked('42');
+
+      expect(result.source).toBe('fallback');
+      expect(result.items).toEqual([]);
+      expect(result.total).toBe(0);
+    });
+
+    it('should use default pagination when no query provided', async () => {
+      mockUsersProvider.getLiked.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
+      const result = await usecase.getLiked('42');
+
+      expect(result.page).toBe(1);
+      expect(result.pageSize).toBe(10);
+    });
+
+    it('should use provided pagination params', async () => {
+      mockUsersProvider.getLiked.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
+      const result = await usecase.getLiked('42', { page: 2, pageSize: 5 });
+
+      expect(result.page).toBe(2);
+      expect(result.pageSize).toBe(5);
+    });
+
+    it('should throw NotFoundException for invalid uid', async () => {
+      await expect(usecase.getLiked('abc')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw BadRequestException for page < 1', async () => {
+      await expect(
+        usecase.getLiked('42', { page: 0 }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException for pageSize > 50', async () => {
+      await expect(
+        usecase.getLiked('42', { pageSize: 51 }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException for pageSize < 1', async () => {
+      await expect(
+        usecase.getLiked('42', { pageSize: 0 }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should accept string page and pageSize from @Query()', async () => {
+      mockUsersProvider.getLiked.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
+      const result = await usecase.getLiked('42', { page: '2', pageSize: '5' });
+
+      expect(result.page).toBe(2);
+      expect(result.pageSize).toBe(5);
+    });
+
+    it('should throw BadRequestException for non-numeric string page', async () => {
+      await expect(
+        usecase.getLiked('42', { page: 'abc' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should include fallback pagination when validation fails', async () => {
+      mockUsersProvider.getLiked.mockResolvedValue({
+        status: BodyStatus.NOT_FOUND,
+        statusCode: 404,
+        data: null,
+        error: 'Not found',
+      });
+
+      const result = await usecase.getLiked('999', { page: 3, pageSize: 15 });
+
+      expect(result.page).toBe(3);
+      expect(result.pageSize).toBe(15);
+      expect(result.source).toBe('fallback');
     });
   });
 
