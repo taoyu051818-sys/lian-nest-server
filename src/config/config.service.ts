@@ -51,6 +51,10 @@ export class ConfigService {
     return this.env.NODE_ENV === 'development';
   }
 
+  get databaseUrl(): string {
+    return this.env.DATABASE_URL;
+  }
+
   get redisUrl(): string {
     return this.env.REDIS_URL;
   }

@@ -4,6 +4,7 @@ export interface EnvironmentVariables {
   NODE_ENV: 'development' | 'production' | 'test';
   PORT: number;
   LOG_LEVEL: string;
+  DATABASE_URL: string;
   REDIS_URL: string;
   NODEBB_URL: string;
   NODEBB_AUTH_MODE: string;
@@ -19,6 +20,7 @@ export const envValidationSchema = Joi.object<EnvironmentVariables>({
   LOG_LEVEL: Joi.string()
     .valid('error', 'warn', 'info', 'debug', 'verbose')
     .default('info'),
+  DATABASE_URL: Joi.string().uri().required(),
   REDIS_URL: Joi.string()
     .uri({ scheme: ['redis', 'rediss'] })
     .default('redis://localhost:6379'),
