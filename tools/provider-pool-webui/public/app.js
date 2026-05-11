@@ -766,6 +766,12 @@ function renderServerActionCard(actionMeta, allData) {
 
 function buildPayloadForm(actionMeta, allData) {
   const form = el('div', { className: 'action-form' });
+
+  // Structured form for worker-control action
+  if (actionMeta.id === 'worker.control') {
+    return buildWorkerControlForm(actionMeta, allData, form);
+  }
+
   const providers = allData.state?.providers || [];
 
   // If the action id hints at provider context, add a provider selector
@@ -799,6 +805,94 @@ function buildPayloadForm(actionMeta, allData) {
   return form;
 }
 
+function buildWorkerControlForm(_actionMeta, allData, form) {
+  // Operation selector (list vs stop)
+  const opWrap = el('div', { className: 'action-form__field' });
+  opWrap.append(el('label', { className: 'action-form__label', textContent: 'Operation' }));
+  const opSelect = el('select', { className: 'action-form__select', 'data-field': 'action' });
+  opSelect.append(el('option', { value: 'list', textContent: 'List Workers' }));
+  opSelect.append(el('option', { value: 'stop', textContent: 'Stop Workers' }));
+  opWrap.append(opSelect);
+  form.append(opWrap);
+
+  // Stop-only fields container
+  const stopFields = el('div', { className: 'action-form__stop-fields', style: 'display:none' });
+
+  // Worker selector (checkboxes from active workers)
+  const workers = getActiveWorkers(allData);
+  const workerWrap = el('div', { className: 'action-form__field' });
+  workerWrap.append(el('label', { className: 'action-form__label', textContent: 'Target Workers' }));
+
+  if (workers.length > 0) {
+    const checkboxList = el('div', { className: 'action-form__checkbox-list' });
+    for (const w of workers) {
+      const item = el('label', { className: 'action-form__checkbox-item' });
+      const cb = el('input', { type: 'checkbox', value: w.workerId, 'data-field': 'workerId' });
+      item.append(cb);
+      item.append(el('span', { textContent: `${w.workerId} (${w.providerId})` }));
+      checkboxList.append(item);
+    }
+    workerWrap.append(checkboxList);
+  } else {
+    // Manual entry fallback when no active workers detected
+    workerWrap.append(el('p', { className: 'action-form__help', textContent: 'No active workers detected. Enter worker IDs manually below.' }));
+    const idsInput = el('input', {
+      className: 'action-form__input',
+      type: 'text',
+      'data-field': 'workerIdsManual',
+      placeholder: 'provider-alpha-slot-0, provider-beta-slot-1',
+      autocomplete: 'off',
+    });
+    workerWrap.append(idsInput);
+  }
+  stopFields.append(workerWrap);
+
+  // Reason field
+  const reasonWrap = el('div', { className: 'action-form__field' });
+  reasonWrap.append(el('label', { className: 'action-form__label', textContent: 'Reason' }));
+  const reasonInput = el('input', {
+    className: 'action-form__input',
+    type: 'text',
+    'data-field': 'reason',
+    placeholder: 'e.g. manual drain for maintenance',
+    autocomplete: 'off',
+  });
+  reasonWrap.append(reasonInput);
+  reasonWrap.append(el('p', { className: 'action-form__help', textContent: 'Required for stop. Recorded in audit log.' }));
+  stopFields.append(reasonWrap);
+
+  form.append(stopFields);
+
+  // Toggle stop fields visibility based on operation
+  opSelect.addEventListener('change', () => {
+    stopFields.style.display = opSelect.value === 'stop' ? '' : 'none';
+  });
+
+  return form;
+}
+
+function getActiveWorkers(allData) {
+  const workers = [];
+  const webuiState = allData.webuiState;
+  if (webuiState?.workers) {
+    for (const w of webuiState.workers) {
+      if (w.status === 'running') {
+        workers.push({ workerId: w.workerId || w.id, providerId: w.providerId || w.provider });
+      }
+    }
+  }
+  // Fallback: derive from provider state
+  if (workers.length === 0) {
+    const state = allData.state;
+    for (const p of state?.providers || []) {
+      for (let i = 0; i < (p.currentConcurrency || 0); i++) {
+        workers.push({ workerId: `${p.id}-slot-${i}`, providerId: p.id });
+      }
+    }
+  }
+  return workers;
+}
+
 function collectFormPayload(form) {
   const payload = {};
 
@@ -807,9 +901,33 @@ function collectFormPayload(form) {
     if (select.value) payload[select.dataset.field] = select.value;
   }
 
+  // Collect checkbox inputs (e.g. worker IDs)
+  const checkboxes = form.querySelectorAll('input[type="checkbox"][data-field]');
+  if (checkboxes.length > 0) {
+    const checkedValues = Array.from(checkboxes)
+      .filter((cb) => cb.checked)
+      .map((cb) => cb.value);
+    if (checkedValues.length > 0) {
+      const field = checkboxes[0].dataset.field;
+      // Pluralize field name for array values (workerId → workerIds)
+      const key = field.endsWith('s') ? field : field + 's';
+      payload[key] = checkedValues;
+    }
+  }
+
   // Collect text input fields
   for (const input of form.querySelectorAll('input[data-field]')) {
-    if (input.value) payload[input.dataset.field] = input.value;
+    if (input.type === 'checkbox') continue; // already handled
+    if (input.value) {
+      const field = input.dataset.field;
+      // Handle comma-separated manual worker IDs
+      if (field === 'workerIdsManual') {
+        const ids = input.value.split(',').map((s) => s.trim()).filter(Boolean);
+        if (ids.length > 0) payload.workerIds = ids;
+      } else {
+        payload[field] = input.value;
+      }
+    }
   }
 
   // Merge JSON payload if provided
@@ -1667,6 +1785,25 @@ function injectConsoleStyles() {
     }
     .action-card--server {
       border-left: 3px solid var(--accent-blue, #60a5fa);
+    }
+    .action-form__help {
+      font-size: 10px; color: var(--text-muted, #565b72); margin-top: 4px;
+    }
+    .action-form__checkbox-list {
+      display: flex; flex-direction: column; gap: 4px;
+      max-height: 120px; overflow-y: auto; padding: 4px 0;
+    }
+    .action-form__checkbox-item {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; font-family: var(--font-mono, monospace);
+      color: var(--text-primary, #e2e4ea); cursor: pointer;
+    }
+    .action-form__checkbox-item input[type="checkbox"] {
+      accent-color: var(--accent-blue, #60a5fa);
+    }
+    .action-form__stop-fields {
+      margin-top: 8px; padding-top: 8px;
+      border-top: 1px dashed var(--surface-border, #262b3a);
     }
     .action-card__badges { display: flex; gap: 4px; align-items: center; }
     .server-action-result { margin-top: 8px; }

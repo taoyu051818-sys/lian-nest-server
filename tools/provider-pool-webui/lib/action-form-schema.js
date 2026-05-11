@@ -43,6 +43,28 @@ const FIELD_TYPES = Object.freeze({
     placeholder: "e.g. strategy",
     autocomplete: "off",
   }),
+  action: Object.freeze({
+    type: "select",
+    label: "Operation",
+    options: Object.freeze([
+      Object.freeze({ value: "list", label: "List Workers" }),
+      Object.freeze({ value: "stop", label: "Stop Workers" }),
+    ]),
+  }),
+  workerIds: Object.freeze({
+    type: "text",
+    label: "Worker IDs",
+    placeholder: "e.g. provider-alpha-slot-0, provider-beta-slot-1",
+    autocomplete: "off",
+    helpText: "Comma-separated worker IDs. No wildcard — must specify each worker explicitly.",
+  }),
+  reason: Object.freeze({
+    type: "text",
+    label: "Reason",
+    placeholder: "e.g. manual drain for maintenance",
+    autocomplete: "off",
+    helpText: "Required for stop operations. Recorded in the audit log.",
+  }),
 });
 
 const DEFAULT_FIELD = Object.freeze({

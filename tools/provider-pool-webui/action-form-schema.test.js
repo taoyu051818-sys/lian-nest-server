@@ -506,6 +506,91 @@ console.log("\nSchema shape: no script field exposed\n");
   }
 }
 
+// --- worker.control form schema ----------------------------------------------
+
+console.log("\nworker.control form schema\n");
+
+{
+  const schema = buildFormSchema("worker.control");
+  assert(schema !== null, "worker.control returns schema");
+  assert(schema.actionId === "worker.control", "actionId is worker.control");
+  assert(schema.title === "Worker Control", "title matches label");
+  assert(schema.risk === RISK.HIGH, "risk is high");
+  assert(schema.riskBadge !== null, "has riskBadge");
+  assert(schema.riskBadge.color === "orange", "riskBadge color is orange");
+  assert(schema.privileged === false, "not privileged");
+  assert(schema.readOnly === false, "not readOnly");
+  assert(schema.defaultPreview === true, "defaults to preview");
+  assert(schema.fields.length === 1, "has 1 required field (action)");
+  assert(schema.fields[0].name === "action", "required field is action");
+  assert(schema.hasConfirmMessage === true, "has confirm message");
+  assert(schema.submitLabel === "Execute", "submit label is Execute");
+  assert(schema.previewLabel === "Preview", "preview label is Preview");
+}
+
+// --- FIELD_TYPES: new worker-control fields ----------------------------------
+
+console.log("\nFIELD_TYPES worker-control fields\n");
+
+{
+  // action field
+  assert(FIELD_TYPES.action !== undefined, "action field type exists");
+  assert(FIELD_TYPES.action.type === "select", "action type is select");
+  assert(FIELD_TYPES.action.label === "Operation", "action label is Operation");
+  assert(Array.isArray(FIELD_TYPES.action.options), "action has options array");
+  assert(FIELD_TYPES.action.options.length === 2, "action has 2 options");
+  assert(FIELD_TYPES.action.options[0].value === "list", "first option is list");
+  assert(FIELD_TYPES.action.options[0].label === "List Workers", "list option label");
+  assert(FIELD_TYPES.action.options[1].value === "stop", "second option is stop");
+  assert(FIELD_TYPES.action.options[1].label === "Stop Workers", "stop option label");
+  assert(Object.isFrozen(FIELD_TYPES.action.options), "action options array is frozen");
+  assert(Object.isFrozen(FIELD_TYPES.action.options[0]), "action option object is frozen");
+
+  // workerIds field
+  assert(FIELD_TYPES.workerIds !== undefined, "workerIds field type exists");
+  assert(FIELD_TYPES.workerIds.type === "text", "workerIds type is text");
+  assert(FIELD_TYPES.workerIds.label === "Worker IDs", "workerIds label");
+  assert(typeof FIELD_TYPES.workerIds.helpText === "string", "workerIds has helpText");
+  assert(FIELD_TYPES.workerIds.helpText.includes("No wildcard"), "helpText mentions no wildcard");
+
+  // reason field
+  assert(FIELD_TYPES.reason !== undefined, "reason field type exists");
+  assert(FIELD_TYPES.reason.type === "text", "reason type is text");
+  assert(FIELD_TYPES.reason.label === "Reason", "reason label");
+  assert(typeof FIELD_TYPES.reason.helpText === "string", "reason has helpText");
+  assert(FIELD_TYPES.reason.helpText.includes("audit log"), "helpText mentions audit log");
+}
+
+// --- buildFieldDescriptor for worker-control fields --------------------------
+
+console.log("\nbuildFieldDescriptor worker-control fields\n");
+
+{
+  const actionField = buildFieldDescriptor("action");
+  assert(actionField.name === "action", "action field name correct");
+  assert(actionField.type === "select", "action type is select");
+  assert(actionField.required === true, "action is required");
+  assert(actionField.label === "Operation", "action label is Operation");
+  assert(Array.isArray(actionField.options), "action has options");
+
+  const workerIdsField = buildFieldDescriptor("workerIds");
+  assert(workerIdsField.name === "workerIds", "workerIds field name correct");
+  assert(workerIdsField.type === "text", "workerIds type is text");
+  assert(workerIdsField.required === true, "workerIds is required");
+  assert(workerIdsField.label === "Worker IDs", "workerIds label");
+
+  const reasonField = buildFieldDescriptor("reason");
+  assert(reasonField.name === "reason", "reason field name correct");
+  assert(reasonField.type === "text", "reason type is text");
+  assert(reasonField.required === true, "reason is required");
+  assert(reasonField.label === "Reason", "reason label");
+
+  // All frozen
+  assert(Object.isFrozen(actionField), "action field descriptor is frozen");
+  assert(Object.isFrozen(workerIdsField), "workerIds field descriptor is frozen");
+  assert(Object.isFrozen(reasonField), "reason field descriptor is frozen");
+}
+
 // --- Confirm message field substitution --------------------------------------
 
 console.log("\nConfirm message field substitution\n");
