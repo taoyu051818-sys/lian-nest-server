@@ -48,14 +48,14 @@ are true:
 | POST | /api/auth/login | A3 | `CONTRACTED` | Slice A3 not implemented |
 | POST | /api/auth/register | A4 | `CONTRACTED` | Slice A4 not implemented |
 | POST | /api/auth/logout | A5 | `CONTRACTED` | Slice A5 not implemented |
-| GET | /api/auth/me | A5 | `CONTRACTED` | Slice A5 not implemented |
+| GET | /api/auth/me | A5 | `IMPLEMENTED` | Parity tests not yet passing |
 | POST | /api/auth/password | A5 | `CONTRACTED` | Slice A5 not implemented |
 
 ### USERS — User Management
 
 | Method | Path | Slice | Status | Shutdown Blocker |
 |--------|------|-------|--------|-----------------|
-| GET | /api/users/:uid | — | `NOT_STARTED` | No slice defined |
+| GET | /api/users/:uid | U1 | `IMPLEMENTED` | Parity tests not yet passing |
 | GET | /api/users/:uid/profile | — | `NOT_STARTED` | No slice defined |
 | PUT | /api/users/:uid | — | `NOT_STARTED` | No slice defined |
 | GET | /api/users/:uid/posts | — | `NOT_STARTED` | No slice defined |
@@ -65,8 +65,8 @@ are true:
 
 | Method | Path | Slice | Status | Shutdown Blocker |
 |--------|------|-------|--------|-----------------|
-| GET | /api/categories | — | `NOT_STARTED` | No slice defined |
-| GET | /api/categories/:cid | — | `NOT_STARTED` | No slice defined |
+| GET | /api/categories | C1 | `IMPLEMENTED` | Parity tests not yet passing |
+| GET | /api/categories/:cid | C1 | `IMPLEMENTED` | Parity tests not yet passing |
 | GET | /api/categories/:cid/topics | — | `NOT_STARTED` | No slice defined |
 | POST | /api/categories/:cid/topics | — | `NOT_STARTED` | No slice defined |
 
@@ -104,7 +104,7 @@ are true:
 
 | Method | Path | Slice | Status | Shutdown Blocker |
 |--------|------|-------|--------|-----------------|
-| GET | /api/notifications | N1 | `CONTRACTED` | Slice N1 not implemented |
+| GET | /api/notifications | N1 | `IMPLEMENTED` | Parity tests not yet passing |
 | PUT | /api/notifications/:nid | N1 | `CONTRACTED` | Slice N1 not implemented |
 | POST | /api/notifications/mark-all | N1 | `CONTRACTED` | Slice N1 not implemented |
 
@@ -112,8 +112,8 @@ are true:
 
 | Method | Path | Slice | Status | Shutdown Blocker |
 |--------|------|-------|--------|-----------------|
-| GET | /api/tags | — | `NOT_STARTED` | No slice defined |
-| GET | /api/tags/:tag/topics | — | `NOT_STARTED` | No slice defined |
+| GET | /api/tags | T1 | `IMPLEMENTED` | Parity tests not yet passing |
+| GET | /api/tags/:tag/topics | T1 | `IMPLEMENTED` | Parity tests not yet passing |
 
 ### SEARCH — Search
 
@@ -136,9 +136,9 @@ are true:
 
 | Status | Count |
 |--------|-------|
-| `NOT_STARTED` | 18 |
-| `CONTRACTED` | 21 |
-| `IMPLEMENTED` | 0 |
+| `NOT_STARTED` | 13 |
+| `CONTRACTED` | 17 |
+| `IMPLEMENTED` | 9 |
 | `PARITY_TESTED` | 0 |
 | `LEGACY_DISABLED` | 0 |
 | **Total** | **39** |

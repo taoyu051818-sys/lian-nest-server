@@ -38,14 +38,14 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 | POST /api/auth/login | AUTH | A3 | CONTRACTED | [A3 contract](../contracts/endpoint-migration-queue.md#a3--login) | — | — | — | NO |
 | POST /api/auth/register | AUTH | A4 | CONTRACTED | [A4 contract](../contracts/endpoint-migration-queue.md#a4--register) | — | — | — | NO |
 | POST /api/auth/logout | AUTH | A5 | CONTRACTED | [A5 contract](../contracts/endpoint-migration-queue.md#a5--logout) | — | — | — | NO |
-| GET /api/auth/me | AUTH | A5 | CONTRACTED | [A5 contract](../contracts/endpoint-migration-queue.md#a5--current-user) | — | — | — | NO |
+| GET /api/auth/me | AUTH | A5 | IMPLEMENTED | [A5 contract](../contracts/endpoint-migration-queue.md#a5--current-user) | — | — | — | NO |
 | POST /api/auth/password | AUTH | A5 | CONTRACTED | [A5 contract](../contracts/endpoint-migration-queue.md#a5--change-password) | — | — | — | NO |
 
 ### USERS — User Management
 
 | endpoint | family | slice | status | contract | fixture | impl_pr | test_status | shutdown_ready |
 |----------|--------|-------|--------|----------|---------|---------|-------------|----------------|
-| GET /api/users/:uid | USERS | — | NOT_STARTED | — | — | — | — | — |
+| GET /api/users/:uid | USERS | U1 | IMPLEMENTED | — | — | [#248](https://github.com/taoyu051818-sys/lian-nest-server/pull/248) | — | NO |
 | GET /api/users/:uid/profile | USERS | — | NOT_STARTED | — | — | — | — | — |
 | PUT /api/users/:uid | USERS | — | NOT_STARTED | — | — | — | — | — |
 | GET /api/users/:uid/posts | USERS | — | NOT_STARTED | — | — | — | — | — |
@@ -55,8 +55,8 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 
 | endpoint | family | slice | status | contract | fixture | impl_pr | test_status | shutdown_ready |
 |----------|--------|-------|--------|----------|---------|---------|-------------|----------------|
-| GET /api/categories | CATEGORIES | — | NOT_STARTED | — | — | — | — | — |
-| GET /api/categories/:cid | CATEGORIES | — | NOT_STARTED | — | — | — | — | — |
+| GET /api/categories | CATEGORIES | C1 | IMPLEMENTED | — | — | [#232](https://github.com/taoyu051818-sys/lian-nest-server/pull/232) | — | NO |
+| GET /api/categories/:cid | CATEGORIES | C1 | IMPLEMENTED | — | — | [#247](https://github.com/taoyu051818-sys/lian-nest-server/pull/247) | — | NO |
 | GET /api/categories/:cid/topics | CATEGORIES | — | NOT_STARTED | — | — | — | — | — |
 | POST /api/categories/:cid/topics | CATEGORIES | — | NOT_STARTED | — | — | — | — | — |
 
@@ -94,7 +94,7 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 
 | endpoint | family | slice | status | contract | fixture | impl_pr | test_status | shutdown_ready |
 |----------|--------|-------|--------|----------|---------|---------|-------------|----------------|
-| GET /api/notifications | NOTIFICATIONS | N1 | CONTRACTED | [N1 contract](../contracts/endpoint-migration-queue.md#n1--notifications-list--unreadcount--markread) | — | — | — | NO |
+| GET /api/notifications | NOTIFICATIONS | N1 | IMPLEMENTED | [N1 contract](../contracts/endpoint-migration-queue.md#n1--notifications-list--unreadcount--markread) | — | [#127](https://github.com/taoyu051818-sys/lian-nest-server/pull/127) | — | NO |
 | GET /api/notifications/unread-count | NOTIFICATIONS | N1 | IMPLEMENTED | [N1 contract](../contracts/endpoint-migration-queue.md#n1--unread-count) | — | [#152](https://github.com/taoyu051818-sys/lian-nest-server/pull/152) | — | NO |
 | PUT /api/notifications/:nid | NOTIFICATIONS | N1 | CONTRACTED | [N1 contract](../contracts/endpoint-migration-queue.md#n1--notifications-list--unreadcount--markread) | — | — | — | NO |
 | POST /api/notifications/mark-all | NOTIFICATIONS | N1 | CONTRACTED | [N1 contract](../contracts/endpoint-migration-queue.md#n1--notifications-list--unreadcount--markread) | — | — | — | NO |
@@ -103,8 +103,8 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 
 | endpoint | family | slice | status | contract | fixture | impl_pr | test_status | shutdown_ready |
 |----------|--------|-------|--------|----------|---------|---------|-------------|----------------|
-| GET /api/tags | TAGS | — | NOT_STARTED | — | — | — | — | — |
-| GET /api/tags/:tag/topics | TAGS | — | NOT_STARTED | — | — | — | — | — |
+| GET /api/tags | TAGS | T1 | IMPLEMENTED | — | — | [#208](https://github.com/taoyu051818-sys/lian-nest-server/pull/208) | — | NO |
+| GET /api/tags/:tag/topics | TAGS | T1 | IMPLEMENTED | — | — | [#250](https://github.com/taoyu051818-sys/lian-nest-server/pull/250) | — | NO |
 
 ### SEARCH — Search
 
@@ -127,9 +127,9 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 
 | Status | Count | Percentage |
 |--------|-------|------------|
-| `NOT_STARTED` | 22 | 55% |
+| `NOT_STARTED` | 14 | 35% |
 | `CONTRACTED` | 14 | 35% |
-| `IMPLEMENTED` | 4 | 10% |
+| `IMPLEMENTED` | 12 | 30% |
 | `PARITY_TESTED` | 0 | 0% |
 | `LEGACY_DISABLED` | 0 | 0% |
 | **Total** | **40** | 100% |

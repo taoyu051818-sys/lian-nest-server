@@ -12,14 +12,14 @@ Tracks which legacy route families have been migrated to Nest controllers.
 
 | Family       | Status       | Nest Module / Controller | Issue | Notes |
 |--------------|--------------|--------------------------|-------|-------|
-| AUTH         | UNMIGRATED   |                          |       |       |
-| USERS        | UNMIGRATED   |                          |       |       |
-| CATEGORIES   | IN_PROGRESS  | CategoriesModule / CategoriesController | #232 | 1 of 4 endpoints implemented (list) |
+| AUTH         | IN_PROGRESS  | AuthModule / AuthController | #243 | 1 of 5 endpoints implemented (me) |
+| USERS        | IN_PROGRESS  | UsersModule / UsersController | #248 | 1 of 5 endpoints implemented (detail) |
+| CATEGORIES   | IN_PROGRESS  | CategoriesModule / CategoriesController | #232, #247 | 2 of 4 endpoints implemented (list, detail) |
 | TOPICS       | UNMIGRATED   |                          |       |       |
 | POSTS        | IN_PROGRESS  | PostsModule / PostsController | #128, #185, #209, #233 | 4 of 7 endpoints implemented (list, detail, reactions, replies) |
 | MESSAGING    | IN_PROGRESS  | MessagesModule / MessagesController | #180 | 1 of 4 endpoints implemented (list) |
-| NOTIFICATIONS| IN_PROGRESS  | NotificationsController (under MessagesModule) | #127, #152 | 2 of 4 endpoints implemented (list, unread-count) |
-| TAGS         | IN_PROGRESS  | TagsModule / TagsController | #208 | 1 of 2 endpoints implemented (list) |
+| NOTIFICATIONS| IN_PROGRESS  | NotificationsController (under MessagesModule) | #127, #152 | 3 of 4 endpoints implemented (list, unread-count, mark-read) |
+| TAGS         | IN_PROGRESS  | TagsModule / TagsController | #208, #250 | 2 of 2 endpoints implemented (list, tag topics) |
 | SEARCH       | UNMIGRATED   |                          |       |       |
 | GROUPS       | UNMIGRATED   |                          |       |       |
 | FEED         | IN_PROGRESS  | FeedModule / FeedController | #143 | 1 of 2 endpoints implemented (list); not in legacy inventory |
@@ -29,17 +29,25 @@ Tracks which legacy route families have been migrated to Nest controllers.
 
 When a family moves to IN_PROGRESS or MIGRATED, add per-route detail below.
 
-### AUTH (example format)
+### AUTH
 
 | Method | Path                  | Status       | Controller / Handler        |
 |--------|-----------------------|--------------|-----------------------------|
 | POST   | /api/auth/login       | UNMIGRATED   |                             |
 | POST   | /api/auth/register    | UNMIGRATED   |                             |
 | POST   | /api/auth/logout      | UNMIGRATED   |                             |
-| GET    | /api/auth/me          | UNMIGRATED   |                             |
+| GET    | /api/auth/me          | IMPLEMENTED  | AuthController.getCurrentUser |
 | POST   | /api/auth/password    | UNMIGRATED   |                             |
 
-> Expand this section for each family as migration begins.
+### USERS
+
+| Method | Path                  | Status       | Controller / Handler        |
+|--------|-----------------------|--------------|-----------------------------|
+| GET    | /api/users/:uid       | IMPLEMENTED  | UsersController.getByUid (#248) |
+| GET    | /api/users/:uid/profile | UNMIGRATED   |                             |
+| PUT    | /api/users/:uid       | UNMIGRATED   |                             |
+| GET    | /api/users/:uid/posts | UNMIGRATED   |                             |
+| GET    | /api/users/:uid/topics | UNMIGRATED   |                             |
 
 ### POSTS
 
@@ -76,7 +84,7 @@ When a family moves to IN_PROGRESS or MIGRATED, add per-route detail below.
 | Method | Path                         | Status       | Controller / Handler        |
 |--------|------------------------------|--------------|-----------------------------|
 | GET    | /api/categories              | IMPLEMENTED  | CategoriesController.list (#232) |
-| GET    | /api/categories/:cid         | UNMIGRATED   |                             |
+| GET    | /api/categories/:cid         | IMPLEMENTED  | CategoriesController.getById (#247) |
 | GET    | /api/categories/:cid/topics  | UNMIGRATED   |                             |
 | POST   | /api/categories/:cid/topics  | UNMIGRATED   |                             |
 
@@ -85,7 +93,7 @@ When a family moves to IN_PROGRESS or MIGRATED, add per-route detail below.
 | Method | Path                         | Status       | Controller / Handler        |
 |--------|------------------------------|--------------|-----------------------------|
 | GET    | /api/tags                    | IMPLEMENTED  | TagsController.list (#208)  |
-| GET    | /api/tags/:tag/topics        | UNMIGRATED   |                             |
+| GET    | /api/tags/:tag/topics        | IMPLEMENTED  | TagsController.listTopics (#250) |
 
 ### FEED (not in legacy inventory)
 
@@ -107,8 +115,8 @@ When a family moves to IN_PROGRESS or MIGRATED, add per-route detail below.
 
 - **Total families:** 12
 - **MIGRATED:** 0
-- **IN_PROGRESS:** 7
-- **UNMIGRATED:** 5
+- **IN_PROGRESS:** 9
+- **UNMIGRATED:** 3
 
 ## How to Update
 
