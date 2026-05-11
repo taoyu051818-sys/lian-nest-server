@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CategoriesModule } from './categories';
 import { ConfigModule, ConfigService } from './config';
+import { GroupsModule } from './groups';
 import { HealthModule } from './health';
 import { MessagesModule } from './messages';
 import { NodebbModule } from './nodebb';
@@ -16,6 +17,7 @@ import { UsersModule } from './users';
   imports: [
     CategoriesModule,
     ConfigModule,
+    GroupsModule,
     HealthModule,
     MessagesModule,
     PostsModule,
