@@ -1,0 +1,116 @@
+{
+  "id": "reactions-list-edge-cases",
+  "endpoint": "GET /api/posts/:postId/reactions",
+  "description": "Reaction list edge cases: invalid postId values return 404, empty provider shape returns all types with zero counts",
+  "cases": [
+    {
+      "id": "zero-postId",
+      "description": "postId '0' returns 404 (pid < 1 guard)",
+      "request": {
+        "method": "GET",
+        "path": "/api/posts/0/reactions",
+        "params": { "postId": "0" }
+      },
+      "expected": {
+        "status": 404,
+        "contentType": "application/json",
+        "body": {
+          "statusCode": 404,
+          "error": "Not Found"
+        }
+      }
+    },
+    {
+      "id": "negative-postId",
+      "description": "postId '-1' returns 404 (pid < 1 guard)",
+      "request": {
+        "method": "GET",
+        "path": "/api/posts/-1/reactions",
+        "params": { "postId": "-1" }
+      },
+      "expected": {
+        "status": 404,
+        "contentType": "application/json",
+        "body": {
+          "statusCode": 404,
+          "error": "Not Found"
+        }
+      }
+    },
+    {
+      "id": "non-numeric-postId",
+      "description": "postId 'abc' returns 404 (NaN guard)",
+      "request": {
+        "method": "GET",
+        "path": "/api/posts/abc/reactions",
+        "params": { "postId": "abc" }
+      },
+      "expected": {
+        "status": 404,
+        "contentType": "application/json",
+        "body": {
+          "statusCode": 404,
+          "error": "Not Found"
+        }
+      }
+    },
+    {
+      "id": "special-chars-postId",
+      "description": "postId with special characters returns 404 (NaN guard)",
+      "request": {
+        "method": "GET",
+        "path": "/api/posts/!@%23$/reactions",
+        "params": { "postId": "!@#$" }
+      },
+      "expected": {
+        "status": 404,
+        "contentType": "application/json",
+        "body": {
+          "statusCode": 404,
+          "error": "Not Found"
+        }
+      }
+    },
+    {
+      "id": "empty-provider-shape",
+      "description": "Valid post returns all six reaction types with count 0 and reactedByMe false (empty provider stub)",
+      "request": {
+        "method": "GET",
+        "path": "/api/posts/<VALID_POST_ID>/reactions",
+        "params": { "postId": "<VALID_POST_ID>" }
+      },
+      "expected": {
+        "status": 200,
+        "contentType": "application/json",
+        "body": [
+          { "type": "like", "count": 0, "reactedByMe": false },
+          { "type": "love", "count": 0, "reactedByMe": false },
+          { "type": "haha", "count": 0, "reactedByMe": false },
+          { "type": "wow", "count": 0, "reactedByMe": false },
+          { "type": "sad", "count": 0, "reactedByMe": false },
+          { "type": "angry", "count": 0, "reactedByMe": false }
+        ],
+        "bodySchema": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PostReactionSummary" },
+          "$defs": {
+            "PostReactionSummary": {
+              "type": "object",
+              "required": ["type", "count", "reactedByMe"],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["like", "love", "haha", "wow", "sad", "angry"]
+                },
+                "count": { "type": "integer", "minimum": 0 },
+                "reactedByMe": { "type": "boolean" }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    }
+  ],
+  "notes": "Covers both guard branches in listReactions: pid < 1 (zero, negative) and !Number.isFinite (NaN from non-numeric strings). Empty provider shape confirms all six PostReactionType values are returned in enum order with stub zero counts."
+}
