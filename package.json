@@ -57,6 +57,9 @@
     ],
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
+    "setupFiles": [
+      "../test/setup-env.ts"
+    ],
     "transform": {
       "^.+\\.ts$": "ts-jest"
     },
