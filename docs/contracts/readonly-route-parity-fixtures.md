@@ -347,3 +347,41 @@ also cover error cases:
 
 Error fixtures will be added in the follow-up implementation issue once
 legacy error behavior is confirmed.
+
+---
+
+## Missing-Fixture Regression Guard
+
+The `check-route-parity.js` script (`npm run guard:route-parity`) includes a
+fixture-file existence check. When the route parity matrix
+(`docs/migration/route-parity-matrix.md`) references a fixture file in its
+`fixture` column, the guard verifies that the file actually exists on disk.
+
+### Behavior
+
+- **Matrix rows with `—` in the fixture column** are skipped (no fixture claimed).
+- **Matrix rows with a fixture link** (e.g. `[topic-detail-basic.json](…)`)
+  trigger a file-existence check. The guard resolves the filename under
+  `test/parity/` and fails if the file is not found.
+- **Exit code 1** if any referenced fixture file is missing.
+- **Exit code 0** if all referenced fixtures exist or no fixtures are referenced.
+
+### What counts as a fixture reference
+
+Any non-empty, non-dash value in the `fixture` column of a matrix endpoint row.
+Markdown links (`[label](path)`) are parsed to extract the display label as the
+filename to search for.
+
+### Why this guard exists
+
+A matrix row that claims `CONTRACTED` or higher status with a fixture link
+creates an implicit contract: the fixture file must exist. If a file is deleted
+or never created, the matrix row is stale and the parity claim is invalid. This
+guard catches that regression early in CI.
+
+### Recovering from a failure
+
+1. If the fixture file was intentionally removed, clear the `fixture` column
+   in the matrix row (set to `—`).
+2. If the fixture file should exist, create it under `test/parity/<module>/`
+   following the format conventions above.
