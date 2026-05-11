@@ -4,9 +4,14 @@
     Self-hosted AI batch launcher for lian-nest-server.
 
 .DESCRIPTION
-    Reads a task JSON file, validates it against the schema, and launches a
-    Claude Code worker in a new git worktree. Designed for local orchestrator
-    use — no CI secrets or runtime dependencies required.
+    Reads a task JSON file, validates it against the schema, runs the launch
+    gate check, and launches a Claude Code worker in a new git worktree.
+    Designed for local orchestrator use — no CI secrets or runtime
+    dependencies required.
+
+    The launch gate (check-launch-gate.ps1) runs automatically before any
+    worker dispatch. In execute mode, blocked tasks are refused. In dry-run
+    mode, the gate decision is displayed for review.
 
 .PARAMETER TaskFile
     Path to a task JSON file conforming to scripts/ai/task.schema.json.
@@ -14,8 +19,15 @@
 .PARAMETER DryRun
     Print the launch plan without executing. Default mode.
 
+.PARAMETER MainHealthStatePath
+    Path to the main health state marker JSON. Defaults to
+    .github/ai-state/main-health.json
+
 .EXAMPLE
     ./scripts/ai/batch-launch.ps1 -TaskFile ./tasks/issue-86.json -DryRun
+
+.EXAMPLE
+    ./scripts/ai/batch-launch.ps1 -TaskFile ./tasks/issue-86.json -Execute
 #>
 
 [CmdletBinding()]
@@ -24,7 +36,9 @@ param(
     [string]$TaskFile,
 
     [switch]$DryRun = $true,
-    [switch]$Execute
+    [switch]$Execute,
+
+    [string]$MainHealthStatePath = ".github/ai-state/main-health.json"
 )
 
 Set-StrictMode -Version Latest
@@ -87,6 +101,59 @@ if (-not $task.rolePacket.actorRole) {
 
 Write-Ok "Task contract valid (issue #$($task.targetIssue), type=$($task.taskType), risk=$($task.risk))"
 
+# ── Launch gate check ────────────────────────────────────────────────────────
+
+Write-Step "Running launch gate check"
+
+$gateArgs = @{ TaskFile = $TaskFile; Json = $true }
+if (Test-Path $MainHealthStatePath) {
+    $gateArgs["HealthFile"] = $MainHealthStatePath
+}
+
+try {
+    $gateJson = & $PSScriptRoot/check-launch-gate.ps1 @gateArgs 2>&1
+    $gateExit = $LASTEXITCODE
+} catch {
+    Write-Fail "Launch gate check failed to run: $_"
+}
+
+$gateReport = $null
+try {
+    $gateReport = $gateJson | Out-String | ConvertFrom-Json
+} catch {
+    Write-Warn "Could not parse gate report JSON — skipping gate enforcement"
+}
+
+if ($gateReport) {
+    $gateState = $gateReport.mainState
+    $gateAllowed = $gateReport.allAllowed
+
+    if ($gateAllowed) {
+        Write-Ok "Gate PASS — main=$gateState, $($gateReport.taskCount) task(s) cleared"
+    } else {
+        Write-Warn "Gate BLOCK — main=$gateState"
+        foreach ($t in $gateReport.tasks) {
+            if (-not $t.allowed) {
+                Write-Host "   BLOCKED: issue #$($t.targetIssue) type=$($t.workerType) — $($t.reason)" -ForegroundColor Red
+            }
+        }
+        foreach ($dg in $gateReport.duplicateConflictGroups) {
+            Write-Host "   CONFLICT: duplicate group '$($dg.conflictGroup)' ($($dg.count)x)" -ForegroundColor Red
+        }
+        foreach ($sl in $gateReport.sharedLockConflicts) {
+            Write-Host "   CONFLICT: shared lock '$($sl.sharedLock)' contested by issues: $($sl.issues -join ', ')" -ForegroundColor Red
+        }
+
+        if ($Execute) {
+            Write-Fail "Launch gate blocked this task. Resolve the issue or override with -MainState."
+        } else {
+            Write-Warn "Dry-run: gate would block execution. Fix before using -Execute."
+        }
+    }
+} else {
+    Write-Warn "Gate check produced no report — proceeding without gate enforcement"
+}
+
 # ── Build branch name ────────────────────────────────────────────────────────
 
 $branchName = "claude/issue-$($task.targetIssue)-$($task.conflictGroup -replace '[^a-zA-Z0-9-]', '-')"
@@ -112,7 +179,7 @@ foreach ($pattern in $task.forbiddenFiles) {
 # ── Dry run exit ─────────────────────────────────────────────────────────────
 
 if ($DryRun -and -not $Execute) {
-    Write-Step "DRY RUN — no changes made"
+    Write-Step "DRY RUN — no changes made (gate decision shown above)"
     Write-Host ""
     Write-Host "To execute:" -ForegroundColor Yellow
     Write-Host "  ./scripts/ai/batch-launch.ps1 -TaskFile $TaskFile -Execute" -ForegroundColor Yellow

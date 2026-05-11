@@ -1,10 +1,11 @@
 # Launch Gate Policy Checker
 
 Pre-launch validation that blocks workers from dispatching when main branch
-health or batch metadata would cause failures. Runs as a dry-run gate before
-`batch-launch.ps1`.
+health or batch metadata would cause failures. Integrated into
+`batch-launch.ps1` — runs automatically before every worker dispatch.
 
 > **Closes:** [#133](https://github.com/taoyu051818-sys/lian-nest-server/issues/133)
+> **Closes:** [#145](https://github.com/taoyu051818-sys/lian-nest-server/issues/145)
 
 ---
 
@@ -168,25 +169,36 @@ Gate CHECK FAILED — one or more tasks blocked or conflicts detected.
 
 ## Integration
 
-The launch gate sits between the orchestrator's planning phase and
-`batch-launch.ps1`:
+The launch gate is wired into `batch-launch.ps1` and runs automatically
+before every worker dispatch:
 
 ```
-Orchestrator (plan tasks)
+batch-launch.ps1 -TaskFile <file> [-Execute]
        │
        ▼
- check-launch-gate.ps1  ◄── this script
+ check-launch-gate.ps1  ◄── runs automatically
        │
-  pass │   fail → defer blocked tasks, resolve conflicts
+  pass │   fail → execute mode refuses, dry-run warns
        ▼
- batch-launch.ps1 -Execute
-       │
-       ▼
- run-claude-print.ps1 → worker
+ git worktree → run-claude-print.ps1 → worker
 ```
 
-The checker is intentionally **not wired** into `batch-launch.ps1` yet.
-The orchestrator calls it manually or via a future integration step.
+### How it works
+
+1. `batch-launch.ps1` loads and validates the task JSON.
+2. It invokes `check-launch-gate.ps1 -TaskFile <file> -Json` and captures
+   the structured report.
+3. **Dry-run mode**: the gate decision is displayed for review. Blocked
+   tasks show a warning but do not prevent the dry-run summary from
+   printing.
+4. **Execute mode**: if the gate reports `allAllowed: false`, the launcher
+   exits with an error before creating the worktree.
+
+### Overriding the health file path
+
+Pass `-MainHealthStatePath` to `batch-launch.ps1` to point at a custom
+health marker location. If the file does not exist, the gate defaults to
+green (same as `check-launch-gate.ps1` behavior).
 
 ---
 
