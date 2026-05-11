@@ -47,6 +47,8 @@ These are passed through to the task JSON if present:
 - `complexityAssessment` -- complexity level and drivers
 - `stragglerPolicy` -- behavior when approaching time limits
 - `pmPhase` -- wave phase identifier
+- `knowledgeRefs` -- file paths or URLs for semantic context (see below)
+- `promptHandoff` -- concise description of what to build and why
 
 ### Example Input
 
@@ -72,7 +74,11 @@ These are passed through to the task JSON if present:
   "rolePacket": {
     "actorRole": "devops-automation-engineer",
     "description": "Issue-to-task compiler skeleton worker."
-  }
+  },
+  "knowledgeRefs": [
+    "docs/ai-native/worker-task-contract.md"
+  ],
+  "promptHandoff": "Build the issue-to-task compiler skeleton with structured JSON input and dry-run mode."
 }
 ```
 
@@ -141,6 +147,38 @@ The output can be fed directly into:
   `-DryRun:$false` and `-OutputFile` are both specified.
 - **Fail-fast validation.** Missing required fields cause immediate
   exit with a non-zero code. The compiler does not emit partial JSON.
+
+## Semantic Context Handoff
+
+The task JSON is a **control envelope** -- it carries scheduling metadata,
+file boundaries, and routing. It is not the full semantic source for the
+task. Workers must read the GitHub issue body and referenced docs to
+understand what the task actually means.
+
+The compiler emits three fields to support this handoff:
+
+| Field | Purpose | Example |
+|-------|---------|---------|
+| `sourceIssue` | GitHub issue URL -- the semantic source of truth | `https://github.com/taoyu051818-sys/lian-nest-server/issues/195` |
+| `knowledgeRefs` | File paths or URLs the worker should read | `["docs/contracts/feed-read-only-contract.md"]` |
+| `promptHandoff` | Concise description of what to build and why | `"Improve issue-to-task compiler to preserve issue body as semantic context"` |
+
+### How Workers Use These Fields
+
+1. Read `sourceIssue` to get the full issue body, acceptance criteria, and
+   business rules.
+2. Read each `knowledgeRefs` entry for contracts, architecture docs, or SOPs
+   referenced in the issue.
+3. Use `promptHandoff` as the initial prompt context -- it captures the
+   issue title or a concise summary without requiring the worker to parse
+   the full body first.
+
+### What NOT to Encode in Task JSON
+
+- Full issue body text (use `sourceIssue` pointer instead)
+- Business rules or acceptance criteria (live in the issue body)
+- Implementation instructions (live in the issue body or `knowledgeRefs`)
+- Contract details (reference via `knowledgeRefs`)
 
 ## Integration
 
