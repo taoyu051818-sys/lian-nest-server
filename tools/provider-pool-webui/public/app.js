@@ -764,9 +764,73 @@ function renderServerActionCard(actionMeta, allData) {
   return card;
 }
 
+// Schema-driven field type configs for server action modules.
+// Maps field names → { type, parse } where parse converts collected value to payload value.
+const SCHEMA_FIELD_CONFIG = {
+  targetIssue: { type: 'number', parse: (v) => (v !== '' ? Number(v) : undefined) },
+  taskType: { type: 'select', options: ['execution', 'research', 'review'] },
+  risk: { type: 'select', options: ['low', 'medium', 'high'] },
+  conflictGroup: { type: 'text' },
+  allowedFiles: { type: 'textarea', parse: (v) => v.split('\n').map((s) => s.trim()).filter(Boolean) },
+  validationCommands: { type: 'textarea', parse: (v) => v.split('\n').map((s) => s.trim()).filter(Boolean) },
+  forbiddenFiles: { type: 'textarea', parse: (v) => v.split('\n').map((s) => s.trim()).filter(Boolean) },
+  outputMode: { type: 'select', options: ['v1', 'v2'] },
+  'rolePacket.actorRole': { type: 'text' },
+};
+
+function renderSchemaFields(actionMeta, form) {
+  const fields = actionMeta.requiredFields;
+  if (!Array.isArray(fields) || fields.length === 0) return;
+
+  for (const fieldName of fields) {
+    const config = SCHEMA_FIELD_CONFIG[fieldName];
+    const fieldWrap = el('div', { className: 'action-form__field' });
+    const label = fieldName.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^[a-z]/, (c) => c.toUpperCase());
+    fieldWrap.append(el('label', { className: 'action-form__label', textContent: label }));
+
+    if (config && config.type === 'select') {
+      const select = el('select', { className: 'action-form__select', 'data-field': fieldName });
+      select.append(el('option', { value: '', textContent: `— select ${label.toLowerCase()} —` }));
+      for (const opt of config.options) {
+        select.append(el('option', { value: opt, textContent: opt }));
+      }
+      fieldWrap.append(select);
+    } else if (config && config.type === 'textarea') {
+      fieldWrap.append(el('textarea', {
+        className: 'action-form__textarea',
+        'data-field': fieldName,
+        placeholder: 'One entry per line',
+        rows: '3',
+      }));
+    } else if (config && config.type === 'number') {
+      fieldWrap.append(el('input', {
+        className: 'action-form__input',
+        'data-field': fieldName,
+        type: 'number',
+        min: '1',
+        step: '1',
+        placeholder: label,
+      }));
+    } else {
+      // Default: text input (also handles dotted paths like rolePacket.actorRole)
+      fieldWrap.append(el('input', {
+        className: 'action-form__input',
+        'data-field': fieldName,
+        type: 'text',
+        autocomplete: 'off',
+        placeholder: label,
+      }));
+    }
+    form.append(fieldWrap);
+  }
+}
+
 function buildPayloadForm(actionMeta, allData) {
   const form = el('div', { className: 'action-form' });
   const providers = allData.state?.providers || [];
+
+  // Render schema-driven fields from server action metadata
+  renderSchemaFields(actionMeta, form);
 
   // If the action id hints at provider context, add a provider selector
   const isProviderAction = /provider|cooldown|retry/i.test(actionMeta.id);
@@ -802,21 +866,51 @@ function buildPayloadForm(actionMeta, allData) {
 function collectFormPayload(form) {
   const payload = {};
 
+  // Helper to set nested values from dotted paths (e.g. "rolePacket.actorRole")
+  function setNested(obj, path, value) {
+    const parts = path.split('.');
+    let cur = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (!cur[parts[i]] || typeof cur[parts[i]] !== 'object') cur[parts[i]] = {};
+      cur = cur[parts[i]];
+    }
+    cur[parts[parts.length - 1]] = value;
+  }
+
   // Collect select fields
   for (const select of form.querySelectorAll('select[data-field]')) {
-    if (select.value) payload[select.dataset.field] = select.value;
+    if (select.value) setNested(payload, select.dataset.field, select.value);
   }
 
-  // Collect text input fields
+  // Collect text/number input fields
   for (const input of form.querySelectorAll('input[data-field]')) {
-    if (input.value) payload[input.dataset.field] = input.value;
+    if (input.value) {
+      const field = input.dataset.field;
+      const config = SCHEMA_FIELD_CONFIG[field];
+      const parsed = config && config.parse ? config.parse(input.value) : input.value;
+      if (parsed !== undefined && parsed !== '') setNested(payload, field, parsed);
+    }
   }
 
-  // Merge JSON payload if provided
-  const textarea = form.querySelector('textarea[data-field="jsonPayload"]');
-  if (textarea && textarea.value.trim()) {
+  // Collect schema-driven textarea fields (arrays split by newlines)
+  for (const textarea of form.querySelectorAll('textarea[data-field]')) {
+    if (textarea.dataset.field === 'jsonPayload') continue; // handled separately below
+    const val = textarea.value.trim();
+    if (val) {
+      const field = textarea.dataset.field;
+      const config = SCHEMA_FIELD_CONFIG[field];
+      const parsed = config && config.parse ? config.parse(val) : val;
+      if (parsed !== undefined && (Array.isArray(parsed) ? parsed.length > 0 : true)) {
+        setNested(payload, field, parsed);
+      }
+    }
+  }
+
+  // Merge JSON payload if provided (overrides schema fields)
+  const jsonTextarea = form.querySelector('textarea[data-field="jsonPayload"]');
+  if (jsonTextarea && jsonTextarea.value.trim()) {
     try {
-      const jsonPayload = JSON.parse(textarea.value.trim());
+      const jsonPayload = JSON.parse(jsonTextarea.value.trim());
       Object.assign(payload, jsonPayload);
     } catch {
       // ignore invalid JSON — server will handle it

@@ -15,6 +15,7 @@ const {
   buildFormSchema,
   buildFormSchemas,
   buildFormSchemasByCategory,
+  buildServerFormFields,
   formSchemaMeta,
   riskBadge,
   FIELD_TYPES,
@@ -433,6 +434,65 @@ console.log("\nbuildFieldDescriptor edge cases\n");
     assert(desc.name === name, `descriptor for ${name} has correct name`);
     assert(desc.required === true, `descriptor for ${name} is required`);
   }
+}
+
+// --- compile-tasks field types ------------------------------------------------
+
+console.log("\ncompile-tasks field types\n");
+
+{
+  // taskType select field
+  const taskType = FIELD_TYPES.taskType;
+  assert(taskType !== undefined, "taskType field exists");
+  assert(taskType.type === "select", "taskType is select type");
+  assert(taskType.options.length === 3, "taskType has 3 options");
+  assert(Object.isFrozen(taskType.options), "taskType options are frozen");
+
+  // risk select field
+  const risk = FIELD_TYPES.risk;
+  assert(risk !== undefined, "risk field exists");
+  assert(risk.type === "select", "risk is select type");
+  assert(risk.options.length === 3, "risk has 3 options");
+
+  // targetIssue, allowedFiles, validationCommands, rolePacket
+  assert(FIELD_TYPES.targetIssue.type === "number", "targetIssue is number");
+  assert(FIELD_TYPES.allowedFiles.type === "textarea", "allowedFiles is textarea");
+  assert(FIELD_TYPES.validationCommands.type === "textarea", "validationCommands is textarea");
+  assert(FIELD_TYPES.rolePacket.type === "object", "rolePacket is object");
+  assert(Object.isFrozen(FIELD_TYPES.rolePacket.fields), "rolePacket fields frozen");
+  assert(FIELD_TYPES.rolePacket.fields.actorRole.type === "text", "actorRole is text");
+}
+
+// --- buildServerFormFields ----------------------------------------------------
+
+console.log("\nbuildServerFormFields\n");
+
+{
+  assert(buildServerFormFields(null).length === 0, "null returns empty");
+  assert(buildServerFormFields({ id: "t" }).length === 0, "missing requiredFields returns empty");
+  assert(buildServerFormFields({ id: "t", requiredFields: [] }).length === 0, "empty requiredFields returns empty");
+
+  // compile-tasks server action metadata
+  const fields = buildServerFormFields({
+    id: "compile-tasks",
+    requiredFields: ["targetIssue", "taskType", "risk", "conflictGroup", "allowedFiles", "validationCommands", "rolePacket"],
+  });
+  assert(fields.length === 7, "compile-tasks produces 7 fields");
+  assert(fields[0].name === "targetIssue" && fields[0].type === "number", "targetIssue is number");
+  assert(fields[1].name === "taskType" && fields[1].type === "select", "taskType is select");
+  assert(fields[1].options.length === 3, "taskType has 3 options");
+  assert(fields[2].name === "risk" && fields[2].type === "select", "risk is select");
+  assert(fields[4].name === "allowedFiles" && fields[4].type === "textarea", "allowedFiles is textarea");
+  assert(fields[6].name === "rolePacket" && fields[6].type === "object", "rolePacket is object");
+
+  for (const field of fields) {
+    assert(Object.isFrozen(field), `server field ${field.name} is frozen`);
+  }
+
+  // Unknown fields default to text
+  const generic = buildServerFormFields({ id: "x", requiredFields: ["customField"] });
+  assert(generic[0].type === "text", "unknown field defaults to text");
+  assert(generic[0].label === "Custom Field", "unknown field label humanized");
 }
 
 // --- defaultPreview consistency ----------------------------------------------

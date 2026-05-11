@@ -43,6 +43,53 @@ const FIELD_TYPES = Object.freeze({
     placeholder: "e.g. strategy",
     autocomplete: "off",
   }),
+  taskType: Object.freeze({
+    type: "select",
+    label: "Task Type",
+    options: Object.freeze(["execution", "research", "review"]),
+    placeholder: "— select task type —",
+  }),
+  risk: Object.freeze({
+    type: "select",
+    label: "Risk",
+    options: Object.freeze(["low", "medium", "high"]),
+    placeholder: "— select risk —",
+  }),
+  targetIssue: Object.freeze({
+    type: "number",
+    label: "Target Issue",
+    placeholder: "e.g. 768",
+    min: 1,
+    step: 1,
+  }),
+  conflictGroup: Object.freeze({
+    type: "text",
+    label: "Conflict Group",
+    placeholder: "e.g. wave21-webui",
+    autocomplete: "off",
+  }),
+  allowedFiles: Object.freeze({
+    type: "textarea",
+    label: "Allowed Files",
+    placeholder: "One glob pattern per line",
+  }),
+  validationCommands: Object.freeze({
+    type: "textarea",
+    label: "Validation Commands",
+    placeholder: "One command per line",
+  }),
+  rolePacket: Object.freeze({
+    type: "object",
+    label: "Role Packet",
+    fields: Object.freeze({
+      actorRole: Object.freeze({
+        type: "text",
+        label: "Actor Role",
+        placeholder: "e.g. claude-code-worker",
+        autocomplete: "off",
+      }),
+    }),
+  }),
 });
 
 const DEFAULT_FIELD = Object.freeze({
@@ -183,6 +230,25 @@ function formSchemaMeta() {
   };
 }
 
+/**
+ * Build form field descriptors for a server action module descriptor.
+ *
+ * Server action modules are loaded dynamically from tools/provider-pool-webui/actions/
+ * and may not be in the static action registry. This function accepts the
+ * server-provided metadata (id, label, description, requiredFields, dangerous)
+ * and returns structured field descriptors using the same FIELD_TYPES mapping.
+ *
+ * @param {object} serverAction - { id, label, description, requiredFields, dangerous }
+ * @returns {object[]} Array of field descriptors
+ */
+function buildServerFormFields(serverAction) {
+  if (!serverAction || !Array.isArray(serverAction.requiredFields)) return [];
+  return serverAction.requiredFields.map((fieldName) => {
+    const desc = buildFieldDescriptor(fieldName);
+    return desc;
+  });
+}
+
 // --- Internal helpers --------------------------------------------------------
 
 function humanizeFieldName(name) {
@@ -201,6 +267,7 @@ module.exports = {
   buildFormSchema,
   buildFormSchemas,
   buildFormSchemasByCategory,
+  buildServerFormFields,
   formSchemaMeta,
   riskBadge,
   FIELD_TYPES,
