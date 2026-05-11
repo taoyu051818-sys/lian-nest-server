@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, UsePipes, ValidationPipe } from '@nestjs/common';
 import { FeedQueryDto, FeedItemDto, FeedResponseDto } from './dto';
 import { GetFeedUsecase, GetFeedItemUsecase } from './usecases';
 
@@ -10,6 +10,7 @@ export class FeedController {
   ) {}
 
   @Get()
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   async getFeed(@Query() query: FeedQueryDto): Promise<FeedResponseDto> {
     // TODO(#33): Extract userId from authenticated request (JwtAuthGuard).
     const userId = 0;
