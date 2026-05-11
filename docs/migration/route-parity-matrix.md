@@ -38,7 +38,7 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 | POST /api/auth/login | AUTH | A3 | CONTRACTED | [A3 contract](../contracts/endpoint-migration-queue.md#a3--login) | — | — | — | NO |
 | POST /api/auth/register | AUTH | A4 | CONTRACTED | [A4 contract](../contracts/endpoint-migration-queue.md#a4--register) | — | — | — | NO |
 | POST /api/auth/logout | AUTH | A5 | CONTRACTED | [A5 contract](../contracts/endpoint-migration-queue.md#a5--logout) | — | — | — | NO |
-| GET /api/auth/me | AUTH | A5 | IMPLEMENTED | [A5 contract](../contracts/endpoint-migration-queue.md#a5--current-user) | — | — | — | NO |
+| GET /api/auth/me | AUTH | A5 | IMPLEMENTED | [A5 contract](../contracts/endpoint-migration-queue.md#a5--current-user) | — | [#272](https://github.com/taoyu051818-sys/lian-nest-server/pull/272) | — | NO |
 | POST /api/auth/password | AUTH | A5 | CONTRACTED | [A5 contract](../contracts/endpoint-migration-queue.md#a5--change-password) | — | — | — | NO |
 
 ### USERS — User Management
@@ -48,7 +48,7 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 | GET /api/users/:uid | USERS | U1 | IMPLEMENTED | — | — | [#248](https://github.com/taoyu051818-sys/lian-nest-server/pull/248) | — | NO |
 | GET /api/users/:uid/profile | USERS | — | NOT_STARTED | — | — | — | — | — |
 | PUT /api/users/:uid | USERS | — | NOT_STARTED | — | — | — | — | — |
-| GET /api/users/:uid/posts | USERS | — | NOT_STARTED | — | — | — | — | — |
+| GET /api/users/:uid/posts | USERS | U2 | IMPLEMENTED | — | — | [#265](https://github.com/taoyu051818-sys/lian-nest-server/pull/265) | — | NO |
 | GET /api/users/:uid/topics | USERS | — | NOT_STARTED | — | — | — | — | — |
 
 ### CATEGORIES — Category/Forum Structure
@@ -64,7 +64,7 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 
 | endpoint | family | slice | status | contract | fixture | impl_pr | test_status | shutdown_ready |
 |----------|--------|-------|--------|----------|---------|---------|-------------|----------------|
-| GET /api/topic/:tid | TOPICS | — | NOT_STARTED | — | — | — | — | — |
+| GET /api/topic/:tid | TOPICS | T2 | IMPLEMENTED | — | [topic-detail-basic.json](../../test/parity/topics/topic-detail-basic.json) | [#273](https://github.com/taoyu051818-sys/lian-nest-server/pull/273) | — | NO |
 | PUT /api/topic/:tid | TOPICS | — | NOT_STARTED | — | — | — | — | — |
 | DELETE /api/topic/:tid | TOPICS | — | NOT_STARTED | — | — | — | — | — |
 | POST /api/topic/:tid/follow | TOPICS | — | NOT_STARTED | — | — | — | — | — |
@@ -89,6 +89,7 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 | GET /api/messages/:mid | MESSAGING | M1 | CONTRACTED | [M1 contract](../contracts/endpoint-migration-queue.md#m1--messages-send--list--markread) | — | — | — | NO |
 | POST /api/messages | MESSAGING | M1 | CONTRACTED | [M1 contract](../contracts/endpoint-migration-queue.md#m1--messages-send--list--markread) | — | — | — | NO |
 | POST /api/messages/:mid | MESSAGING | M1 | CONTRACTED | [M1 contract](../contracts/endpoint-migration-queue.md#m1--messages-send--list--markread) | — | — | — | NO |
+| POST /api/messages/:mid/read | MESSAGING | M1 | IMPLEMENTED | [M1 contract](../contracts/endpoint-migration-queue.md#m1--messages-send--list--markread) | — | [#263](https://github.com/taoyu051818-sys/lian-nest-server/pull/263) | — | NO |
 
 ### NOTIFICATIONS — User Notifications
 
@@ -127,16 +128,16 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 
 | Status | Count | Percentage |
 |--------|-------|------------|
-| `NOT_STARTED` | 14 | 35% |
-| `CONTRACTED` | 14 | 35% |
-| `IMPLEMENTED` | 12 | 30% |
+| `NOT_STARTED` | 11 | 27% |
+| `CONTRACTED` | 14 | 34% |
+| `IMPLEMENTED` | 16 | 39% |
 | `PARITY_TESTED` | 0 | 0% |
 | `LEGACY_DISABLED` | 0 | 0% |
-| **Total** | **40** | 100% |
+| **Total** | **41** | 100% |
 
 | Test Status | Count |
 |-------------|-------|
-| `—` (no fixture) | 40 |
+| `—` (no fixture) | 41 |
 | `PENDING` | 0 |
 | `PASS` | 0 |
 | `FAIL` | 0 |
@@ -176,9 +177,9 @@ Full index: [readonly-route-parity-fixtures.md](readonly-route-parity-fixtures.m
 
 | Metric | Count |
 |--------|-------|
-| Implemented read-only GETs | 14 |
+| Implemented read-only GETs | 15 |
 | Fixtures defined | 4 |
-| Fixtures missing | 11 |
+| Fixtures missing | 12 |
 | **Coverage** | **29%** |
 
 > **Note:** Feed (`/api/feed`) and Profile (`/api/profile`) endpoints exist in the
@@ -192,9 +193,9 @@ Full index: [readonly-route-parity-fixtures.md](readonly-route-parity-fixtures.m
 
 | Gap | Impact | Resolution |
 |-----|--------|------------|
-| USERS family has no slice | 5 endpoints stuck at NOT_STARTED | Queue slice after A2 lands |
+| USERS family has no slice | 3 endpoints stuck at NOT_STARTED | Queue slice after A2 lands |
 | CATEGORIES family has no slice | 4 endpoints stuck at NOT_STARTED | Queue slice after A2 lands |
-| TOPICS family has no slice | 6 endpoints stuck at NOT_STARTED | Queue slice after A2 lands |
+| TOPICS family has no slice | 5 endpoints stuck at NOT_STARTED | Queue slice after A2 lands |
 | TAGS family has no slice | 2 endpoints stuck at NOT_STARTED | Queue slice after A2 lands |
 | SEARCH family has no slice | 1 endpoint stuck at NOT_STARTED | Queue slice after A2 lands |
 | GROUPS family has no slice | 4 endpoints stuck at NOT_STARTED | Queue slice after A2 lands |
