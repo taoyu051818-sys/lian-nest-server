@@ -7,11 +7,12 @@
     Top-level orchestrator for the self-hosted AI cycle. Runs the following
     steps in sequence:
 
-        0. Issue Discovery  — discover issues by label, compile to task JSON
-        1. State Reconciler — detect drift across issues/PRs
-        2. Main Health      — read current main health state marker
-        3. Launch Gate      — validate task(s) against health + conflict policy
-        4. Batch Launch     — dry-run or execute the worker dispatch
+        0. Issue Discovery        — discover issues by label, compile to task JSON
+        1. State Reconciler       — detect drift across issues/PRs
+        2. Main Health            — read current main health state marker
+        2.5. Provider Pool Preflight — check provider availability and capacity
+        3. Launch Gate            — validate task(s) against health + conflict policy
+        4. Batch Launch           — dry-run or execute the worker dispatch
 
     The runner stops at human-required gates and summarizes the next required
     human decision after each step.
@@ -656,6 +657,122 @@ if ($mainHealthState -eq "red" -or $mainHealthState -eq "black") {
 }
 
 # ===========================================================================
+# STEP 2.5: Provider Pool Preflight
+# ===========================================================================
+
+Write-SectionHeader "STEP 2.5 — Provider Pool Preflight"
+
+$PROVIDER_STATE  = "./.github/ai-state/provider-pool.json"
+$PROVIDER_POLICY = "./.github/ai-policy/provider-pool-policy.json"
+
+# Override paths when running from a fixture directory
+if ($DryRunFixture) {
+    $fixtureProviderState  = Join-Path $DryRunFixture "provider-pool.json"
+    $fixtureProviderPolicy = Join-Path $DryRunFixture "provider-pool-policy.json"
+    if (Test-Path $fixtureProviderState)  { $PROVIDER_STATE  = $fixtureProviderState }
+    if (Test-Path $fixtureProviderPolicy) { $PROVIDER_POLICY = $fixtureProviderPolicy }
+}
+
+$providerPreflightPassed = $true
+
+if (-not (Test-Path $PROVIDER_STATE)) {
+    Write-Warn "No provider pool state at $PROVIDER_STATE — skipping preflight (no providers registered)"
+    Add-StepResult -Name "provider-pool-preflight" -Status "skipped" `
+                   -Detail "No provider-pool.json found"
+} else {
+    try {
+        $poolRaw = Get-Content -Path $PROVIDER_STATE -Raw -Encoding UTF8
+        $pool = $poolRaw | ConvertFrom-Json
+
+        # Read policy for launch gate integration flags (defaults to block)
+        $blockAllExhausted = $true
+        $blockAtCapacity   = $true
+        if (Test-Path $PROVIDER_POLICY) {
+            try {
+                $policyRaw = Get-Content -Path $PROVIDER_POLICY -Raw -Encoding UTF8
+                $policy = $policyRaw | ConvertFrom-Json
+                if ($null -ne $policy.launchGateIntegration.blockWhenAllExhausted) {
+                    $blockAllExhausted = $policy.launchGateIntegration.blockWhenAllExhausted
+                }
+                if ($null -ne $policy.launchGateIntegration.blockWhenAtCapacity) {
+                    $blockAtCapacity = $policy.launchGateIntegration.blockWhenAtCapacity
+                }
+            } catch {
+                Write-Warn "Could not parse $PROVIDER_POLICY — using default block rules"
+            }
+        }
+
+        $availableCount  = 0
+        $exhaustedCount  = 0
+        $disabledCount   = 0
+        $atCapacityCount = 0
+
+        foreach ($p in $pool.providers) {
+            $isAtCapacity = ($p.currentConcurrency -ge $p.maxConcurrency)
+            switch ($p.status) {
+                "available" {
+                    if ($isAtCapacity) {
+                        $atCapacityCount++
+                        Write-Warn "  $($p.id): available but at capacity ($($p.currentConcurrency)/$($p.maxConcurrency))"
+                    } else {
+                        $availableCount++
+                        Write-Ok "  $($p.id): available ($($p.currentConcurrency)/$($p.maxConcurrency))"
+                    }
+                }
+                "exhausted" {
+                    $exhaustedCount++
+                    $cooldownNote = if ($p.cooldownExpiresAt) { " (cooldown: $($p.cooldownExpiresAt))" } else { "" }
+                    Write-Warn "  $($p.id): exhausted$cooldownNote"
+                }
+                "disabled" {
+                    $disabledCount++
+                    Write-Fail "  $($p.id): disabled (requires manual fix)"
+                }
+                default {
+                    Write-Warn "  $($p.id): unknown status '$($p.status)'"
+                }
+            }
+        }
+
+        $totalProviders = $pool.providers.Count
+        Write-Step "Pool summary: $availableCount available, $exhaustedCount exhausted, $disabledCount disabled, $atCapacityCount at-capacity (of $totalProviders)"
+
+        # Block if all providers exhausted/disabled and policy says block
+        if ($blockAllExhausted -and $availableCount -eq 0 -and $atCapacityCount -eq 0) {
+            Write-HumanStop -Reason "All providers exhausted or disabled ($exhaustedCount exhausted, $disabledCount disabled). No capacity for new workers." `
+                            -NextAction "Wait for cooldown to expire, fix disabled providers, or add a new provider to the pool."
+            Add-StepResult -Name "provider-pool-preflight" -Status "blocked" `
+                           -Detail "All $totalProviders provider(s) unavailable ($exhaustedCount exhausted, $disabledCount disabled)" -HumanStop $true
+            $providerPreflightPassed = $false
+        }
+        # Block if all providers at capacity and policy says block
+        elseif ($blockAtCapacity -and $availableCount -eq 0 -and $atCapacityCount -gt 0 -and $exhaustedCount -eq 0 -and $disabledCount -eq 0) {
+            Write-HumanStop -Reason "All available providers at max concurrency ($atCapacityCount at-capacity). No room for additional workers." `
+                            -NextAction "Wait for active workers to finish or increase provider concurrency limits."
+            Add-StepResult -Name "provider-pool-preflight" -Status "blocked" `
+                           -Detail "All $totalProviders provider(s) at capacity" -HumanStop $true
+            $providerPreflightPassed = $false
+        }
+        else {
+            Write-Ok "Provider pool preflight PASSED — $availableCount provider(s) available"
+            Add-StepResult -Name "provider-pool-preflight" -Status "pass" `
+                           -Detail "$availableCount available, $exhaustedCount exhausted, $disabledCount disabled"
+        }
+    } catch {
+        Write-Warn "Could not parse $PROVIDER_STATE — preflight skipped"
+        Add-StepResult -Name "provider-pool-preflight" -Status "warning" -Detail "Parse error: $_"
+    }
+}
+
+if (-not $providerPreflightPassed) {
+    $cycleResult.finalStatus = "blocked-by-provider-pool"
+    $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
+    Write-Host ""
+    Write-Host "Cycle result: $($cycleResult.finalStatus)" -ForegroundColor Red
+    exit 1
+}
+
+# ===========================================================================
 # STEP 3: Launch Gate
 # ===========================================================================
 
@@ -786,6 +903,7 @@ $finalColor = switch ($cycleResult.finalStatus) {
     "blocked-by-health"        { "Red" }
     "blocked-by-gate"          { "Red" }
     "blocked-by-max-tasks"     { "Red" }
+    "blocked-by-provider-pool" { "Red" }
     "discovery-complete"       { "Green" }
     default                    { "White" }
 }
@@ -814,6 +932,9 @@ switch ($cycleResult.finalStatus) {
     }
     "blocked-by-max-tasks" {
         Write-Host "Next: Reduce batch size or increase -MaxTasks to proceed." -ForegroundColor Red
+    }
+    "blocked-by-provider-pool" {
+        Write-Host "Next: Wait for provider cooldown, fix disabled providers, or add capacity." -ForegroundColor Red
     }
     "discovery-complete" {
         Write-Host "Next: Review compiled task contracts. Re-run with -TaskFile <file> -Execute to proceed through the pipeline." -ForegroundColor Green
