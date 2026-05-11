@@ -5,6 +5,13 @@ import { envValidationSchema, EnvironmentVariables } from './env.validation';
 
 dotenv.config();
 
+export interface NodebbEnvConfig {
+  url: string;
+  authMode: string;
+  apiToken: string;
+  sessionCookie: string;
+}
+
 @Injectable()
 export class ConfigService {
   private readonly env: EnvironmentVariables;
@@ -46,5 +53,14 @@ export class ConfigService {
 
   get redisUrl(): string {
     return this.env.REDIS_URL;
+  }
+
+  get nodebbConfig(): NodebbEnvConfig {
+    return {
+      url: this.env.NODEBB_URL,
+      authMode: this.env.NODEBB_AUTH_MODE,
+      apiToken: this.env.NODEBB_API_TOKEN,
+      sessionCookie: this.env.NODEBB_SESSION_COOKIE,
+    };
   }
 }
