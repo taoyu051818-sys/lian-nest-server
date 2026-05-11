@@ -1,23 +1,31 @@
 <#
 .SYNOPSIS
     Pre-launch gate checker that validates planned tasks against main health
-    state and conflict metadata before worker dispatch.
+    state, launch policy, provider pool, and conflict metadata before worker
+    dispatch.
 
 .DESCRIPTION
     Reads a task JSON file (single object or array) and an optional main health
     state marker. For each task the checker:
 
     1. Resolves main health state (green / yellow / red / black).
-    2. Classifies each task as a worker type based on mainHealthPolicy,
+    2. Loads the machine-readable launch policy (permission matrix, timeout
+       defaults) from .github/ai-policy/launch-policy.json.
+    3. Reads provider pool availability from .github/ai-state/provider-pool.json
+       and warns when providers are exhausted or at capacity.
+    4. Classifies each task as a worker type based on mainHealthPolicy,
        allowedFiles, and risk.
-    3. Applies the main-health launch policy matrix to decide allow / block.
-    4. Detects duplicate conflictGroup values in the batch.
-    5. Detects sharedLocks overlap between tasks (when the field is present).
-    6. Detects running-worker conflictGroup collisions (when a running tasks
+    5. Applies the launch policy permission matrix to decide allow / block.
+    6. Detects duplicate conflictGroup values in the batch.
+    7. Detects sharedLocks overlap between tasks (when the field is present).
+    8. Detects running-worker conflictGroup collisions (when a running tasks
        manifest is provided).
 
     This is a dry-run checker only. It does NOT modify any files or launch
     workers. The orchestrator calls this before batch-launch.ps1.
+
+    When the launch policy JSON is absent, the checker falls back to a
+    hardcoded default matrix that preserves backwards compatibility.
 
 .PARAMETER TaskFile
     Path to a task JSON file. Must be a single task object or an array of tasks.
@@ -31,6 +39,18 @@
     One of: green, yellow, red, black. Ignored when HealthFile exists and
     contains a valid state.
 
+.PARAMETER PolicyFile
+    Path to the machine-readable launch policy JSON. Defaults to
+    ./.github/ai-policy/launch-policy.json. When present, the permission
+    matrix and timeout defaults are read from this file instead of using
+    hardcoded values.
+
+.PARAMETER ProviderPoolFile
+    Path to the provider pool state JSON. Defaults to
+    ./.github/ai-state/provider-pool.json. When present, provider
+    availability is checked and warnings are emitted when providers are
+    exhausted or at capacity.
+
 .PARAMETER RunningTasksFile
     Path to a JSON file listing currently active worker conflict groups.
     Format: an array of objects with a "conflictGroup" string field, e.g.
@@ -40,6 +60,11 @@
 
 .PARAMETER Json
     Output the report as JSON instead of console text.
+
+.PARAMETER DryRun
+    Print the files that would be loaded and the effective configuration,
+    then exit without evaluating tasks. Useful for validating that the
+    policy and provider pool files resolve correctly.
 
 .EXAMPLE
     # Check a batch of tasks against the current main health state
@@ -56,6 +81,10 @@
 .EXAMPLE
     # JSON output for CI consumption
     ./scripts/ai/check-launch-gate.ps1 -TaskFile ./tasks/batch-1.json -Json
+
+.EXAMPLE
+    # Dry-run: show effective configuration without evaluating tasks
+    ./scripts/ai/check-launch-gate.ps1 -TaskFile ./tasks/batch-1.json -DryRun
 #>
 
 #Requires -Version 7.0
@@ -70,9 +99,15 @@ param(
     [ValidateSet("green", "yellow", "red", "black")]
     [string]$MainState = "",
 
+    [string]$PolicyFile = "./.github/ai-policy/launch-policy.json",
+
+    [string]$ProviderPoolFile = "./.github/ai-state/provider-pool.json",
+
     [string]$RunningTasksFile = "",
 
-    [switch]$Json
+    [switch]$Json,
+
+    [switch]$DryRun
 )
 
 Set-StrictMode -Version Latest
@@ -193,6 +228,200 @@ if ($RunningTasksFile -ne "") {
 }
 
 # ---------------------------------------------------------------------------
+# Load launch policy (optional, backwards-compatible)
+# ---------------------------------------------------------------------------
+
+$policyLoaded = $false
+$policyVersion = $null
+$policyTimeoutDefaults = $null
+$policyPermissionMatrix = $null
+
+# Hardcoded default matrix — matches current behavior when policy file is absent
+$defaultPermissionMatrix = @{
+    "green"  = @("runtime-feature", "foundation-fix", "docs", "health-repair", "test-only", "research")
+    "yellow" = @("foundation-fix", "docs", "health-repair", "research")
+    "red"    = @("foundation-fix", "health-repair")
+    "black"  = @()
+}
+
+if (Test-Path $PolicyFile) {
+    try {
+        $policyRaw = Get-Content -Path $PolicyFile -Raw -Encoding UTF8
+        $policy = $policyRaw | ConvertFrom-Json
+        $policyVersion = Get-Prop $policy "policyVersion"
+        Write-Step "Loaded launch policy from ${PolicyFile} (version $policyVersion)"
+
+        # Extract permission matrix from policy
+        $lpm = Get-Prop $policy "launchPermissionMatrix"
+        if ($lpm) {
+            $matrixObj = Get-Prop $lpm "matrix"
+            if ($matrixObj) {
+                $policyPermissionMatrix = @{}
+                foreach ($state in @("green", "yellow", "red", "black")) {
+                    $stateVal = Get-Prop $matrixObj $state
+                    if ($null -ne $stateVal) {
+                        $policyPermissionMatrix[$state] = @($stateVal)
+                    } else {
+                        $policyPermissionMatrix[$state] = $defaultPermissionMatrix[$state]
+                    }
+                }
+                Write-Step "Using permission matrix from policy file"
+            }
+        }
+
+        # Extract timeout defaults from policy
+        $td = Get-Prop $policy "timeoutDefaults"
+        if ($td) {
+            $byType = Get-Prop $td "byWorkerType"
+            if ($byType) {
+                $policyTimeoutDefaults = @{}
+                foreach ($prop in $byType.PSObject.Properties) {
+                    $policyTimeoutDefaults[$prop.Name] = $prop.Value
+                }
+                Write-Step "Loaded timeout defaults for $($policyTimeoutDefaults.Count) worker type(s)"
+            }
+        }
+
+        $policyLoaded = $true
+    } catch {
+        Write-Warn "Could not parse $PolicyFile — using hardcoded defaults"
+    }
+} else {
+    Write-Warn "No launch policy at $PolicyFile — using hardcoded defaults"
+}
+
+# Use policy matrix if loaded, otherwise fall back to defaults
+$permissionMatrix = if ($policyLoaded -and $null -ne $policyPermissionMatrix) {
+    $policyPermissionMatrix
+} else {
+    $defaultPermissionMatrix
+}
+
+# ---------------------------------------------------------------------------
+# Load provider pool state (optional, warning mode)
+# ---------------------------------------------------------------------------
+
+$providerPoolLoaded = $false
+$providerPool = $null
+$providerPoolWarnings = @()
+
+if (Test-Path $ProviderPoolFile) {
+    try {
+        $poolRaw = Get-Content -Path $ProviderPoolFile -Raw -Encoding UTF8
+        $providerPool = $poolRaw | ConvertFrom-Json
+        $providerPoolLoaded = $true
+        $stateVersion = Get-Prop $providerPool "stateVersion"
+        Write-Step "Loaded provider pool state from ${ProviderPoolFile} (version $stateVersion)"
+
+        $providers = @()
+        $providersRaw = Get-Prop $providerPool "providers"
+        if ($null -ne $providersRaw) {
+            $providers = @($providersRaw)
+        }
+
+        $availableCount = 0
+        $totalCapacity = 0
+        $totalUsed = 0
+        $exhaustedProviders = @()
+        $disabledProviders = @()
+
+        foreach ($p in $providers) {
+            $provId = Get-Prop $p "id" "unknown"
+            $provStatus = Get-Prop $p "status" "unknown"
+            $provMax = [int](Get-Prop $p "maxConcurrency" 0)
+            $provCurrent = [int](Get-Prop $p "currentConcurrency" 0)
+            $provCooldown = Get-Prop $p "cooldownExpiresAt"
+
+            $totalCapacity += $provMax
+            $totalUsed += $provCurrent
+
+            if ($provStatus -eq "available") {
+                # Check if at capacity
+                if ($provCurrent -lt $provMax) {
+                    $availableCount++
+                } else {
+                    $providerPoolWarnings += "Provider '$provId' is at capacity ($provCurrent/$provMax)."
+                }
+            } elseif ($provStatus -eq "exhausted") {
+                $exhaustedProviders += $provId
+                $cooldownMsg = if ($provCooldown) { " (cooldown until $provCooldown)" } else { "" }
+                $providerPoolWarnings += "Provider '$provId' is exhausted$cooldownMsg."
+            } elseif ($provStatus -eq "disabled") {
+                $disabledProviders += $provId
+                $providerPoolWarnings += "Provider '$provId' is disabled (manual intervention required)."
+            }
+        }
+
+        if ($availableCount -eq 0 -and $providers.Count -gt 0) {
+            $providerPoolWarnings += "CRITICAL: No providers available. All providers are exhausted, disabled, or at capacity."
+        }
+
+        foreach ($w in $providerPoolWarnings) {
+            Write-Warn "Provider pool: $w"
+        }
+    } catch {
+        Write-Warn "Could not parse $ProviderPoolFile — provider pool checks skipped"
+    }
+} else {
+    Write-Step "No provider pool file at $ProviderPoolFile — provider pool checks skipped"
+}
+
+# ---------------------------------------------------------------------------
+# Dry-run mode: print config and exit
+# ---------------------------------------------------------------------------
+
+if ($DryRun) {
+    $dryRunReport = [ordered]@{
+        mode             = "dry-run"
+        taskFile         = $TaskFile
+        healthFile       = $HealthFile
+        policyFile       = $PolicyFile
+        providerPoolFile = $ProviderPoolFile
+        runningTasksFile = $RunningTasksFile
+        policyLoaded     = $policyLoaded
+        policyVersion    = $policyVersion
+        providerPoolLoaded = $providerPoolLoaded
+        permissionMatrixSource = if ($policyLoaded) { "policy-file" } else { "hardcoded-defaults" }
+        permissionMatrix = $permissionMatrix
+        providerPoolWarnings = $providerPoolWarnings
+    }
+    if ($Json) {
+        $dryRunReport | ConvertTo-Json -Depth 6
+    } else {
+        Write-Host ""
+        Write-Host "========================================" -ForegroundColor Cyan
+        Write-Host "  Launch Gate Dry Run" -ForegroundColor Cyan
+        Write-Host "========================================" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "Task file:         $TaskFile"
+        Write-Host "Health file:       $HealthFile"
+        Write-Host "Policy file:       $PolicyFile (loaded: $policyLoaded)"
+        Write-Host "Provider pool:     $ProviderPoolFile (loaded: $providerPoolLoaded)"
+        Write-Host "Running tasks:     $(if ($RunningTasksFile) { $RunningTasksFile } else { '(none)' })"
+        Write-Host "Matrix source:     $(if ($policyLoaded) { 'policy-file' } else { 'hardcoded-defaults' })"
+        if ($policyVersion) { Write-Host "Policy version:    $policyVersion" }
+        Write-Host ""
+        Write-Host "Permission matrix:" -ForegroundColor Cyan
+        foreach ($state in @("green", "yellow", "red", "black")) {
+            $types = $permissionMatrix[$state] -join ", "
+            Write-Host "  $state : $types"
+        }
+        Write-Host ""
+        if ($providerPoolWarnings.Count -gt 0) {
+            Write-Host "Provider pool warnings:" -ForegroundColor Yellow
+            foreach ($w in $providerPoolWarnings) {
+                Write-Host "  $w" -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "Provider pool: no warnings" -ForegroundColor Green
+        }
+        Write-Host ""
+        Write-Ok "Dry run complete. No tasks evaluated."
+    }
+    exit 0
+}
+
+# ---------------------------------------------------------------------------
 # Policy: worker type classification and launch permission
 # ---------------------------------------------------------------------------
 
@@ -244,13 +473,7 @@ function Get-WorkerType {
     return "health-repair"
 }
 
-# Permission matrix: state -> allowed worker types
-$permissionMatrix = @{
-    "green"  = @("runtime-feature", "foundation-fix", "docs", "health-repair", "test-only", "research")
-    "yellow" = @("foundation-fix", "docs", "health-repair", "research")
-    "red"    = @("foundation-fix", "health-repair")
-    "black"  = @()
-}
+# Permission matrix: loaded from policy file or hardcoded defaults (set above)
 
 function Test-LaunchAllowed {
     param([string]$State, [string]$WorkerType)
@@ -283,6 +506,16 @@ foreach ($task in $taskList) {
         mainState     = $resolvedState
         allowed       = $allowed
         reason        = $null
+    }
+
+    # Attach timeout defaults from policy when available
+    if ($null -ne $policyTimeoutDefaults -and $policyTimeoutDefaults.ContainsKey($workerType)) {
+        $td = $policyTimeoutDefaults[$workerType]
+        $result["timeoutDefaults"] = [ordered]@{
+            softTimeMinutes    = (Get-Prop $td "softTimeMinutes" $null)
+            hardTimeMinutes    = (Get-Prop $td "hardTimeMinutes" $null)
+            maxExtensionMinutes = (Get-Prop $td "maxExtensionMinutes" $null)
+        }
     }
 
     if (-not $allowed) {
@@ -391,6 +624,10 @@ $report = [ordered]@{
     reportVersion = 1
     capturedAt    = $now.ToString("o")
     mainState     = $resolvedState
+    policyLoaded  = $policyLoaded
+    policyVersion = $policyVersion
+    providerPoolLoaded = $providerPoolLoaded
+    providerPoolWarnings = $providerPoolWarnings
     taskCount     = $taskList.Count
     tasks         = $results
     duplicateConflictGroups = $duplicateGroups
@@ -419,6 +656,8 @@ if ($Json) {
         "black"  { "DarkRed" }
     }
     Write-Host $resolvedState -ForegroundColor $color
+    Write-Host "Policy:          $(if ($policyLoaded) { "loaded (v$policyVersion)" } else { "hardcoded defaults" })"
+    Write-Host "Provider pool:   $(if ($providerPoolLoaded) { "loaded ($(($providerPoolWarnings.Count)) warnings)" } else { "not loaded" })"
     Write-Host "Tasks evaluated: $($taskList.Count)"
     Write-Host ""
 
@@ -458,6 +697,14 @@ if ($Json) {
         Write-Host "Running-worker conflicts:" -ForegroundColor Red
         foreach ($rw in $runningWorkerConflicts) {
             Write-Host "  group '$($rw.conflictGroup)' — task issue #$($rw.taskIssue) blocked by active worker issue #$($rw.runningIssue)" -ForegroundColor Red
+        }
+        Write-Host ""
+    }
+
+    if ($providerPoolWarnings.Count -gt 0) {
+        Write-Host "Provider pool warnings:" -ForegroundColor Yellow
+        foreach ($pw in $providerPoolWarnings) {
+            Write-Host "  $pw" -ForegroundColor Yellow
         }
         Write-Host ""
     }
