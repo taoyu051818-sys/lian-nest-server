@@ -10,6 +10,7 @@ const mockPostsProvider = {
 
 const mockTopicsProvider = {
   getById: jest.fn(),
+  list: jest.fn(),
 };
 
 describe('PostsService', () => {
@@ -171,8 +172,86 @@ describe('PostsService', () => {
   // ---- Write (stubs) -------------------------------------------------------
 
   describe('listPosts', () => {
-    it('should throw NotImplementedException', () => {
-      expect(() => service.listPosts({})).toThrow(NotImplementedException);
+    const mockTopics = [
+      { tid: 1, uid: 5, cid: 2, title: 'Topic A', slug: 'topic-a', mainPid: 10, postcount: 3, viewcount: 50, timestamp: 1700000000 },
+      { tid: 2, uid: 6, cid: 2, title: 'Topic B', slug: 'topic-b', mainPid: 20, postcount: 1, viewcount: 10, timestamp: 1700001000 },
+    ];
+
+    it('should return mapped post list from topics', async () => {
+      mockTopicsProvider.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { topics: mockTopics },
+        error: null,
+      });
+
+      const result = await service.listPosts({ page: 1, perPage: 20 });
+
+      expect(result.items).toHaveLength(2);
+      expect(result.items[0].id).toBe('10');
+      expect(result.items[0].content).toBe('Topic A');
+      expect(result.items[0].author.uid).toBe(5);
+      expect(result.items[0].replyCount).toBe(2);
+      expect(result.items[1].id).toBe('20');
+      expect(result.items[1].replyCount).toBe(0);
+      expect(result.totalCount).toBe(2);
+      expect(result.page).toBe(1);
+      expect(result.perPage).toBe(20);
+    });
+
+    it('should return empty list when topics fetch fails', async () => {
+      mockTopicsProvider.list.mockResolvedValue({
+        status: BodyStatus.NOT_FOUND,
+        statusCode: 404,
+        data: null,
+        error: 'not found',
+      });
+
+      const result = await service.listPosts({});
+
+      expect(result.items).toHaveLength(0);
+      expect(result.totalCount).toBe(0);
+    });
+
+    it('should default pagination when not provided', async () => {
+      mockTopicsProvider.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { topics: [] },
+        error: null,
+      });
+
+      const result = await service.listPosts({});
+
+      expect(result.page).toBe(1);
+      expect(result.perPage).toBe(20);
+    });
+
+    it('should coerce invalid pagination to defaults', async () => {
+      mockTopicsProvider.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { topics: [] },
+        error: null,
+      });
+
+      const result = await service.listPosts({ page: -5, perPage: 999 });
+
+      expect(result.page).toBe(1);
+      expect(result.perPage).toBe(100);
+    });
+
+    it('should format createdAt as ISO string', async () => {
+      mockTopicsProvider.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { topics: [mockTopics[0]] },
+        error: null,
+      });
+
+      const result = await service.listPosts({});
+
+      expect(result.items[0].createdAt).toBe(new Date(1700000000 * 1000).toISOString());
     });
   });
 

@@ -30,8 +30,8 @@ export class PostsController {
   // ---- Read ----------------------------------------------------------------
 
   @Get()
-  listPosts(@Query() _query: ListPostsQuery): PostPaginatedList {
-    throw new NotImplementedException('PostsController.listPosts');
+  listPosts(@Query() query: ListPostsQuery): Promise<PostPaginatedList> {
+    return this.postsService.listPosts(query);
   }
 
   @Get(':postId')

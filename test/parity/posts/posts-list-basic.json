@@ -1,0 +1,73 @@
+{
+  "id": "posts-list-basic",
+  "endpoint": "GET /api/posts",
+  "description": "Standard posts list with mapped results from NodeBB topics",
+  "request": {
+    "method": "GET",
+    "path": "/api/posts",
+    "query": { "page": 1, "perPage": 20 }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "items": [
+        {
+          "id": "<STRING>",
+          "author": {
+            "uid": "<POSITIVE_INT>",
+            "username": "<STRING>",
+            "avatar": "<NULLABLE_STRING>",
+            "reputation": "<NON_NEG_INT>"
+          },
+          "content": "<STRING>",
+          "createdAt": "<ISO_DATE_STRING>",
+          "replyCount": "<NON_NEG_INT>"
+        }
+      ],
+      "totalCount": "<NON_NEG_INT>",
+      "page": "<POSITIVE_INT>",
+      "perPage": "<POSITIVE_INT>"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["items", "totalCount", "page", "perPage"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PostListItem" }
+        },
+        "totalCount": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "minimum": 1 },
+        "perPage": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "PostListItem": {
+          "type": "object",
+          "required": ["id", "author", "content", "createdAt", "replyCount"],
+          "properties": {
+            "id": { "type": "string" },
+            "author": { "$ref": "#/$defs/PostAuthor" },
+            "content": { "type": "string" },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "replyCount": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "PostAuthor": {
+          "type": "object",
+          "required": ["uid", "username", "avatar", "reputation"],
+          "properties": {
+            "uid": { "type": "integer", "minimum": 1 },
+            "username": { "type": "string" },
+            "avatar": { "type": ["string", "null"] },
+            "reputation": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "notes": "Posts list maps from NodeBB topics. Each item.id is the topic's mainPid. Author fields (username, avatar, reputation) are defaulted to empty/null/0 in the starter implementation. replyCount is postcount-1."
+}
