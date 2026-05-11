@@ -1,0 +1,209 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/worker-resource.schema.json",
+  "title": "WorkerResource",
+  "description": "Per-worker system resource snapshot capturing CPU, memory, and process telemetry for a running or recently completed worker task.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "capturedAt",
+    "process",
+    "cpu",
+    "memory"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version pinned to 1. Consumers must reject records with a different version."
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier for the worker task, matching the heartbeat taskId."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this resource snapshot was captured."
+    },
+    "issueNumber": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub issue number this task targets, if applicable."
+    },
+    "process": {
+      "type": "object",
+      "description": "Process-level metadata for the worker.",
+      "additionalProperties": false,
+      "required": ["pid", "state"],
+      "properties": {
+        "pid": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Operating system process ID of the worker."
+        },
+        "ppid": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Parent process ID, if available."
+        },
+        "state": {
+          "type": "string",
+          "enum": ["running", "sleeping", "stopped", "zombie", "unknown"],
+          "description": "Current process state from the OS scheduler."
+        },
+        "uptimeMs": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Milliseconds since the worker process started."
+        },
+        "threadCount": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Number of threads or handles held by the process."
+        },
+        "fileDescriptorCount": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Number of open file descriptors (Unix) or handles (Windows)."
+        }
+      }
+    },
+    "cpu": {
+      "type": "object",
+      "description": "CPU usage metrics for the worker process.",
+      "additionalProperties": false,
+      "required": ["usagePercent"],
+      "properties": {
+        "usagePercent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Current CPU usage as a percentage (0-100). May exceed 100 on multi-core systems."
+        },
+        "systemTimeMs": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Cumulative system (kernel) CPU time in milliseconds."
+        },
+        "userTimeMs": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Cumulative user-space CPU time in milliseconds."
+        },
+        "coresUsed": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "description": "Effective number of CPU cores utilized (usagePercent / 100)."
+        }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "description": "Memory usage metrics for the worker process.",
+      "additionalProperties": false,
+      "required": ["rssBytes"],
+      "properties": {
+        "rssBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Resident Set Size — total physical memory allocated to the process, in bytes."
+        },
+        "heapUsedBytes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "V8 heap memory actively used, in bytes. Null for non-Node processes."
+        },
+        "heapTotalBytes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "V8 total heap size (committed), in bytes. Null for non-Node processes."
+        },
+        "externalBytes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Memory used by C++ objects bound to JavaScript, in bytes."
+        },
+        "arrayBufferBytes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Memory allocated for ArrayBuffers and SharedArrayBuffers, in bytes."
+        },
+        "systemTotalBytes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Total physical memory on the host system, in bytes."
+        },
+        "systemFreeBytes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Free physical memory on the host system, in bytes."
+        }
+      }
+    },
+    "limits": {
+      "type": ["object", "null"],
+      "description": "Resource limits and thresholds for alerting. Null when no limits are configured.",
+      "additionalProperties": false,
+      "properties": {
+        "maxRssBytes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Maximum RSS before the worker should be flagged for review."
+        },
+        "maxHeapBytes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Maximum heap usage before the worker should be flagged."
+        },
+        "maxCpuPercent": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "description": "CPU usage threshold for alerting."
+        },
+        "maxFileDescriptors": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Maximum open file descriptors before alerting."
+        }
+      }
+    },
+    "alerts": {
+      "type": ["array", "null"],
+      "description": "Resource alerts triggered by threshold breaches. Null when no alerts are active.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric", "severity", "message"],
+        "properties": {
+          "metric": {
+            "type": "string",
+            "enum": ["rss", "heap", "cpu", "fileDescriptors", "uptime"],
+            "description": "Which resource metric triggered the alert."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["warning", "critical"],
+            "description": "Alert severity. warning = approaching limit, critical = exceeded limit."
+          },
+          "currentValue": {
+            "type": ["number", "null"],
+            "description": "Current value of the metric that triggered the alert."
+          },
+          "thresholdValue": {
+            "type": ["number", "null"],
+            "description": "Threshold value that was breached."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable description of the alert."
+          }
+        }
+      }
+    }
+  }
+}
