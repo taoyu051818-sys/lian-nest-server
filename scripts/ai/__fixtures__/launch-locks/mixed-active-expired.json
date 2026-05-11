@@ -1,0 +1,30 @@
+{
+  "markerVersion": 1,
+  "capturedAt": "2026-05-11T12:00:00Z",
+  "locks": [
+    {
+      "conflictGroup": "control-worktree-fixtures",
+      "writeSet": ["scripts/ai/worktree-janitor.launch-locks.test.ps1"],
+      "sharedLocks": [],
+      "ownerTask": {
+        "issue": 400,
+        "branch": "claude/issue-400-control-fixtures",
+        "workerClass": "ai-native-tooling-worker"
+      },
+      "acquiredAt": "2026-05-11T12:00:00Z",
+      "expiresAt": "2099-12-31T23:59:59Z"
+    },
+    {
+      "conflictGroup": "test-expired-group",
+      "writeSet": [],
+      "sharedLocks": [],
+      "ownerTask": {
+        "issue": 401,
+        "branch": "claude/issue-401-expired-fixtures",
+        "workerClass": "ai-native-tooling-worker"
+      },
+      "acquiredAt": "2026-05-11T10:00:00Z",
+      "expiresAt": "2026-05-11T11:00:00Z"
+    }
+  ]
+}
