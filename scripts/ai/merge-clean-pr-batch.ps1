@@ -35,7 +35,13 @@
     what it would do (dry-run).
 
 .PARAMETER RunHealthGate
-    After a successful batch, run scripts/post-merge-health-gate.js.
+    After a successful batch, run a post-merge health command. Defaults to
+    scripts/post-merge-health-gate.js. Use -PostHealthCommand to override.
+
+.PARAMETER PostHealthCommand
+    Custom command to run when -RunHealthGate is specified. The command
+    is invoked via `node <command>`. Defaults to
+    scripts/post-merge-health-gate.js. Example: -PostHealthCommand "scripts/custom-check.js --strict"
 
 .PARAMETER RunGuards
     Run local guard checks before merge. Guards enforce:
@@ -60,6 +66,10 @@
 .EXAMPLE
     # Execute with post-merge health gate
     .\scripts\ai\merge-clean-pr-batch.ps1 -PRs 42 -Repo owner/name -Execute -RunHealthGate
+
+.EXAMPLE
+    # Execute with custom post-merge health command
+    .\scripts\ai\merge-clean-pr-batch.ps1 -PRs 42 -Repo owner/name -Execute -RunHealthGate -PostHealthCommand "scripts/custom-check.js --strict"
 #>
 
 [CmdletBinding(DefaultParameterSetName = 'InlinePRs')]
@@ -80,6 +90,8 @@ param(
     [switch]$Execute,
 
     [switch]$RunHealthGate,
+
+    [string]$PostHealthCommand,
 
     [switch]$RunGuards
 )
@@ -355,7 +367,8 @@ function Write-MergeManifest {
         [string]$PreCommit,
         [string]$PostCommit,
         [array]$Outcomes,
-        [string]$HealthResult
+        [string]$HealthResult,
+        [string]$HealthCommand
     )
 
     $manifestDir = Join-Path (Get-Location) '.ai' 'merge-batch-manifests'
@@ -365,13 +378,14 @@ function Write-MergeManifest {
 
     $timestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ssZ')
     $manifest = @{
-        timestamp   = (Get-Date).ToUniversalTime().ToString('o')
-        repository  = $Repo
-        mode        = if ($isExecute) { 'execute' } else { 'dry-run' }
-        prs         = $Outcomes
-        preCommit   = if ($PreCommit) { $PreCommit } else { $null }
-        postCommit  = if ($PostCommit) { $PostCommit } else { $null }
-        healthGate  = $HealthResult
+        timestamp          = (Get-Date).ToUniversalTime().ToString('o')
+        repository         = $Repo
+        mode               = if ($isExecute) { 'execute' } else { 'dry-run' }
+        prs                = $Outcomes
+        preCommit          = if ($PreCommit) { $PreCommit } else { $null }
+        postCommit         = if ($PostCommit) { $PostCommit } else { $null }
+        healthGate         = $HealthResult
+        postHealthCommand  = if ($HealthCommand) { $HealthCommand } else { $null }
     }
 
     $manifestPath = Join-Path $manifestDir "merge-batch-$timestamp.json"
@@ -500,7 +514,11 @@ function Main {
     Write-Host "  Repository  : $Repo"
     Write-Host "  Mode        : $modeLabel"
     Write-Host "  PR count    : $($prNumbers.Count)"
+    $resolvedHealthCommand = if ($PostHealthCommand) { $PostHealthCommand } else { (Join-Path $PSScriptRoot '..' '..' 'scripts' 'post-merge-health-gate.js') }
     Write-Host "  Health gate : $($RunHealthGate.IsPresent)"
+    if ($RunHealthGate.IsPresent -and $PostHealthCommand) {
+        Write-Host "  Health cmd  : $PostHealthCommand"
+    }
     Write-Host "  Guards      : $($RunGuards.IsPresent)"
     if ($isExecute) {
         Write-Host "  WARNING     : -Execute mode will perform real merges!"
@@ -657,7 +675,7 @@ function Main {
         $dryRunOutcomes = $eligible | ForEach-Object {
             @{ number = $_.number; title = $_.title; status = 'eligible' }
         }
-        Write-MergeManifest -PreCommit $null -PostCommit $null -Outcomes $dryRunOutcomes -HealthResult 'skipped'
+        Write-MergeManifest -PreCommit $null -PostCommit $null -Outcomes $dryRunOutcomes -HealthResult 'skipped' -HealthCommand $resolvedHealthCommand
         exit 0
     }
 
@@ -687,7 +705,7 @@ function Main {
             Write-Host ""
             Write-Host "Stopping — merge batch aborted after failure on PR #$($pr.number)."
             Write-Host "Merged so far: $($merged.Count) of $($eligible.Count)"
-            Write-MergeManifest -PreCommit $preMergeCommit -Outcomes $mergeOutcomes -HealthResult 'skipped'
+            Write-MergeManifest -PreCommit $preMergeCommit -Outcomes $mergeOutcomes -HealthResult 'skipped' -HealthCommand $resolvedHealthCommand
             exit 1
         }
         Write-Host ""
@@ -701,30 +719,29 @@ function Main {
     if ($RunHealthGate.IsPresent) {
         Write-Host ""
         Write-Banner "Post-Merge Health Gate"
-        $healthGatePath = Join-Path $PSScriptRoot '..' '..' 'scripts' 'post-merge-health-gate.js'
-        if (Test-Path $healthGatePath) {
-            Write-Host "Running post-merge health gate ..."
-            & node $healthGatePath --quick
+        if (Test-Path $resolvedHealthCommand) {
+            Write-Host "Running post-merge health command: $resolvedHealthCommand"
+            & node $resolvedHealthCommand --quick
             $exitCode = $LASTEXITCODE
             if ($exitCode -ne 0) {
                 Write-Host ""
                 Write-Host "WARNING: Post-merge health gate FAILED (exit code $exitCode)."
                 Write-Host "Do not launch the next wave until main is healthy."
                 $healthResult = 'fail'
-                Write-MergeManifest -PreCommit $preMergeCommit -PostCommit $postMergeCommit -Outcomes $mergeOutcomes -HealthResult $healthResult
+                Write-MergeManifest -PreCommit $preMergeCommit -PostCommit $postMergeCommit -Outcomes $mergeOutcomes -HealthResult $healthResult -HealthCommand $resolvedHealthCommand
                 exit $exitCode
             }
             Write-Host "Health gate PASSED."
             $healthResult = 'pass'
         }
         else {
-            Write-Host "Health gate script not found at: $healthGatePath"
-            Write-Host "Run manually: node scripts/post-merge-health-gate.js --quick"
+            Write-Host "Health gate script not found at: $resolvedHealthCommand"
+            Write-Host "Run manually: node $resolvedHealthCommand --quick"
             $healthResult = 'not-found'
         }
     }
 
-    Write-MergeManifest -PreCommit $preMergeCommit -PostCommit $postMergeCommit -Outcomes $mergeOutcomes -HealthResult $healthResult
+    Write-MergeManifest -PreCommit $preMergeCommit -PostCommit $postMergeCommit -Outcomes $mergeOutcomes -HealthResult $healthResult -HealthCommand $resolvedHealthCommand
 }
 
 Main
