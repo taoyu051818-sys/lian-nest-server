@@ -1,24 +1,36 @@
 <#
 .SYNOPSIS
-    Dry-run self-cycle runner that chains state reconciliation, health gate,
-    launch gate, and batch launch into a single orchestrated loop.
+    Dry-run self-cycle runner that chains issue discovery, state reconciliation,
+    health gate, launch gate, and batch launch into a single orchestrated loop.
 
 .DESCRIPTION
     Top-level orchestrator for the self-hosted AI cycle. Runs the following
     steps in sequence:
 
-        1. State Reconciler  — detect drift across issues/PRs
-        2. Main Health       — read current main health state marker
-        3. Launch Gate       — validate task(s) against health + conflict policy
-        4. Batch Launch      — dry-run or execute the worker dispatch
+        0. Issue Discovery  — discover issues by label, compile to task JSON
+        1. State Reconciler — detect drift across issues/PRs
+        2. Main Health      — read current main health state marker
+        3. Launch Gate      — validate task(s) against health + conflict policy
+        4. Batch Launch     — dry-run or execute the worker dispatch
 
     The runner stops at human-required gates and summarizes the next required
     human decision after each step.
 
     DRY-RUN BY DEFAULT. Pass -Execute to actually launch workers.
 
+    Either -TaskFile or -IssueLabel must be provided. When -IssueLabel is used,
+    the runner discovers open issues with that label, compiles them into a task
+    JSON file, and feeds the result into the standard pipeline.
+
 .PARAMETER TaskFile
-    Path to a task JSON file (single object or array). Required.
+    Path to a task JSON file (single object or array). Mutually exclusive
+    with -IssueLabel.
+
+.PARAMETER IssueLabel
+    GitHub issue label to discover open issues (e.g. "agent:codex-action-needed").
+    The runner fetches issues with this label, compiles each into a task JSON
+    contract, and merges them into a single task array for the pipeline.
+    Mutually exclusive with -TaskFile.
 
 .PARAMETER Repo
     GitHub repository in OWNER/NAME format. Defaults to GH_REPO env var.
@@ -36,8 +48,12 @@
     for the current task batch).
 
 .EXAMPLE
-    # Full dry-run cycle
+    # Full dry-run cycle with explicit task file
     ./scripts/ai/run-self-cycle.ps1 -TaskFile ./tasks/issue-148.json
+
+.EXAMPLE
+    # Discover and compile issues by label (dry-run)
+    ./scripts/ai/run-self-cycle.ps1 -IssueLabel "agent:codex-action-needed" -Repo owner/name
 
 .EXAMPLE
     # Execute mode (launches worker)
@@ -52,8 +68,11 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(ParameterSetName = "TaskFile", Mandatory = $true)]
     [string]$TaskFile,
+
+    [Parameter(ParameterSetName = "IssueLabel", Mandatory = $true)]
+    [string]$IssueLabel,
 
     [string]$Repo = $env:GH_REPO,
 
@@ -76,6 +95,7 @@ $RECONCILER  = Join-Path $SCRIPT_DIR "state-reconciler.ps1"
 $HEALTH_WRITER = Join-Path $SCRIPT_DIR "write-main-health-state.ps1"
 $LAUNCH_GATE = Join-Path $SCRIPT_DIR "check-launch-gate.ps1"
 $BATCH_LAUNCH = Join-Path $SCRIPT_DIR "batch-launch.ps1"
+$COMPILER = Join-Path $SCRIPT_DIR "compile-issue-to-task-json.ps1"
 
 $CYCLE_MARKER_BEGIN = "<!-- ai-self-cycle:report:begin -->"
 $CYCLE_MARKER_END   = "<!-- ai-self-cycle:report:end -->"
@@ -149,17 +169,195 @@ function Add-StepResult {
 # Validate inputs
 # ---------------------------------------------------------------------------
 
-if (-not (Test-Path $TaskFile)) {
-    Write-Fail "Task file not found: $TaskFile"
-    exit 2
-}
-
 $modeLabel = if ($Execute) { "EXECUTE" } else { "DRY-RUN" }
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "  Self-Cycle Runner [$modeLabel]" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host ""
+
+# ---------------------------------------------------------------------------
+# STEP 0: Issue Discovery (when -IssueLabel is used instead of -TaskFile)
+# ---------------------------------------------------------------------------
+
+if ($IssueLabel) {
+    Write-SectionHeader "STEP 0 — Issue Discovery & Task Compilation"
+
+    if (-not $Repo) {
+        Write-Fail "Issue discovery requires -Repo or GH_REPO env var."
+    }
+
+    Write-Step "Discovering issues with label: $IssueLabel"
+
+    try {
+        $issueNumbers = & gh issue list --repo $Repo --label $IssueLabel --state open --json number,title --limit 50 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Fail "gh issue list failed: $issueNumbers"
+        }
+        $issues = $issueNumbers | ConvertFrom-Json
+    } catch {
+        Write-Fail "Issue discovery failed: $_"
+    }
+
+    if ($issues.Count -eq 0) {
+        Write-Warn "No open issues found with label '$IssueLabel'."
+        Add-StepResult -Name "issue-discovery" -Status "empty" `
+                       -Detail "No issues found with label '$IssueLabel'"
+        $cycleResult.finalStatus = "completed"
+        $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
+        Write-Host ""
+        Write-Host "Cycle result: $($cycleResult.finalStatus)" -ForegroundColor Green
+        exit 0
+    }
+
+    Write-Ok "Found $($issues.Count) issue(s) with label '$IssueLabel'"
+    Add-StepResult -Name "issue-discovery" -Status "pass" `
+                   -Detail "Found $($issues.Count) issue(s)"
+
+    # Build task JSON array from discovered issues.
+    # Each issue gets a minimal task contract with conservative defaults.
+    # The CONTROL APPENDIX from the issue body supplies metadata when available.
+    Write-Step "Compiling issues to task contracts..."
+
+    $compiledTasks = @()
+    $compileErrors = @()
+
+    foreach ($issueEntry in $issues) {
+        $issueNum = $issueEntry.number
+        Write-Step "  Compiling issue #$issueNum: $($issueEntry.title)"
+
+        # Fetch full issue body to extract CONTROL APPENDIX metadata
+        try {
+            $bodyJson = & gh issue view $issueNum --repo $Repo --json body 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warn "  Could not fetch body for #$issueNum — using defaults"
+                $body = ""
+            } else {
+                $bodyData = $bodyJson | ConvertFrom-Json
+                $body = $bodyData.body
+            }
+        } catch {
+            Write-Warn "  Could not fetch body for #$issueNum — using defaults"
+            $body = ""
+        }
+
+        # Parse CONTROL APPENDIX fields from body (best-effort)
+        $taskType = "execution"
+        $risk = "medium"
+        $conflictGroup = "ai-auto"
+        $allowedFiles = @()
+        $forbiddenFiles = @()
+        $validationCommands = @()
+        $actorRole = "automation-cycle-worker"
+
+        if ($body) {
+            # Extract allowed files
+            $allowedMatch = [regex]::Match($body, '(?s)Allowed files:\s*\n((?:- .+\n?)+)')
+            if ($allowedMatch.Success) {
+                $allowedFiles = ($allowedMatch.Groups[1].Value -split "`n") |
+                    Where-Object { $_ -match '^- ' } |
+                    ForEach-Object { $_ -replace '^- ', '' } |
+                    Where-Object { $_ -ne '' }
+            }
+
+            # Extract forbidden files
+            $forbiddenMatch = [regex]::Match($body, '(?s)Forbidden files:\s*\n((?:- .+\n?)+)')
+            if ($forbiddenMatch.Success) {
+                $forbiddenFiles = ($forbiddenMatch.Groups[1].Value -split "`n") |
+                    Where-Object { $_ -match '^- ' } |
+                    ForEach-Object { $_ -replace '^- ', '' } |
+                    Where-Object { $_ -ne '' }
+            }
+
+            # Extract validation commands
+            $valMatch = [regex]::Match($body, '(?s)Validation commands:\s*\n((?:- .+\n?)+)')
+            if ($valMatch.Success) {
+                $validationCommands = ($valMatch.Groups[1].Value -split "`n") |
+                    Where-Object { $_ -match '^- ' } |
+                    ForEach-Object { $_ -replace '^- ', '' } |
+                    Where-Object { $_ -ne '' }
+            }
+
+            # Extract risk level
+            $riskMatch = [regex]::Match($body, '(?im)^Risk:\s*(low|medium|high)')
+            if ($riskMatch.Success) { $risk = $riskMatch.Groups[1].Value.ToLower() }
+
+            # Extract conflict group
+            $cgMatch = [regex]::Match($body, '(?im)^Conflict group:\s*(\S+)')
+            if ($cgMatch.Success) { $conflictGroup = $cgMatch.Groups[1].Value }
+
+            # Extract task type
+            $ttMatch = [regex]::Match($body, '(?im)^Task type:\s*(execution|research|review)')
+            if ($ttMatch.Success) { $taskType = $ttMatch.Groups[1].Value.ToLower() }
+
+            # Extract actor role
+            $roleMatch = [regex]::Match($body, '(?im)^Actor role:\s*(.+)')
+            if ($roleMatch.Success) { $actorRole = $roleMatch.Groups[1].Value.Trim() }
+        }
+
+        # Apply defaults for missing required fields
+        if ($allowedFiles.Count -eq 0) {
+            $allowedFiles = @("docs/**")
+        }
+        if ($validationCommands.Count -eq 0) {
+            $validationCommands = @("npm run check")
+        }
+
+        $task = [ordered]@{
+            taskType           = $taskType
+            risk               = $risk
+            conflictGroup      = $conflictGroup
+            targetIssue        = $issueNum
+            targetPR           = $null
+            issues             = @($issueNum)
+            expectedPR         = $true
+            allowedFiles       = @($allowedFiles)
+            forbiddenFiles     = @($forbiddenFiles)
+            validationCommands = @($validationCommands)
+            rolePacket         = @{
+                actorRole   = $actorRole
+                description = "Auto-compiled from issue #$issueNum"
+            }
+        }
+        $compiledTasks += $task
+    }
+
+    # Write compiled tasks to temp file
+    $discoveredTaskFile = Join-Path ([System.IO.Path]::GetTempPath()) "self-cycle-discovered-tasks.json"
+    $compiledTasks | ConvertTo-Json -Depth 10 | Set-Content $discoveredTaskFile -Encoding UTF8
+    $TaskFile = $discoveredTaskFile
+
+    Write-Ok "Compiled $($compiledTasks.Count) task(s) to $TaskFile"
+    Add-StepResult -Name "task-compilation" -Status "pass" `
+                   -Detail "Compiled $($compiledTasks.Count) task(s) to temp file"
+
+    # Dry-run: print compiled tasks, save to file, and stop for human review.
+    # Execute mode: continue through the full pipeline.
+    if (-not $Execute) {
+        Write-Step "DRY-RUN: Compiled task contracts saved to $TaskFile"
+        Write-Host ""
+        $compiledTasks | ConvertTo-Json -Depth 10 | Write-Host
+        Write-Host ""
+        Write-Ok "Task file ready for pipeline: $TaskFile"
+        Write-HumanStop -Reason "Review compiled task contracts above. File saved for next run." `
+                        -NextAction "Re-run with -TaskFile $TaskFile -Execute to proceed, or adjust issue metadata and re-discover."
+
+        $cycleResult.finalStatus = "discovery-complete"
+        $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
+        Write-Host ""
+        Write-Host "Cycle result: $($cycleResult.finalStatus)" -ForegroundColor Green
+        exit 0
+    }
+
+    Write-Host ""
+}
+
+# Validate task file exists
+if (-not (Test-Path $TaskFile)) {
+    Write-Fail "Task file not found: $TaskFile"
+    exit 2
+}
+
 Write-Step "Task file: $TaskFile"
 Write-Step "Health file: $HealthFile"
 if ($Repo) { Write-Step "Repo: $Repo" }
@@ -378,6 +576,7 @@ $finalColor = switch ($cycleResult.finalStatus) {
     "blocked"                  { "Red" }
     "blocked-by-health"        { "Red" }
     "blocked-by-gate"          { "Red" }
+    "discovery-complete"       { "Green" }
     default                    { "White" }
 }
 Write-Host $cycleResult.finalStatus -ForegroundColor $finalColor
@@ -402,6 +601,9 @@ switch ($cycleResult.finalStatus) {
     }
     "blocked-by-gate" {
         Write-Host "Next: Resolve launch gate conflicts (duplicates, shared locks, health policy)." -ForegroundColor Red
+    }
+    "discovery-complete" {
+        Write-Host "Next: Review compiled task contracts. Re-run with -TaskFile <file> -Execute to proceed through the pipeline." -ForegroundColor Green
     }
 }
 
