@@ -23,6 +23,7 @@ const {
   checkDuplicateTopics,
   checkMissingFrontmatter,
   checkStaleStatus,
+  checkLegacySourceOfTruthDrift,
 } = require('./check-docs-authority');
 
 let passed = 0;
@@ -335,6 +336,91 @@ console.log('checkDuplicateBasenames (3+ files)');
     const dups = checkDuplicateBasenames(files);
     assert(dups.length === 1, 'one duplicate group for three files');
     assert(dups[0].files.length === 3, 'all three files reported');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// checkLegacySourceOfTruthDrift
+console.log('checkLegacySourceOfTruthDrift');
+{
+  const tmp = makeTmpDir();
+  try {
+    // Drift: treats lian-platform-server as authority
+    writeFile(tmp, 'docs/a/bad.md', '# Bad\nSee `lian-platform-server` for the auth module.');
+    // Safe: mentions in retirement context
+    writeFile(tmp, 'docs/b/safe.md', '# Safe\n`lian-platform-server` is frozen and retired.');
+    // Safe: no mention at all
+    writeFile(tmp, 'docs/c/clean.md', '# Clean\nNothing here.');
+
+    const files = [
+      path.join(tmp, 'docs/a/bad.md'),
+      path.join(tmp, 'docs/b/safe.md'),
+      path.join(tmp, 'docs/c/clean.md'),
+    ];
+    const drifts = checkLegacySourceOfTruthDrift(files);
+    assert(drifts.length === 1, 'flags one drift file');
+    assert(drifts[0].type === 'legacy-source-of-truth-drift', 'correct type');
+    assert(drifts[0].line === 2, 'correct line number');
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    // Authority pattern: "source of truth" mention
+    writeFile(tmp, 'docs/a/drift.md', '# Drift\nlian-platform-server is the source of truth for auth.');
+    const files = [path.join(tmp, 'docs/a/drift.md')];
+    const drifts = checkLegacySourceOfTruthDrift(files);
+    assert(drifts.length === 1, 'flags source-of-truth pattern');
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    // Authority pattern: backtick ref with "has/contains/provides"
+    writeFile(tmp, 'docs/a/impl.md', '# Impl\n`lian-platform-server` has the notification logic.');
+    const files = [path.join(tmp, 'docs/a/impl.md')];
+    const drifts = checkLegacySourceOfTruthDrift(files);
+    assert(drifts.length === 1, 'flags authority verb pattern');
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    // Safe: "moving from" context
+    writeFile(tmp, 'docs/a/moving.md', '# Moving\nWe are moving away from lian-platform-server.');
+    // Safe: "legacy" context
+    writeFile(tmp, 'docs/b/legacy.md', '# Legacy\nThe legacy lian-platform-server code is read-only.');
+    // Safe: "deprecated" context
+    writeFile(tmp, 'docs/c/deprecated.md', '# Deprecated\nlian-platform-server is deprecated.');
+
+    const files = [
+      path.join(tmp, 'docs/a/moving.md'),
+      path.join(tmp, 'docs/b/legacy.md'),
+      path.join(tmp, 'docs/c/deprecated.md'),
+    ];
+    const drifts = checkLegacySourceOfTruthDrift(files);
+    assert(drifts.length === 0, 'no drift for safe retirement/freeze mentions');
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    // Multiple drift lines in one file
+    writeFile(tmp, 'docs/a/multi.md', '# Multi\nSee lian-platform-server for auth.\nAlso check lian-platform-server for users.');
+    const files = [path.join(tmp, 'docs/a/multi.md')];
+    const drifts = checkLegacySourceOfTruthDrift(files);
+    assert(drifts.length === 2, 'flags multiple drift lines in one file');
+    assert(drifts[0].line === 2, 'first drift on line 2');
+    assert(drifts[1].line === 3, 'second drift on line 3');
   } finally {
     cleanup(tmp);
   }

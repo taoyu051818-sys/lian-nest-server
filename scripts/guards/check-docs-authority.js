@@ -163,6 +163,63 @@ function checkDuplicateTopics(files) {
   return duplicates;
 }
 
+// Files that legitimately reference lian-platform-server (retirement/ownership docs)
+const LEGACY_REFERENCE_EXEMPT = new Set([
+  'docs/migration/lian-platform-server-orchestration-retirement.md',
+  'docs/ai-native/orchestration-ownership.md',
+  'docs/ai-native/docs-authority-map.md',
+]);
+
+// Patterns that indicate lian-platform-server is treated as source of truth
+// (not just mentioned in a retirement/freeze context)
+const LEGACY_AUTHORITY_PATTERNS = [
+  /(?:see|refer to|from|in|check|read)\s+(?:the\s+)?`?lian-platform-server`?/i,
+  /`lian-platform-server`\s+(?:has|contains|provides|implements|defines|owns)/i,
+  /source\s+of\s+truth.*lian-platform-server/i,
+  /lian-platform-server.*source\s+of\s+truth/i,
+];
+
+// Patterns that indicate a legitimate (retirement/freeze) mention
+const LEGACY_SAFE_PATTERNS = [
+  /lian-platform-server.*(?:frozen|frozen|retired|legacy|read-only|deprecated)/i,
+  /(?:frozen|retired|legacy|read-only|deprecated).*lian-platform-server/i,
+  /moving.*(?:away|from|to).*lian-platform-server/i,
+  /lian-platform-server.*(?:moving|transitioning|migrating)/i,
+];
+
+function checkLegacySourceOfTruthDrift(files) {
+  const drifts = [];
+
+  for (const file of files) {
+    const rel = path.relative(ROOT, file).replace(/\\/g, '/');
+    if (LEGACY_REFERENCE_EXEMPT.has(rel)) continue;
+
+    const content = fs.readFileSync(file, 'utf-8');
+    const lines = content.split(/\r?\n/);
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.includes('lian-platform-server')) continue;
+
+      // Skip lines that are in a safe context (retirement/freeze mentions)
+      const isSafe = LEGACY_SAFE_PATTERNS.some((p) => p.test(line));
+      if (isSafe) continue;
+
+      // Check if the line treats lian-platform-server as authority
+      const isAuthorityDrift = LEGACY_AUTHORITY_PATTERNS.some((p) => p.test(line));
+      if (isAuthorityDrift) {
+        drifts.push({
+          type: 'legacy-source-of-truth-drift',
+          file: rel,
+          line: i + 1,
+          snippet: line.trim().slice(0, 120),
+        });
+      }
+    }
+  }
+  return drifts;
+}
+
 const STALE_STATUSES = new Set(['superseded', 'archived']);
 
 function checkStaleStatus(files) {
@@ -232,6 +289,13 @@ function run() {
     warnings.push(`Stale status [${s.status}]: ${s.file}`);
   }
 
+  // 6. Legacy source-of-truth drift (error in enforce mode)
+  const legacyDrifts = checkLegacySourceOfTruthDrift(files);
+  for (const d of legacyDrifts) {
+    const msg = `Legacy source-of-truth drift in ${d.file}:${d.line}: ${d.snippet}`;
+    (WARN_ONLY ? warnings : errors).push(msg);
+  }
+
   // Output
   const summary = {
     fileCount: files.length,
@@ -275,5 +339,7 @@ module.exports = {
   checkDuplicateTopics,
   checkMissingFrontmatter,
   checkStaleStatus,
+  checkLegacySourceOfTruthDrift,
+  LEGACY_REFERENCE_EXEMPT,
   run,
 };

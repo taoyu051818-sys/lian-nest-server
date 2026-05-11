@@ -135,6 +135,44 @@ Workers encountering a stale doc MUST:
 
 ---
 
+## Legacy Source-of-Truth Drift Guard
+
+The `check-docs-authority` guard detects documentation that incorrectly treats
+`lian-platform-server` as the source of truth for new work. This prevents
+accidental back-references to the frozen legacy repository.
+
+### What Counts as Drift
+
+| Pattern | Example | Verdict |
+|---------|---------|---------|
+| Authority verb + backtick ref | `` `lian-platform-server` has the auth logic `` | **Drift** — error |
+| "See/refer to/in" + ref | `See lian-platform-server for the module` | **Drift** — error |
+| "source of truth" mention | `lian-platform-server is the source of truth` | **Drift** — error |
+| Retirement/freeze context | `lian-platform-server is frozen and retired` | **Safe** — ignored |
+| Migration context | `We are moving away from lian-platform-server` | **Safe** — ignored |
+| Legacy/deprecated context | `The legacy lian-platform-server code` | **Safe** — ignored |
+
+### Exempt Files
+
+These files legitimately discuss `lian-platform-server` and are excluded from
+drift checks:
+
+- `docs/migration/lian-platform-server-orchestration-retirement.md`
+- `docs/ai-native/orchestration-ownership.md`
+
+### Worker Guidance
+
+If the guard flags a file you are editing:
+
+1. **Redirect the reference** — point to `lian-nest-server` instead.
+2. **Use retirement context** — if referencing legacy behavior, frame it as
+   frozen/retired/legacy, not as authority.
+3. **Link to the retirement doc** — use
+   [lian-platform-server-orchestration-retirement.md](../migration/lian-platform-server-orchestration-retirement.md)
+   for cross-references.
+
+---
+
 ## Adding New Docs
 
 When creating a new doc, follow these placement rules:
