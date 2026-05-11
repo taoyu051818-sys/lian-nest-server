@@ -1,0 +1,42 @@
+{
+  "id": "reactions-list-basic",
+  "endpoint": "GET /api/posts/:postId/reactions",
+  "description": "Reaction summary for a valid post returns all reaction types with zero counts (starter fallback)",
+  "request": {
+    "method": "GET",
+    "path": "/api/posts/<POST_ID>/reactions",
+    "params": { "postId": "<POST_ID>" }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": [
+      { "type": "like", "count": 0, "reactedByMe": false },
+      { "type": "love", "count": 0, "reactedByMe": false },
+      { "type": "haha", "count": 0, "reactedByMe": false },
+      { "type": "wow", "count": 0, "reactedByMe": false },
+      { "type": "sad", "count": 0, "reactedByMe": false },
+      { "type": "angry", "count": 0, "reactedByMe": false }
+    ],
+    "bodySchema": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/PostReactionSummary" },
+      "$defs": {
+        "PostReactionSummary": {
+          "type": "object",
+          "required": ["type", "count", "reactedByMe"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["like", "love", "haha", "wow", "sad", "angry"]
+            },
+            "count": { "type": "integer", "minimum": 0 },
+            "reactedByMe": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "notes": "POST_ID must reference a valid seeded NodeBB post. Starter implementation returns all reaction types with count 0 and reactedByMe false. Write reactions (add/remove) are deferred."
+}

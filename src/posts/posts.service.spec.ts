@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotImplementedException, NotFoundException } from '@nestjs/common';
 import { PostsService } from './posts.service';
 import { NodebbPostsProvider, NodebbTopicsProvider, BodyStatus } from '../nodebb';
+import { PostReactionType } from './types';
 
 const mockPostsProvider = {
   getByPid: jest.fn(),
@@ -280,8 +281,46 @@ describe('PostsService', () => {
   // ---- Reactions (stubs) ---------------------------------------------------
 
   describe('listReactions', () => {
-    it('should throw NotImplementedException', () => {
-      expect(() => service.listReactions('1')).toThrow(NotImplementedException);
+    const mockPost = {
+      pid: 42,
+      tid: 10,
+      uid: 5,
+      content: 'Hello world',
+      timestamp: 1700000000,
+    };
+
+    it('should return empty reaction summary for all types', async () => {
+      mockPostsProvider.getByPid.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: mockPost,
+        error: null,
+      });
+
+      const result = await service.listReactions('42');
+
+      expect(result).toHaveLength(Object.values(PostReactionType).length);
+      expect(result[0]).toEqual({ type: 'like', count: 0, reactedByMe: false });
+      expect(result.every((r) => r.count === 0 && r.reactedByMe === false)).toBe(true);
+    });
+
+    it('should throw NotFoundException for invalid postId', async () => {
+      await expect(service.listReactions('abc')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('should throw NotFoundException when post not found', async () => {
+      mockPostsProvider.getByPid.mockResolvedValue({
+        status: BodyStatus.NOT_FOUND,
+        statusCode: 404,
+        data: null,
+        error: 'not found',
+      });
+
+      await expect(service.listReactions('999')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
