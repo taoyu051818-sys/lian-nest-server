@@ -5,7 +5,7 @@ to available provider capacity, respecting conflict groups.
 
 > **Module:** [`tools/provider-pool-webui/actions/plan-next-batch.js`](../../tools/provider-pool-webui/actions/plan-next-batch.js)
 > **Test:** [`tools/provider-pool-webui/action-modules.test.js`](../../tools/provider-pool-webui/action-modules.test.js)
-> **Closes:** [#677](https://github.com/taoyu051818-sys/lian-nest-server/issues/677)
+> **Closes:** [#677](https://github.com/taoyu051818-sys/lian-nest-server/issues/677), [#881](https://github.com/taoyu051818-sys/lian-nest-server/issues/881)
 
 ---
 
@@ -89,6 +89,91 @@ Execute requires:
 - `reason` — human-readable justification
 
 If any planned issue is not in the allowlist, the execute is blocked.
+
+---
+
+## Output Contract
+
+### Preview output
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ok` | `boolean` | Always `true` on success. |
+| `dryRun` | `boolean` | Always `true` in preview mode. |
+| `plan` | `array` | Planned entries — one per issue that can be launched. |
+| `skipped` | `array` | Rejected entries — issues that could not be planned, with a reason. |
+| `capacity` | `object` | Summary counts (see below). |
+| `timestamp` | `string` | ISO 8601 timestamp. |
+
+`capacity` fields: `availableProviders`, `queuedIssues`, `planned`, `skippedCount`.
+
+### Plan entry schema
+
+Each entry in `plan` has exactly four keys. Missing optional fields default to `null`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `issueNumber` | `number` | GitHub issue number. |
+| `providerId` | `string` | Assigned provider identifier. |
+| `conflictGroup` | `string \| null` | Conflict group name, or `null` if none. |
+| `actorRole` | `string \| null` | Worker actor role, or `null` if none. |
+
+### Skipped entry schema
+
+Each entry in `skipped` explains why an issue was rejected from the plan.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `issueNumber` | `number` | GitHub issue number. |
+| `reason` | `string` | Rejection reason. |
+
+Known reason values:
+- `"No provider capacity remaining"` — all providers exhausted.
+- `"Conflict group already scheduled: <group>"` — duplicate conflict group detected.
+
+### Execute output
+
+Returns the same `plan` and `skipped` arrays plus:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ok` | `boolean` | `true` on success. |
+| `reason` | `string` | Caller-provided justification. |
+| `batchPath` | `string` | Always `"written"` on success. |
+| `timestamp` | `string` | ISO 8601 timestamp. |
+
+Execute also writes a batch plan file to `.github/ai-state/webui-batch-plan.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-05-12T00:00:00.000Z",
+  "reason": "Batch launch for wave18",
+  "plan": [],
+  "skipped": []
+}
+```
+
+### Error output
+
+All error responses set `ok: false` and include an `error` message. Known errors:
+
+| Error | Extra fields |
+|-------|-------------|
+| `"Execute requires an explicit allowlist array"` | — |
+| `"Execute requires a non-empty reason string"` | — |
+| `"Cannot read provider pool state"` | `statePath` |
+| `"Cannot read queue state"` | `queuePath` |
+| `"Plan includes issues not in allowlist"` | `blocked` (array of issue numbers) |
+
+An empty plan is **not** an error — it returns `ok: true`, `plan: []`, and a `message: "No issues to batch"`.
+
+### No direct launch
+
+`plan.next.batch` is a **preview-only planning action**. It reads provider pool
+and queue state to compute which issues *could* be launched, but it **never
+launches workers**. Actual dispatch requires a separate `launch-batch` action
+with `confirm: true`.
 
 ---
 
