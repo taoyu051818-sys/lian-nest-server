@@ -53,7 +53,8 @@ Governance docs defining how AI workers operate. Stable; changes require
 repo-owner approval.
 
 Key documents: this index, authority map, SOP, roles, worker contracts,
-parallel work policy, PR review gate.
+parallel work policy, PR review gate, self-cycle runner, launch gate,
+result publishing, worker heartbeat, codex retirement runbook.
 
 ---
 
@@ -68,3 +69,8 @@ parallel work policy, PR review gate.
 | Understand the review process | `ai-native/pr-review-gate.md` |
 | Check if a migration doc is still valid | `migration/legacy-shutdown-matrix.md` |
 | Resolve a duplicate doc topic | `ai-native/docs-authority-map.md` § Duplicate Topic Resolution |
+| Run the self-cycle pipeline | `ai-native/self-cycle-runner.md` |
+| Understand launch gate policy | `ai-native/launch-gate.md` |
+| Publish worker results to GitHub | `ai-native/result-publishing.md` |
+| Monitor worker liveness | `ai-native/worker-heartbeat.md` |
+| Understand Codex retirement criteria | `ai-native/codex-retirement-runbook.md` |

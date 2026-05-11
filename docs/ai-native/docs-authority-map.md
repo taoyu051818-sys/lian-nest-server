@@ -19,6 +19,24 @@ stale or superseded documents.
 | `docs/migration/` | Migration plans, shutdown matrix, acceptance criteria, rollout trackers | **Operational** — governs active migration work | Volatile; expires as endpoints reach `LEGACY_DISABLED` |
 | `docs/ai-native/` | Process docs: SOP, roles, policies, worker contracts, this map | **Governance** — defines how work happens | Stable; changes require repo-owner approval |
 
+### Self-Cycle Docs Coverage
+
+Self-cycle docs govern the automated worker dispatch loop. They are
+governance docs owned by `docs/ai-native/` — not migration or architecture.
+
+| Doc | Topic | Authority Level | Status | Mutability |
+|-----|-------|-----------------|--------|------------|
+| `self-cycle-runner.md` | Top-level orchestrator chaining state-reconciler, health writer, launch gate, batch launcher | **Canonical** for self-cycle pipeline | Dry-run and execute modes operational; parallel launch, post-cycle result publishing, merge queue integration, retry/continue are future work | Stable; changes require repo-owner approval |
+| `launch-gate.md` | Pre-launch validation blocking dispatch when health or batch metadata would cause failures | **Canonical** for launch permission policy | Operational — integrated into `batch-launch.ps1` | Stable; health policy changes require repo-owner approval |
+| `result-publishing.md` | Structured result summaries posted to GitHub issues/PRs after worker completion | **Canonical** for result publishing behavior | Operational — publisher, redaction, label transition, idempotency all functional | Stable; changes require repo-owner approval |
+| `worker-heartbeat.md` | Monitor watching batch workers and emitting structured state snapshots | **Canonical** for worker liveness visibility | Operational — snapshot cadence, stale detection, publish-on-complete, reconciler integration functional | Stable; changes require repo-owner approval |
+| `codex-retirement-runbook.md` | Exit criteria for Codex as manual orchestrator, safe-fallback when self-cycle fails | **Canonical** for retirement planning | Partial — defines criteria and fallback; daily workflow section is aspirational | Stable; changes require repo-owner approval |
+
+**Decision rule:** When a self-cycle doc and the SOP or orchestration doc
+cover the same topic, the self-cycle doc is the authority for that
+specific component. The SOP provides the lifecycle overview; self-cycle
+docs define the concrete behavior.
+
 ### Rule: Architecture Wins on Conflict
 
 If `docs/architecture/` and `docs/migration/` cover the same topic with
@@ -92,6 +110,8 @@ needs domain context from docs. Use this decision tree:
 | Design review (`architect`) | `docs/architecture/` | `docs/contracts/` |
 | Process / governance | `docs/ai-native/` | — |
 | Migration audit (`migration-auditor`) | `docs/migration/` | `docs/architecture/` |
+| Self-cycle orchestration (`automation-cycle-worker`) | `docs/ai-native/` | — |
+| Worker visibility / heartbeat | `docs/ai-native/` | — |
 
 ### Step 2: Check for Duplicates
 
@@ -184,6 +204,8 @@ When creating a new doc, follow these placement rules:
 | Migration plan for specific slice | `migration/` | `architecture/` |
 | Process or policy change | `ai-native/` | `migration/` |
 | Runbook or operational checklist | `ai-native/` | `contracts/` |
+| Self-cycle orchestration or launch policy | `ai-native/` | `migration/` |
+| Worker visibility (heartbeat, result publishing) | `ai-native/` | `contracts/` |
 
 If unsure, ask the architect role before creating the file. Duplicate docs
 across folders create ambiguity — prefer updating the existing canonical doc
