@@ -784,6 +784,21 @@ function buildPayloadForm(actionMeta, allData) {
     form.append(selectWrap);
   }
 
+  // Structured reason field for provider-rotation
+  if (actionMeta.id === 'provider-rotation') {
+    const reasonWrap = el('div', { className: 'action-form__field' });
+    reasonWrap.append(el('label', { className: 'action-form__label', textContent: 'Reason (optional)' }));
+    const reasonInput = el('input', {
+      className: 'action-form__input',
+      type: 'text',
+      'data-field': 'reason',
+      placeholder: 'e.g. credential rotation, quota reset',
+      autocomplete: 'off',
+    });
+    reasonWrap.append(reasonInput);
+    form.append(reasonWrap);
+  }
+
   // Generic JSON payload editor for advanced params
   const jsonWrap = el('div', { className: 'action-form__field' });
   jsonWrap.append(el('label', { className: 'action-form__label', textContent: 'Payload (JSON)' }));

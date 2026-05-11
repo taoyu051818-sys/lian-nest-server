@@ -43,6 +43,12 @@ const FIELD_TYPES = Object.freeze({
     placeholder: "e.g. strategy",
     autocomplete: "off",
   }),
+  reason: Object.freeze({
+    type: "text",
+    label: "Reason",
+    placeholder: "e.g. credential rotation, quota reset",
+    autocomplete: "off",
+  }),
 });
 
 const DEFAULT_FIELD = Object.freeze({

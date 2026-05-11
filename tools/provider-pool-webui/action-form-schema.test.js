@@ -47,6 +47,11 @@ assert(FIELD_TYPES.workerId.type === "text", "workerId type is text");
 assert(FIELD_TYPES.target.type === "text", "target type is text");
 assert(FIELD_TYPES.value.type === "number", "value type is number");
 assert(FIELD_TYPES.field.type === "text", "field type is text");
+assert(FIELD_TYPES.reason !== undefined, "reason field type exists");
+assert(FIELD_TYPES.reason.type === "text", "reason type is text");
+assert(FIELD_TYPES.reason.label === "Reason", "reason label is Reason");
+assert(typeof FIELD_TYPES.reason.placeholder === "string", "reason has placeholder");
+assert(FIELD_TYPES.reason.autocomplete === "off", "reason autocomplete is off");
 
 // --- RISK_BADGE constants ----------------------------------------------------
 
@@ -117,6 +122,14 @@ console.log("\nbuildFieldDescriptor\n");
   assert(f5.name === "field", "field field name correct");
   assert(f5.label === "Policy Field", "field label is humanized");
 
+  const fReason = buildFieldDescriptor("reason");
+  assert(fReason.name === "reason", "reason field name correct");
+  assert(fReason.type === "text", "reason type is text");
+  assert(fReason.required === true, "reason is required");
+  assert(fReason.label === "Reason", "reason label is Reason");
+  assert(typeof fReason.placeholder === "string", "reason has placeholder");
+  assert(fReason.autocomplete === "off", "reason autocomplete is off");
+
   // Unknown field gets default treatment
   const f6 = buildFieldDescriptor("customParam");
   assert(f6.name === "customParam", "unknown field name preserved");
@@ -170,6 +183,14 @@ console.log("\nbuildFormFields\n");
   const single = buildFormFields(["target"]);
   assert(single.length === 1, "single element array returns 1 field");
   assert(single[0].name === "target", "single field is target");
+
+  // Reason field in multi-field array
+  const withReason = buildFormFields(["providerId", "reason"]);
+  assert(withReason.length === 2, "returns 2 fields with reason");
+  assert(withReason[0].name === "providerId", "first field is providerId");
+  assert(withReason[1].name === "reason", "second field is reason");
+  assert(withReason[1].type === "text", "reason field type is text");
+  assert(withReason[1].label === "Reason", "reason label is Reason");
 }
 
 // --- buildFormSchema ---------------------------------------------------------
@@ -427,7 +448,9 @@ console.log("\nbuildFieldDescriptor edge cases\n");
   assert(numField.type === "text", "numeric field defaults to text");
 
   // All known fields produce frozen descriptors
-  for (const name of Object.keys(FIELD_TYPES)) {
+  const fieldNames = Object.keys(FIELD_TYPES);
+  assert(fieldNames.length === 6, "FIELD_TYPES has 6 entries (providerId, workerId, target, value, field, reason)");
+  for (const name of fieldNames) {
     const desc = buildFieldDescriptor(name);
     assert(Object.isFrozen(desc), `descriptor for ${name} is frozen`);
     assert(desc.name === name, `descriptor for ${name} has correct name`);
@@ -555,6 +578,34 @@ console.log("\nbuildFormSchemasByCategory coverage\n");
       `all schemas in ${cat} have category ${cat}`);
     assert(grouped[cat].length > 0, `category ${cat} is non-empty`);
   }
+}
+
+// --- provider-rotation form fields ------------------------------------------
+
+console.log("\nprovider-rotation form fields\n");
+
+{
+  // Simulate the field set the provider-rotation structured form would use
+  const rotationFields = buildFormFields(["providerId", "reason"]);
+  assert(rotationFields.length === 2, "provider-rotation form has 2 structured fields");
+  assert(rotationFields[0].name === "providerId", "first field is providerId");
+  assert(rotationFields[0].type === "text", "providerId type is text");
+  assert(rotationFields[0].autocomplete === "provider", "providerId autocomplete is provider");
+  assert(rotationFields[1].name === "reason", "second field is reason");
+  assert(rotationFields[1].type === "text", "reason type is text");
+  assert(rotationFields[1].label === "Reason", "reason label is Reason");
+  assert(rotationFields[1].autocomplete === "off", "reason autocomplete is off");
+
+  // Both fields are required by the schema system (though reason is optional at the action level)
+  assert(rotationFields.every((f) => f.required), "all rotation form fields are required by schema");
+
+  // reason field descriptor is frozen
+  assert(Object.isFrozen(rotationFields[1]), "reason field descriptor is frozen");
+
+  // reason field placeholder does not leak secrets
+  assert(!rotationFields[1].placeholder.includes("secret"), "reason placeholder has no secret");
+  assert(!rotationFields[1].placeholder.includes("token"), "reason placeholder has no token");
+  assert(!rotationFields[1].placeholder.includes("key"), "reason placeholder has no key");
 }
 
 // --- Summary -----------------------------------------------------------------
