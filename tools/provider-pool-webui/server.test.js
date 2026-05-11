@@ -350,7 +350,7 @@ console.log("\nEADDRINUSE tests\n");
       assert(res.status === 200, "GET /api/actions returns 200");
       const data = JSON.parse(res.body);
       assert(Array.isArray(data.actions), "GET /api/actions has actions array");
-      assert(data.actions.length === 0, "GET /api/actions returns empty when no modules");
+      assert(data.actions.length >= 1, "GET /api/actions discovers action modules");
     }
 
     // POST /api/actions/preview — missing actionId
