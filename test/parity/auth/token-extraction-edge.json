@@ -1,0 +1,104 @@
+{
+  "id": "token-extraction-edge",
+  "endpoint": "guard/JwtAuthGuard",
+  "description": "Token extraction edge cases: numeric sub boundaries, payload decode failures, request mutation isolation, guard reuse",
+  "scenarios": [
+    {
+      "id": "sub-zero",
+      "request": { "method": "GUARD", "headers": { "authorization": "Bearer <JWT sub:0>" } },
+      "expected": { "guardThrows": true, "status": 401, "errorMessage": "Invalid token payload" },
+      "notes": "sub: 0 fails sub <= 0 check"
+    },
+    {
+      "id": "sub-negative",
+      "request": { "method": "GUARD", "headers": { "authorization": "Bearer <JWT sub:-1>" } },
+      "expected": { "guardThrows": true, "status": 401, "errorMessage": "Invalid token payload" },
+      "notes": "Negative integer sub rejected"
+    },
+    {
+      "id": "sub-fractional-positive",
+      "request": { "method": "GUARD", "headers": { "authorization": "Bearer <JWT sub:0.5>" } },
+      "expected": { "guardReturns": true, "requestUser": { "sub": 0.5 } },
+      "notes": "Fractional positive sub passes > 0 check (not integer-only)"
+    },
+    {
+      "id": "sub-max-safe-integer",
+      "request": { "method": "GUARD", "headers": { "authorization": "Bearer <JWT sub:9007199254740991>" } },
+      "expected": { "guardReturns": true, "requestUser": { "sub": 9007199254740991 } },
+      "notes": "MAX_SAFE_INTEGER is a valid positive number"
+    },
+    {
+      "id": "sub-nan",
+      "request": { "method": "GUARD", "headers": { "authorization": "Bearer <JWT sub:NaN>" } },
+      "expected": { "guardThrows": true, "status": 401, "errorMessage": "Invalid token payload" },
+      "notes": "NaN serializes to null in JSON, typeof null is not 'number'"
+    },
+    {
+      "id": "sub-infinity",
+      "request": { "method": "GUARD", "headers": { "authorization": "Bearer <JWT sub:Infinity>" } },
+      "expected": { "guardThrows": true, "status": 401, "errorMessage": "Invalid token payload" },
+      "notes": "Infinity serializes to null in JSON, typeof null is not 'number'"
+    },
+    {
+      "id": "sub-negative-infinity",
+      "request": { "method": "GUARD", "headers": { "authorization": "Bearer <JWT sub:-Infinity>" } },
+      "expected": { "guardThrows": true, "status": 401, "errorMessage": "Invalid token payload" },
+      "notes": "-Infinity serializes to null in JSON"
+    },
+    {
+      "id": "sub-null",
+      "request": { "method": "GUARD", "headers": { "authorization": "Bearer <JWT sub:null>" } },
+      "expected": { "guardThrows": true, "status": 401, "errorMessage": "Invalid token payload" },
+      "notes": "sub: null fails typeof check"
+    },
+    {
+      "id": "sub-missing",
+      "request": { "method": "GUARD", "headers": { "authorization": "Bearer <JWT no sub key>" } },
+      "expected": { "guardThrows": true, "status": 401, "errorMessage": "Invalid token payload" },
+      "notes": "Missing sub key: undefined fails typeof check"
+    },
+    {
+      "id": "payload-json-null",
+      "request": { "method": "GUARD", "headers": { "authorization": "Bearer hdr.<base64url('null')>.sig" } },
+      "expected": { "guardThrows": true, "status": 401, "errorMessage": "Invalid token payload" },
+      "notes": "Payload decoding to JSON null literal has no sub property"
+    },
+    {
+      "id": "payload-bare-number",
+      "request": { "method": "GUARD", "headers": { "authorization": "Bearer hdr.<base64url('42')>.sig" } },
+      "expected": { "guardThrows": true, "status": 401, "errorMessage": "Invalid token payload" },
+      "notes": "Payload decoding to bare number 42 has no sub property"
+    },
+    {
+      "id": "payload-whitespace",
+      "request": { "method": "GUARD", "headers": { "authorization": "Bearer hdr.<base64url('   ')>.sig" } },
+      "expected": { "guardThrows": true, "status": 401, "errorMessage": "Invalid token payload" },
+      "notes": "Whitespace-only payload fails JSON.parse"
+    },
+    {
+      "id": "double-space-after-bearer",
+      "request": { "method": "GUARD", "headers": { "authorization": "Bearer  <VALID_JWT>" } },
+      "expected": { "guardReturns": true },
+      "notes": "startsWith('Bearer ') matches; slice(7) skips the first 7 chars (including one space), leaving the token intact"
+    },
+    {
+      "id": "tab-after-bearer",
+      "request": { "method": "GUARD", "headers": { "authorization": "Bearer<TAB><VALID_JWT>" } },
+      "expected": { "guardThrows": true, "status": 401, "errorMessage": "Missing or invalid Authorization header" },
+      "notes": "Tab character after Bearer fails startsWith('Bearer ') check"
+    },
+    {
+      "id": "request-mutation-isolation",
+      "request": { "method": "GUARD", "headers": { "authorization": "Bearer <JWT sub:7 role:admin>" } },
+      "expected": { "guardReturns": true, "requestUser": { "sub": 7, "role": "admin" } },
+      "notes": "Guard sets request.user to full decoded payload including extra fields"
+    },
+    {
+      "id": "guard-reuse",
+      "description": "Same guard instance handles multiple independent requests without state leakage",
+      "notes": "JwtAuthGuard is stateless and injectable; canActivate must not cache or leak between calls",
+      "expected": { "guardReturns": true }
+    }
+  ],
+  "contractRef": "docs/contracts/auth-session.md"
+}
