@@ -1,0 +1,231 @@
+{
+  "$schema": "failure-taxonomy/v1",
+  "version": "1.0.0",
+  "description": "Deterministic failure classification for self-healing pipeline. Used to route recovery workers and set health state.",
+  "categories": [
+    {
+      "id": "worker-timeout",
+      "severity": "critical",
+      "healthImpact": "yellow",
+      "description": "Worker exceeded its time budget without producing a PR or blocker comment.",
+      "detectionSignals": [
+        "Worker heartbeat stale beyond timeout threshold",
+        "No PR opened and no blocker comment within budget window",
+        "Launcher kill event with timeout reason"
+      ],
+      "recoveryAction": "Retry with reduced scope or split the task into smaller slices."
+    },
+    {
+      "id": "worker-silent",
+      "severity": "critical",
+      "healthImpact": "yellow",
+      "description": "Worker exited without producing any output (no PR, no comment, no label update).",
+      "detectionSignals": [
+        "Worker process exited non-zero with empty stdout",
+        "No GitHub API calls recorded for the worker session",
+        "Issue remains in agent:in-progress with no linked PR"
+      ],
+      "recoveryAction": "Diagnose worker environment, relaunch with debug logging enabled."
+    },
+    {
+      "id": "forbidden-files-touched",
+      "severity": "critical",
+      "healthImpact": "red",
+      "description": "Worker edited files outside its allowedFiles boundary.",
+      "detectionSignals": [
+        "git diff shows changes in forbidden paths",
+        "Scope guard or ops:guard check fails",
+        "PR diff includes files not listed in allowedFiles"
+      ],
+      "recoveryAction": "Revert the out-of-scope changes, relaunch with corrected allowedFiles."
+    },
+    {
+      "id": "validation-missing",
+      "severity": "warning",
+      "healthImpact": "yellow",
+      "description": "Worker did not run required validation commands before opening PR.",
+      "detectionSignals": [
+        "PR body missing validation commands section",
+        "No npm run check or npm run build evidence in PR",
+        "Worker log shows no validation step execution"
+      ],
+      "recoveryAction": "Request the worker to run validation and update the PR with evidence."
+    },
+    {
+      "id": "validation-failed",
+      "severity": "critical",
+      "healthImpact": "red",
+      "description": "Worker ran validation but one or more checks failed (check, build, test, guard).",
+      "detectionSignals": [
+        "npm run check exits non-zero",
+        "npm run build exits non-zero",
+        "npm run ops:guard exits non-zero",
+        "Test suite exits with failures"
+      ],
+      "recoveryAction": "Fix the validation failures in the PR branch before merge."
+    },
+    {
+      "id": "main-red",
+      "severity": "critical",
+      "healthImpact": "red",
+      "description": "Main branch health state is red; only recovery workers may launch.",
+      "detectionSignals": [
+        "main-health.json state field is red",
+        "Post-merge health gate reports critical failure",
+        "Type-check or build fails on main"
+      ],
+      "recoveryAction": "Launch a foundation-fix recovery worker to restore main to green."
+    },
+    {
+      "id": "generated-stale",
+      "severity": "critical",
+      "healthImpact": "red",
+      "description": "Generated code (Prisma client, OpenAPI types) is stale or missing relative to schema.",
+      "detectionSignals": [
+        "npm run prisma:generate exits non-zero",
+        "Generated type mismatches against current schema",
+        "Import references to types not present in generated output"
+      ],
+      "recoveryAction": "Regenerate the client and commit updated generated files."
+    },
+    {
+      "id": "docs-authority-conflict",
+      "severity": "warning",
+      "healthImpact": "yellow",
+      "description": "Documentation or policy file contradicts the current source-of-truth.",
+      "detectionSignals": [
+        "docs-authority-map check flags a conflict",
+        "CLAUDE.md references outdated file paths or commands",
+        "Policy file references removed or renamed artifacts"
+      ],
+      "recoveryAction": "Update the docs to match the current source-of-truth."
+    },
+    {
+      "id": "state-drift",
+      "severity": "warning",
+      "healthImpact": "yellow",
+      "description": "Persistent state (labels, health markers, issue states) is inconsistent with actual repository state.",
+      "detectionSignals": [
+        "Issue labeled agent:done but PR is still open",
+        "Health marker shows green but build is failing",
+        "Label applied but no corresponding state transition recorded"
+      ],
+      "recoveryAction": "Reconcile the state markers with actual repository and CI state."
+    },
+    {
+      "id": "secret-leak",
+      "severity": "critical",
+      "healthImpact": "red",
+      "description": "Secrets, tokens, or credentials were exposed in committed code, PR body, or comments.",
+      "detectionSignals": [
+        "Commit diff contains patterns matching API keys or tokens",
+        "PR body or comment includes raw secret values",
+        "Env file or credential file committed to the repository"
+      ],
+      "recoveryAction": "Rotate the exposed secret, scrub from history, and add guardrails."
+    },
+    {
+      "id": "destructive-migration",
+      "severity": "critical",
+      "healthImpact": "red",
+      "description": "A migration or schema change would destroy data without backup or rollback path.",
+      "detectionSignals": [
+        "Prisma migration contains DROP TABLE without backup step",
+        "Migration alters column type in a way that truncates data",
+        "No rollback migration provided for a destructive change"
+      ],
+      "recoveryAction": "Add backup step, create rollback migration, and re-validate safety."
+    },
+    {
+      "id": "auth-regression",
+      "severity": "critical",
+      "healthImpact": "red",
+      "description": "Authentication or authorization behavior regressed (broken guards, leaked roles, bypassed checks).",
+      "detectionSignals": [
+        "Auth guard test failures after merge",
+        "Role-based access control check no longer enforced",
+        "JWT or session validation logic removed or weakened"
+      ],
+      "recoveryAction": "Restore the auth behavior, add regression tests, and verify guard coverage."
+    },
+    {
+      "id": "semantic-conflict",
+      "severity": "warning",
+      "healthImpact": "yellow",
+      "description": "Two parallel workers produced logically conflicting changes that pass individually but conflict semantically.",
+      "detectionSignals": [
+        "Two PRs modify the same service with opposing logic",
+        "Type compiles but runtime behavior contradicts between PRs",
+        "Integration test passes in isolation but fails when both PRs are merged"
+      ],
+      "recoveryAction": "Rebase one PR onto the other, resolve the semantic conflict, re-validate."
+    },
+    {
+      "id": "cost-overrun",
+      "severity": "warning",
+      "healthImpact": "yellow",
+      "description": "Worker or pipeline exceeded the configured cost or resource budget.",
+      "detectionSignals": [
+        "API cost exceeds the per-worker budget threshold",
+        "CI compute minutes exceed the wave budget",
+        "Repeated retries consumed resources beyond allocation"
+      ],
+      "recoveryAction": "Review budget allocation, optimize the task scope, or adjust thresholds."
+    },
+    {
+      "id": "token-overrun",
+      "severity": "warning",
+      "healthImpact": "yellow",
+      "description": "LLM token usage exceeded the configured context or completion budget for a worker session.",
+      "detectionSignals": [
+        "Token count exceeds the per-task budget",
+        "Context window overflow caused truncation of required context",
+        "Repeated context resets consumed tokens beyond allocation"
+      ],
+      "recoveryAction": "Split the task into smaller slices or optimize prompt efficiency."
+    }
+  ],
+  "severityLevels": {
+    "critical": {
+      "label": "Critical",
+      "blocksLaunches": true,
+      "description": "Blocks all non-recovery worker launches. Requires immediate recovery action."
+    },
+    "warning": {
+      "label": "Warning",
+      "blocksLaunches": false,
+      "description": "Limits workers to fix-only and docs types. Does not block the pipeline entirely."
+    }
+  },
+  "healthStates": {
+    "green": {
+      "label": "Green",
+      "workerPermission": "all",
+      "description": "All checks pass. All worker types may launch."
+    },
+    "yellow": {
+      "label": "Yellow",
+      "workerPermission": "limited",
+      "description": "Non-critical failure. Only foundation-fix, docs, test-only, and health-gate workers may launch."
+    },
+    "red": {
+      "label": "Red",
+      "workerPermission": "recovery-only",
+      "description": "Critical failure. Only foundation-fix and health-gate recovery workers may launch."
+    }
+  },
+  "confidenceLevels": {
+    "high": {
+      "threshold": 3,
+      "description": "3 or more detection signals matched."
+    },
+    "medium": {
+      "threshold": 2,
+      "description": "2 detection signals matched."
+    },
+    "low": {
+      "threshold": 1,
+      "description": "1 detection signal matched."
+    }
+  }
+}
