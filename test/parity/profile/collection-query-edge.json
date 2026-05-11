@@ -1,0 +1,206 @@
+{
+  "id": "profile-collection-query-edge",
+  "endpoint": "GET /api/profile/:uid/saved",
+  "description": "Profile collection endpoints reject invalid page/pageSize coercion and return fallback on provider error",
+  "cases": [
+    {
+      "label": "zero page",
+      "request": {
+        "method": "GET",
+        "path": "/api/profile/<USER_UID>/saved?page=0",
+        "params": { "uid": "<USER_UID>" },
+        "query": { "page": "0" }
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "negative page",
+      "request": {
+        "method": "GET",
+        "path": "/api/profile/<USER_UID>/saved?page=-1",
+        "params": { "uid": "<USER_UID>" },
+        "query": { "page": "-1" }
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "non-numeric page",
+      "request": {
+        "method": "GET",
+        "path": "/api/profile/<USER_UID>/saved?page=abc",
+        "params": { "uid": "<USER_UID>" },
+        "query": { "page": "abc" }
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "fractional page",
+      "request": {
+        "method": "GET",
+        "path": "/api/profile/<USER_UID>/saved?page=1.5",
+        "params": { "uid": "<USER_UID>" },
+        "query": { "page": "1.5" }
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "pageSize zero",
+      "request": {
+        "method": "GET",
+        "path": "/api/profile/<USER_UID>/saved?pageSize=0",
+        "params": { "uid": "<USER_UID>" },
+        "query": { "pageSize": "0" }
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "pageSize exceeds max",
+      "request": {
+        "method": "GET",
+        "path": "/api/profile/<USER_UID>/saved?pageSize=51",
+        "params": { "uid": "<USER_UID>" },
+        "query": { "pageSize": "51" }
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "non-numeric pageSize",
+      "request": {
+        "method": "GET",
+        "path": "/api/profile/<USER_UID>/saved?pageSize=xyz",
+        "params": { "uid": "<USER_UID>" },
+        "query": { "pageSize": "xyz" }
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "valid coercion string page and pageSize",
+      "request": {
+        "method": "GET",
+        "path": "/api/profile/<USER_UID>/saved?page=2&pageSize=5",
+        "params": { "uid": "<USER_UID>" },
+        "query": { "page": "2", "pageSize": "5" }
+      },
+      "expected": {
+        "status": 200,
+        "contentType": "application/json",
+        "body": {
+          "items": "<ARRAY>",
+          "total": "<NON_NEG_INT>",
+          "page": 2,
+          "pageSize": 5,
+          "source": "nodebb"
+        },
+        "bodySchema": {
+          "type": "object",
+          "required": ["items", "total", "page", "pageSize", "source"],
+          "properties": {
+            "items": { "type": "array" },
+            "total": { "type": "integer", "minimum": 0 },
+            "page": { "type": "integer", "const": 2 },
+            "pageSize": { "type": "integer", "const": 5 },
+            "source": { "type": "string", "enum": ["nodebb", "fallback"] }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "label": "provider error returns fallback",
+      "request": {
+        "method": "GET",
+        "path": "/api/profile/<USER_UID>/saved",
+        "params": { "uid": "<USER_UID>" }
+      },
+      "simulatedProviderResponse": {
+        "status": "error",
+        "statusCode": 500,
+        "data": null,
+        "error": "Internal error"
+      },
+      "expected": {
+        "status": 200,
+        "contentType": "application/json",
+        "body": {
+          "items": [],
+          "total": 0,
+          "page": 1,
+          "pageSize": 10,
+          "source": "fallback"
+        },
+        "bodySchema": {
+          "type": "object",
+          "required": ["items", "total", "page", "pageSize", "source"],
+          "properties": {
+            "items": { "type": "array", "const": [] },
+            "total": { "type": "integer", "const": 0 },
+            "page": { "type": "integer", "const": 1 },
+            "pageSize": { "type": "integer", "const": 10 },
+            "source": { "type": "string", "const": "fallback" }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "label": "provider fallback preserves pagination",
+      "request": {
+        "method": "GET",
+        "path": "/api/profile/<USER_UID>/saved?page=3&pageSize=15",
+        "params": { "uid": "<USER_UID>" },
+        "query": { "page": "3", "pageSize": "15" }
+      },
+      "simulatedProviderResponse": {
+        "status": "error",
+        "statusCode": 500,
+        "data": null,
+        "error": "Internal error"
+      },
+      "expected": {
+        "status": 200,
+        "contentType": "application/json",
+        "body": {
+          "items": [],
+          "total": 0,
+          "page": 3,
+          "pageSize": 15,
+          "source": "fallback"
+        },
+        "bodySchema": {
+          "type": "object",
+          "required": ["items", "total", "page", "pageSize", "source"],
+          "properties": {
+            "items": { "type": "array", "const": [] },
+            "total": { "type": "integer", "const": 0 },
+            "page": { "type": "integer", "const": 3 },
+            "pageSize": { "type": "integer", "const": 15 },
+            "source": { "type": "string", "const": "fallback" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "notes": "Invalid page/pageSize coercion (zero, negative, non-numeric string, fractional, over max) returns 400. Provider errors return 200 with fallback source and preserved pagination. Same parsePagination logic applies to saved, liked, and history endpoints."
+}
