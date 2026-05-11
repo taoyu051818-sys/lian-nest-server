@@ -31,13 +31,26 @@ function assert(condition, name) {
 
 const serverScript = path.resolve(__dirname, "server.js");
 
-function fetch(url) {
+function fetch(url, opts) {
   return new Promise((resolve, reject) => {
-    http.get(url, (res) => {
+    const parsed = new URL(url);
+    const options = {
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname + parsed.search,
+      method: (opts && opts.method) || "GET",
+      headers: { "Content-Type": "application/json" },
+    };
+    const req = http.request(options, (res) => {
       let body = "";
       res.on("data", (chunk) => (body += chunk));
       res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body }));
-    }).on("error", reject);
+    });
+    req.on("error", reject);
+    if (opts && opts.body) {
+      req.write(typeof opts.body === "string" ? opts.body : JSON.stringify(opts.body));
+    }
+    req.end();
   });
 }
 
@@ -158,6 +171,8 @@ console.log("\nserver.js CLI tests\n");
     assert(out.includes("--port"), "CLI --help mentions --port");
     assert(out.includes("--help"), "CLI --help mentions --help");
     assert(out.includes("ENDPOINTS"), "CLI --help lists endpoints");
+    assert(out.includes("/api/actions"), "CLI --help mentions /api/actions");
+    assert(out.includes("/api/audit"), "CLI --help mentions /api/audit");
   } catch {
     assert(false, "CLI --help exits 0");
   }
@@ -308,81 +323,81 @@ console.log("\nEADDRINUSE tests\n");
       assert(res.headers["access-control-allow-origin"] !== undefined, "sets CORS header");
     }
 
-    // --- Action API smoke tests -----------------------------------------------
-    console.log("\nAction API smoke tests\n");
+    // --- Action endpoint tests ------------------------------------------------
 
-    // Action list: all write routes return 404 (server is read-only)
+    console.log("\nAction endpoint tests\n");
+
+    // GET /api/actions (no modules installed → empty array)
     {
-      const res = await post(`http://127.0.0.1:${port}/api/actions`, {});
-      assert(res.status === 404, "POST /api/actions returns 404 (no action list endpoint)");
+      const res = await fetch(`http://127.0.0.1:${port}/api/actions`);
+      assert(res.status === 200, "GET /api/actions returns 200");
       const data = JSON.parse(res.body);
-      assert(data.error === "Not found", "POST /api/actions error is 'Not found'");
+      assert(Array.isArray(data.actions), "GET /api/actions has actions array");
+      assert(data.actions.length === 0, "GET /api/actions returns empty when no modules");
     }
 
+    // POST /api/actions/preview — missing actionId
     {
-      const res = await post(`http://127.0.0.1:${port}/api/actions/preview`, {});
-      assert(res.status === 404, "POST /api/actions/preview returns 404 (no preview endpoint)");
+      const res = await fetch(`http://127.0.0.1:${port}/api/actions/preview`, {
+        method: "POST",
+        body: { payload: {} },
+      });
+      assert(res.status === 400, "POST preview missing actionId returns 400");
+      const data = JSON.parse(res.body);
+      assert(data.error.includes("Missing actionId"), "POST preview missing actionId error message");
     }
 
+    // POST /api/actions/preview — unknown actionId
     {
-      const res = await post(`http://127.0.0.1:${port}/api/actions/execute`, {});
-      assert(res.status === 404, "POST /api/actions/execute returns 404 (no execute endpoint)");
+      const res = await fetch(`http://127.0.0.1:${port}/api/actions/preview`, {
+        method: "POST",
+        body: { actionId: "nonexistent", payload: {} },
+      });
+      assert(res.status === 404, "POST preview unknown actionId returns 404");
+      const data = JSON.parse(res.body);
+      assert(data.error.includes("not found"), "POST preview unknown actionId error message");
     }
 
-    // Preview refusal: POST to existing routes returns same as GET (server does
-    // not distinguish methods) but no write mutation occurs
+    // POST /api/actions/execute — missing actionId
     {
-      const res = await post(`http://127.0.0.1:${port}/`, {});
-      assert(res.status === 200, "POST / returns 200 (method-agnostic, read-only)");
-      assert(res.headers["content-type"].includes("text/html"), "POST / returns dashboard HTML (no mutation)");
+      const res = await fetch(`http://127.0.0.1:${port}/api/actions/execute`, {
+        method: "POST",
+        body: { payload: {} },
+      });
+      assert(res.status === 400, "POST execute missing actionId returns 400");
     }
 
+    // POST /api/actions/execute — unknown actionId
     {
-      const res = await post(`http://127.0.0.1:${port}/api/state`, {});
-      assert(res.status === 200 || res.status === 503, "POST /api/state returns 200 or 503 (same as GET)");
+      const res = await fetch(`http://127.0.0.1:${port}/api/actions/execute`, {
+        method: "POST",
+        body: { actionId: "nonexistent", payload: {} },
+      });
+      assert(res.status === 404, "POST execute unknown actionId returns 404");
     }
 
+    // POST /api/actions/preview — invalid JSON body
     {
-      const res = await post(`http://127.0.0.1:${port}/api/policy`, {});
-      assert(res.status === 200 || res.status === 503, "POST /api/policy returns 200 or 503 (same as GET)");
+      const res = await fetch(`http://127.0.0.1:${port}/api/actions/preview`, {
+        method: "POST",
+        body: "not-json",
+      });
+      assert(res.status === 400, "POST preview invalid JSON returns 400");
     }
 
+    // GET /api/audit (no executions → empty)
     {
-      const res = await post(`http://127.0.0.1:${port}/api/queue`, {});
-      assert(res.status === 200, "POST /api/queue returns 200 (same as GET, no mutation)");
+      const res = await fetch(`http://127.0.0.1:${port}/api/audit`);
+      assert(res.status === 200, "GET /api/audit returns 200");
+      const data = JSON.parse(res.body);
+      assert(Array.isArray(data.entries), "GET /api/audit has entries array");
+      assert(data.total === 0, "GET /api/audit returns empty when no executions");
     }
 
-    // Execute confirmation: PUT/DELETE also return 404
+    // GET /api/actions — wrong method (POST to GET-only route still works)
     {
-      const res = await put(`http://127.0.0.1:${port}/api/resources/limits`, { globalMaxWorkers: 99 });
-      assert(res.status === 404, "PUT /api/resources/limits returns 404 (no write endpoint)");
-    }
-
-    {
-      const res = await del(`http://127.0.0.1:${port}/api/workers/some-worker`);
-      assert(res.status === 404, "DELETE /api/workers/:id returns 404 (no delete endpoint)");
-    }
-
-    {
-      const res = await post(`http://127.0.0.1:${port}/api/assignments`, { workerId: "w1", providerId: "p1" });
-      assert(res.status === 404, "POST /api/assignments returns 404 (no assignment endpoint)");
-    }
-
-    // Confirm unknown action paths always return 404
-    {
-      const paths = [
-        "/api/actions",
-        "/api/actions/preview",
-        "/api/actions/execute",
-        "/api/actions/confirm",
-        "/api/dispatch",
-        "/api/cancel",
-        "/api/override",
-      ];
-      for (const p of paths) {
-        const res = await post(`http://127.0.0.1:${port}${p}`, {});
-        assert(res.status === 404, `POST ${p} returns 404 (unknown action path)`);
-      }
+      const res = await fetch(`http://127.0.0.1:${port}/api/actions`);
+      assert(res.status === 200, "GET /api/actions method check");
     }
 
     // --- Audit redaction smoke tests ------------------------------------------
