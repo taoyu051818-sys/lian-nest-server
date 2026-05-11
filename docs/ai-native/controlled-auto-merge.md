@@ -35,8 +35,11 @@ Use this script when you have a batch of low-risk PRs that are all:
 # Execute — actually merge the PRs
 .\scripts\ai\merge-clean-pr-batch.ps1 -PRs 42,45 -Repo owner/name -Execute
 
-# Execute with post-merge health gate
+# Execute with post-merge health gate (quick mode — default)
 .\scripts\ai\merge-clean-pr-batch.ps1 -PRs 42 -Repo owner/name -Execute -RunHealthGate
+
+# Execute with full health gate (for src-touching or 3+ PR batches)
+.\scripts\ai\merge-clean-pr-batch.ps1 -PRs 42 -Repo owner/name -Execute -RunHealthGate -PostHealthCommand "scripts/post-merge-health-gate.js --full"
 
 # Execute with custom post-merge health command
 .\scripts\ai\merge-clean-pr-batch.ps1 -PRs 42 -Repo owner/name -Execute -RunHealthGate -PostHealthCommand "scripts/custom-check.js --strict"
@@ -369,6 +372,21 @@ This script complements the existing merge tooling:
   open set. Use it to scout; use this script to merge a known batch.
 - **post-merge-health-gate.js** — runs after merge to verify main is
   healthy. Use `-RunHealthGate` to invoke it automatically.
+
+### Health Gate Mode Selection
+
+When `-RunHealthGate` is used without `-PostHealthCommand`, the default
+health command is `scripts/post-merge-health-gate.js` (quick mode). To
+run full mode for higher-risk batches, pass it explicitly:
+
+```powershell
+-RunHealthGate -PostHealthCommand "scripts/post-merge-health-gate.js --full"
+```
+
+Pick `--full` when the batch touches `src/**`, contains 3+ PRs, or
+follows a red-main fix. Otherwise `--quick` is sufficient. See
+[post-merge-health-gate.md](post-merge-health-gate.md#when-to-use-each-mode)
+for the decision table.
 
 ## Exit Codes
 

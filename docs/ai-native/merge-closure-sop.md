@@ -171,9 +171,23 @@ for implementation status).
 ### Flow
 
 ```bash
-# Run the health gate on main after a merge
-node scripts/post-merge-health-gate.js
+# Quick mode (default for docs/scripts-only batches and single PRs)
+node scripts/post-merge-health-gate.js --quick
+
+# Full mode (for batches touching src/** or 3+ PRs in sequence)
+node scripts/post-merge-health-gate.js --full
 ```
+
+**Which mode to pick for batch closure:**
+
+- `--quick` — default for most batch closures. Use when the batch
+  contains only docs, scripts, or config changes.
+- `--full` — use when the batch touches `src/**` (rare, requires human
+  approval), when 3+ PRs merge in sequence, or when recovering from a
+  red-main fix. Adds boundary guard and full test suite.
+
+See [post-merge-health-gate.md](post-merge-health-gate.md#when-to-use-each-mode)
+for the full decision table.
 
 **What it checks:**
 

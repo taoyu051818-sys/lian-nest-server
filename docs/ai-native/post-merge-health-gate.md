@@ -32,6 +32,40 @@ Includes everything in `--quick`, plus:
 4. `npm run test:boundary` — Repository boundary guard (if script exists)
 5. `npm test -- --runInBand` — Full Jest test suite
 
+## When to Use Each Mode
+
+Use this table to pick the right mode after a merge or batch closure.
+When in doubt, default to `--quick`.
+
+| Scenario | Mode | Why |
+|---|---|---|
+| Docs-only or scripts-only batch | `--quick` | No runtime code changed; fast checks are sufficient |
+| Single low-risk PR merge | `--quick` | Standard post-merge verification |
+| Batch touching `src/**` (rare, requires human approval) | `--full` | Boundary guard and test suite catch cross-module regressions |
+| Batch with 3+ PRs merged in sequence | `--full` | Higher interaction risk; tests catch ordering side-effects |
+| Red-main recovery after a fix PR | `--full` | Confirm the fix didn't introduce new failures |
+| Explicit operator request for thorough validation | `--full` | Per-operator judgment |
+
+### Batch Closure Evidence
+
+When closing a batch, record the health gate mode and result in the
+merge batch manifest (written by `merge-clean-pr-batch.ps1`). The
+manifest's `healthGate` field records `pass` or `fail`; append the
+mode used to the PR closure comment for traceability:
+
+```
+Post-merge health gate: --quick PASS
+```
+
+or
+
+```
+Post-merge health gate: --full PASS
+```
+
+This makes the closure evidence self-documenting without relying on
+session memory.
+
 ## Failure Categories
 
 When checks fail, the script groups failures by worker category:
