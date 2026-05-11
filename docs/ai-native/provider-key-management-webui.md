@@ -356,6 +356,57 @@ All requests go through the existing security model:
 
 ---
 
+## Schema Reference
+
+The provider key pool state is formally defined by
+[`schemas/provider-key-pool-state.schema.json`](../schemas/provider-key-pool-state.schema.json).
+This schema extends the base `provider-pool.schema.json` with three
+additional `$defs` for the Provider Settings panel:
+
+### `keyHealth`
+
+Badge-based health indicator derived from recent auth events:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `badge` | enum | `valid`, `auth-failure`, `unknown`, `testing` |
+| `lastCheckedAt` | date-time or null | When the last auth probe ran |
+| `lastProbeLatencyMs` | integer or null | Probe latency in ms |
+
+### `secretSource`
+
+Sanitized pointer to the credential source — never the credential itself:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | enum | `env-var`, `credential-manager`, `local-settings` |
+| `maskedKey` | string | Masked reference (e.g. `ANTHROPIC_*`, `lian-claude-*`) |
+| `label` | string | Human-readable label from policy |
+
+### `authEvent`
+
+Individual entry in the provider's auth history:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | enum | `auth-probe-success`, `auth-probe-failure`, `key-rotated`, `mark-exhausted`, `mark-disabled`, `retry` |
+| `timestamp` | date-time | When the event occurred |
+| `result` | enum | Probe result for probe events: `valid`, `auth-failure`, `timeout`, `network-error` |
+| `latencyMs` | integer or null | Probe latency for probe events |
+| `reason` | string | Optional human-readable reason |
+
+### Sanitization Rules
+
+The schema enforces that no secret values appear in any field:
+
+- `id` is an opaque label, not a key value.
+- `maskedKey` uses glob-style masking (`*` suffix) — never the full key name.
+- `authEvent.result` is a status enum, not error text that might leak details.
+- `authEvent.reason` is a free-text field but must pass through
+  `sanitizeObject` before reaching the UI or audit log.
+
+---
+
 ## References
 
 - [Provider Key Management API Contract](../contracts/provider-key-management-api.md) — endpoint contract for testKey and rotateKey
