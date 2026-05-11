@@ -13,8 +13,8 @@ export class CreateMessageDto {
 }
 
 export class MessageResponseDto {
-  @IsNumber()
-  messageId: number;
+  @IsString()
+  messageId: string;
 
   @IsNumber()
   fromUid: number;
@@ -25,8 +25,8 @@ export class MessageResponseDto {
   @IsString()
   content: string;
 
-  @IsNumber()
-  timestamp: number;
+  @IsString()
+  timestamp: string;
 
   @IsBoolean()
   read: boolean;
