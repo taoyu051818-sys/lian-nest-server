@@ -126,6 +126,46 @@ console.log('\nPrisma client error classification');
   assert(refineCategory('test env', undefined) === 'test env', 'undefined output returns original');
 }
 
+// --- Guard integration tests ---
+console.log('\nGuard integration');
+{
+  const { GUARD_SCRIPTS, detectAvailableGuards } = require(SCRIPT);
+
+  // GUARD_SCRIPTS defines the expected guards
+  assert(typeof GUARD_SCRIPTS === 'object', 'GUARD_SCRIPTS is an object');
+  assert('task boundary' in GUARD_SCRIPTS, 'defines task boundary guard');
+  assert('pr handoff' in GUARD_SCRIPTS, 'defines pr handoff guard');
+  assert('docs authority' in GUARD_SCRIPTS, 'defines docs authority guard');
+
+  // Each guard has required properties
+  for (const [name, guard] of Object.entries(GUARD_SCRIPTS)) {
+    assert(typeof guard.script === 'string', `${name} has script path`);
+    assert(typeof guard.hasInputs === 'function', `${name} has hasInputs function`);
+    assert(typeof guard.buildArgs === 'function', `${name} has buildArgs function`);
+    assert(Array.isArray(guard.buildArgs()), `${name} buildArgs returns array`);
+  }
+
+  // detectAvailableGuards returns an array
+  const available = detectAvailableGuards();
+  assert(Array.isArray(available), 'detectAvailableGuards returns array');
+
+  // docs authority guard should be available (docs/ directory exists)
+  assert(available.some(g => g.name === 'docs authority'),
+    'docs authority guard is available when docs/ exists');
+}
+
+// Help mentions guard warnings
+console.log('\n--help flag (guard section)');
+{
+  const res = run(['--help']);
+  assert(res.code === 0, '--help exits 0');
+  assert(res.stdout.includes('GUARD WARNINGS'), 'help mentions GUARD WARNINGS section');
+  assert(res.stdout.includes('task boundary'), 'help mentions task boundary guard');
+  assert(res.stdout.includes('pr handoff'), 'help mentions pr handoff guard');
+  assert(res.stdout.includes('docs authority'), 'help mentions docs authority guard');
+  assert(res.stdout.includes('non-blocking'), 'help states guards are non-blocking');
+}
+
 // --- Summary ---
 console.log(`\n${'='.repeat(50)}`);
 console.log(`Results: ${passed} passed, ${failed} failed`);
