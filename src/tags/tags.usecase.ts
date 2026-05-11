@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { NodebbTagsProvider } from '../nodebb/providers/nodebb-tags.provider';
 import { BodyStatus } from '../nodebb/types';
-import { TagItem, TagsResponse } from './tags.types';
+import { TagItem, TagsResponse, TagTopicItem, TagTopicsResponse } from './tags.types';
 
 @Injectable()
 export class TagsUsecase {
@@ -21,5 +21,27 @@ export class TagsUsecase {
     }));
 
     return { tags, source: 'nodebb' };
+  }
+
+  async listTopics(tag: string): Promise<TagTopicsResponse> {
+    const response = await this.tagsProvider.listTopics(tag);
+
+    if (response.status !== BodyStatus.OK || !response.data) {
+      return { topics: [], source: 'fallback' };
+    }
+
+    const topics: TagTopicItem[] = response.data.topics.map((topic) => ({
+      tid: topic.tid,
+      uid: topic.uid,
+      cid: topic.cid,
+      title: topic.title,
+      slug: topic.slug,
+      mainPid: topic.mainPid,
+      postcount: topic.postcount,
+      viewcount: topic.viewcount,
+      timestamp: topic.timestamp,
+    }));
+
+    return { topics, source: 'nodebb' };
   }
 }
