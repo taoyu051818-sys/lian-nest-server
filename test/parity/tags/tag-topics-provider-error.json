@@ -1,0 +1,56 @@
+{
+  "id": "tag-topics-provider-error",
+  "endpoint": "GET /api/tags/:tag/topics",
+  "description": "Tag topics returns fallback when upstream provider fails",
+  "request": {
+    "method": "GET",
+    "path": "/api/tags/<TAG>/topics",
+    "params": { "tag": "<TAG>" },
+    "query": { "page": 1, "perPage": 20 }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "topics": [],
+      "source": "fallback",
+      "totalCount": 0,
+      "page": 1,
+      "perPage": 20
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["topics", "source", "totalCount", "page", "perPage"],
+      "properties": {
+        "topics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TagTopicItem" }
+        },
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] },
+        "totalCount": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "minimum": 1 },
+        "perPage": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "TagTopicItem": {
+          "type": "object",
+          "required": ["tid", "uid", "cid", "title", "slug", "mainPid", "postcount", "viewcount", "timestamp"],
+          "properties": {
+            "tid": { "type": "integer", "minimum": 1 },
+            "uid": { "type": "integer", "minimum": 1 },
+            "cid": { "type": "integer", "minimum": 1 },
+            "title": { "type": "string" },
+            "slug": { "type": "string" },
+            "mainPid": { "type": "integer", "minimum": 1 },
+            "postcount": { "type": "integer", "minimum": 0 },
+            "viewcount": { "type": "integer", "minimum": 0 },
+            "timestamp": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "notes": "Verifies that when the upstream NodeBB provider returns an error or not_found status, the response falls back to empty topics with source=fallback and default pagination."
+}
