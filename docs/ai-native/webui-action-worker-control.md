@@ -9,10 +9,13 @@ The worker-control action module provides list, preview, and stop operations for
 
 ## Safety Features
 
-- **Explicit worker targeting**: All stop operations require the caller to specify which workers to operate on by ID. No wildcard or "all workers" operations are allowed.
+- **Explicit worker targeting**: All stop operations require the caller to specify which workers to operate on by ID. No wildcard or "all workers" operations are allowed. Wildcard strings (e.g. `["*"]`) are rejected as "not found" — there is no wildcard matching.
 - **Preview-first**: The module is marked `dangerous: true`. The server's execute endpoint requires `confirm: true` before running it.
-- **Reason required**: Stop operations require a human-readable reason string for audit purposes.
+- **Reason required**: Stop operations require a human-readable reason string for audit purposes. Empty or whitespace-only reasons are rejected; leading/trailing whitespace is trimmed before storage.
 - **Sanitized output**: All output passes through the server's `sanitizeObject()` before reaching the client. No raw stdout/stderr or secrets are returned.
+- **Atomic state mutation**: If any worker ID in a stop request is not found, the entire operation fails and no state is modified. Partial stops do not occur.
+- **Concurrency flooring**: `currentConcurrency` and `global.totalActiveWorkers` are clamped to a minimum of 0 and never go negative.
+- **Source hygiene**: The module source is tested to contain no literal API key or token patterns (`sk-ant-*`, `ghp_*`, etc.).
 
 ## Actions
 
@@ -175,3 +178,67 @@ All execute operations are logged to the server's audit file (`.audit-log.json`)
 - Sanitized payload (secrets stripped)
 - Result summary
 - Confirmation status
+
+## Test Coverage
+
+Unit tests: `tools/provider-pool-webui/actions/worker-control.test.js`
+Integration tests: `tools/provider-pool-webui/action-modules.test.js`
+
+### Module Contract
+
+- Exports `id` (`"worker.control"`), `label`, `description`, `dangerous` (`true`), `preview` (function), `execute` (function).
+
+### Payload Validation
+
+| Input | Expected Error |
+|-------|---------------|
+| `null` payload | `payload is required` |
+| Missing `action` field | `action is required` |
+| Non-string `action` (e.g. `123`) | `action is required` |
+| Unknown action value | `Unknown action: X` |
+
+Validation applies identically to both `preview` and `execute`.
+
+### List Action
+
+- Happy path returns `ok: true`, `action: "list"`, `total` matching concurrency sum, and worker array with explicit slot-pattern IDs (`{providerId}-slot-{index}`).
+- All workers have status `"running"`.
+- Empty providers returns `ok: true` with `total: 0` and empty array.
+- Missing state file returns `Cannot load worker state`.
+- `execute` list is identical to `preview` list (read-only, no mutation).
+
+### Stop Preview
+
+- Requires non-empty `workerIds` array; rejects missing, empty, or non-array.
+- Returns `preview: true`, `total`, and `message` like `"Would stop N worker(s)"`.
+- State file is **not** modified after preview (verified by re-reading file).
+- Unknown worker ID fails with error mentioning the missing ID.
+- Missing state file returns `Cannot load worker state`.
+
+### Stop Execute
+
+- Requires `workerIds` (non-empty array) and `reason` (non-empty after trim).
+- Empty or whitespace-only `reason` is rejected.
+- Happy path returns `ok: true`, `stopped` count, `workers` array, `reason`, and ISO `timestamp`.
+- Decrements `currentConcurrency` for each affected provider and `global.totalActiveWorkers`.
+- Multiple workers from the same provider: decrements that provider's concurrency by the count.
+- Cross-provider stops: decrements each provider independently.
+- Reason with leading/trailing whitespace is trimmed before storage.
+- Concurrency values floor at 0 (never negative).
+- Unknown worker ID: entire operation fails, state unchanged (atomic).
+- Missing state file returns `Cannot load worker state`.
+
+### Explicit Targeting Safety
+
+- Empty `workerIds` array: rejected.
+- Missing `workerIds` field: rejected.
+- Wildcard string `["*"]`: rejected as "not found" (no wildcard matching).
+- State unchanged after all rejections.
+
+### Preview Read-Only Guarantee
+
+- Calling `preview` for both `stop` and `list` does not modify the state file (verified by byte-comparing file content before and after).
+
+### Source Hygiene
+
+- Module source contains no literal token patterns (`sk-ant-*`, `sk-[A-Za-z0-9]{20,}`, `ghp_*`).
