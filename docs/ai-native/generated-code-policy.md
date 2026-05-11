@@ -41,9 +41,10 @@ To change what the Prisma client contains:
 When a PR includes changes to `src/generated/prisma/**`:
 
 1. **Verify schema origin.** The diff must be explainable by a corresponding change in `prisma/schema.prisma`. If generated files changed but the schema did not, the PR is suspect.
-2. **Do not review generated code line-by-line.** Focus review on the schema change. The generated output is a function of the schema and the Prisma CLI version.
-3. **Check CLI version consistency.** The `prisma` and `@prisma/client` versions in `package.json` must match. A version mismatch can produce different generated output from the same schema.
-4. **Flag unexpected additions.** If the generated diff introduces types, methods, or patterns not explained by the schema change, escalate to an architect before merging.
+2. **Detect deletions.** The guard checks for deleted generated files (`--diff-filter` includes `D`). A deleted generated file without a schema change is a violation — the schema and generated output have drifted apart.
+3. **Do not review generated code line-by-line.** Focus review on the schema change. The generated output is a function of the schema and the Prisma CLI version.
+4. **Check CLI version consistency.** The `prisma` and `@prisma/client` versions in `package.json` must match. A version mismatch can produce different generated output from the same schema.
+5. **Flag unexpected additions.** If the generated diff introduces types, methods, or patterns not explained by the schema change, escalate to an architect before merging.
 
 ### Worker Permissions
 

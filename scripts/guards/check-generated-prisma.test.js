@@ -176,6 +176,43 @@ console.log('\nrunGuard — unrelated files only → pass:');
   assert(code === 0, 'unrelated files → exit 0');
 }
 
+console.log('\nrunGuard — deleted generated file without schema → fail:');
+{
+  let code = runGuard({
+    files: ['src/generated/prisma/models/Removed.ts'],
+    base: 'main',
+  });
+  assert(code === 1, 'deleted generated without schema → exit 1');
+}
+
+console.log('\nrunGuard — deleted generated file + schema → pass:');
+{
+  let code = runGuard({
+    files: ['src/generated/prisma/models/Removed.ts', 'prisma/schema.prisma'],
+    base: 'main',
+  });
+  assert(code === 0, 'deleted generated with schema → exit 0');
+}
+
+console.log('\nrunGuard — deleted generated file + allow → pass:');
+{
+  let code = runGuard({
+    files: ['src/generated/prisma/models/Removed.ts'],
+    base: 'main',
+    allowGenerated: true,
+  });
+  assert(code === 0, 'deleted generated with allow → exit 0');
+}
+
+console.log('\nrunGuard — deleted schema without generated → warn:');
+{
+  let code = runGuard({
+    files: ['prisma/schema.prisma'],
+    base: 'main',
+  });
+  assert(code === 0, 'deleted schema only → exit 0 (warn)');
+}
+
 // --- JSON output test ---
 
 console.log('\nJSON output:');
