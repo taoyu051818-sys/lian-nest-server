@@ -1,0 +1,26 @@
+{
+  "id": "topic-detail-provider-error-503",
+  "endpoint": "GET /api/topic/:tid",
+  "description": "Provider returning 503 Service Unavailable maps to 404 NotFoundException",
+  "request": {
+    "method": "GET",
+    "path": "/api/topic/42",
+    "params": { "tid": "42" }
+  },
+  "expected": {
+    "status": 404,
+    "contentType": "application/json",
+    "body": { "statusCode": 404, "error": "Not Found", "code": "NOT_FOUND" },
+    "bodySchema": {
+      "type": "object",
+      "required": ["statusCode", "error", "code"],
+      "properties": {
+        "statusCode": { "type": "integer", "const": 404 },
+        "error": { "type": "string" },
+        "code": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "notes": "When the NodeBB provider returns a 503 error with null data, the usecase maps it to a NotFoundException. This verifies the error mapping regression for service unavailable errors."
+}
