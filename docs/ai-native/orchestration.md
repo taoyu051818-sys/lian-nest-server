@@ -96,11 +96,36 @@ Runs the worker directly against an existing worktree.
 
 # Remove merged worktrees only
 ./scripts/ai/worktree-janitor.ps1 -RemoveMerged
+
+# Remove merged worktrees including those with uncommitted changes
+./scripts/ai/worktree-janitor.ps1 -RemoveMerged -Force
 ```
 
-Classifies `.claude/worktrees/` entries as merged, dirty, stale, or active.
-Default mode is dry-run — no deletions. See [local-ops-doctor.md](local-ops-doctor.md)
-for manual cleanup steps.
+Classifies `.claude/worktrees/` entries as merged, merged+dirty, dirty, stale,
+or active. Default mode is dry-run — no deletions. See
+[local-ops-doctor.md](local-ops-doctor.md) for manual cleanup steps.
+
+**Classification categories:**
+
+| Status | Meaning | Removal path |
+|--------|---------|--------------|
+| merged | Branch merged into main; worktree clean | `-RemoveMerged` |
+| merged+dirty | Branch merged; worktree has uncommitted changes | Recover changes first, or `-RemoveMerged -Force` |
+| dirty | Uncommitted changes; branch NOT merged | Manual: commit or stash |
+| stale | No commits in 14+ days; not merged | Manual review |
+| active | Recent commits; not merged | None — work in progress |
+
+**When to run the janitor:**
+
+- **Before launching a batch wave** — ensures the worktree pool is clean and
+  disk space is available for new workers.
+- **After merging PRs** — classifies completed worktrees as merged for cleanup.
+- **Periodically during long sessions** — catches stale worktrees from abandoned
+  workers.
+
+The janitor never deletes by default. Merged+dirty worktrees are skipped with a
+warning unless `-Force` is specified. Always review the dry-run report before
+using `-RemoveMerged`.
 
 ## Task JSON Examples
 

@@ -5,16 +5,19 @@
 
 .DESCRIPTION
     Scans all git worktrees (excluding the main worktree) and classifies each as:
-      - merged   — branch is fully merged into main; safe to remove
-      - dirty    — has uncommitted changes; do NOT remove
-      - stale    — unmerged but no commits in the last 14 days
-      - active   — unmerged with recent commits
+      - merged        — branch is fully merged into main; safe to remove
+      - merged+dirty  — branch is merged but has uncommitted changes; DO NOT
+                        remove without recovering changes first
+      - dirty         — has uncommitted changes; do NOT remove
+      - stale         — unmerged but no commits in the last 14 days
+      - active        — unmerged with recent commits
 
     Default mode is dry-run: prints a classification report with no side effects.
 
     Use -RemoveMerged to actually remove worktrees whose branches are fully
     merged into main. This is the ONLY removal path and never touches dirty
-    or stale worktrees.
+    or stale worktrees. Merged+dirty worktrees are skipped with a warning
+    unless -Force is also specified.
 
 .PARAMETER WorktreeRoot
     Optional filter — only scan worktrees under this directory path.
@@ -36,16 +39,25 @@
     # Remove merged worktrees only
     ./scripts/ai/worktree-janitor.ps1 -RemoveMerged
 
+.PARAMETER Force
+    When used with -RemoveMerged, also removes merged+dirty worktrees.
+    Without this switch, merged+dirty worktrees are skipped with a warning.
+
 .EXAMPLE
     # Custom stale threshold
     ./scripts/ai/worktree-janitor.ps1 -StaleDays 7
+
+.EXAMPLE
+    # Remove merged worktrees, including those with uncommitted changes
+    ./scripts/ai/worktree-janitor.ps1 -RemoveMerged -Force
 #>
 
 [CmdletBinding()]
 param(
     [string]$WorktreeRoot = "",
     [int]$StaleDays = 14,
-    [switch]$RemoveMerged
+    [switch]$RemoveMerged,
+    [switch]$Force
 )
 
 Set-StrictMode -Version Latest
@@ -156,9 +168,14 @@ foreach ($wt in $worktrees) {
     }
 
     # Classify
+    # Priority: merged > merged+dirty > dirty > stale > active
+    # A merged branch is always "merged" regardless of dirty state, but we
+    # track merged+dirty as a distinct annotation so the report can warn.
     $status = "active"
+    $mergedDirty = $false
     if ($isMerged) {
         $status = "merged"
+        if ($isDirty) { $mergedDirty = $true }
     } elseif ($isDirty) {
         $status = "dirty"
     } elseif ($lastCommitDate) {
@@ -172,6 +189,7 @@ foreach ($wt in $worktrees) {
         path          = $path
         branch        = $branchRef
         status        = $status
+        mergedDirty   = $mergedDirty
         isDirty       = $isDirty
         isMerged      = $isMerged
         lastCommit    = if ($lastCommitDate) { $lastCommitDate.ToString("yyyy-MM-dd HH:mm") } else { "unknown" }
@@ -187,10 +205,11 @@ Write-Host "  Worktree Janitor Report" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-$merged  = @($results | Where-Object { $_.status -eq "merged" })
-$dirty   = @($results | Where-Object { $_.status -eq "dirty" })
-$stale   = @($results | Where-Object { $_.status -eq "stale" })
-$active  = @($results | Where-Object { $_.status -eq "active" })
+$merged       = @($results | Where-Object { $_.status -eq "merged" -and -not $_.mergedDirty })
+$mergedDirty  = @($results | Where-Object { $_.status -eq "merged" -and $_.mergedDirty })
+$dirty        = @($results | Where-Object { $_.status -eq "dirty" })
+$stale        = @($results | Where-Object { $_.status -eq "stale" })
+$active       = @($results | Where-Object { $_.status -eq "active" })
 
 $colorMap = @{
     "merged" = "DarkGray"
@@ -203,7 +222,8 @@ foreach ($r in $results) {
     $tag = $r.status.ToUpper().PadRight(7)
     $color = $colorMap[$r.status]
     $extra = ""
-    if ($r.isDirty -and $r.status -ne "merged") { $extra += " [dirty]" }
+    if ($r.mergedDirty) { $extra += " [merged+dirty]" }
+    elseif ($r.isDirty) { $extra += " [dirty]" }
     if ($r.staleDays -ne $null -and $r.status -eq "stale") { $extra += " [$($r.staleDays)d]" }
 
     Write-Host "  $tag " -ForegroundColor $color -NoNewline
@@ -211,40 +231,81 @@ foreach ($r in $results) {
 }
 
 Write-Host ""
-Write-Host "Summary: $($merged.Count) merged, $($dirty.Count) dirty, $($stale.Count) stale, $($active.Count) active" -ForegroundColor White
+$mdCount = $mergedDirty.Count
+$summaryParts = @(
+    "$($merged.Count) merged",
+    "$mdCount merged+dirty",
+    "$($dirty.Count) dirty",
+    "$($stale.Count) stale",
+    "$($active.Count) active"
+)
+Write-Host "Summary: $($summaryParts -join ', ')" -ForegroundColor White
 Write-Host ""
 
 # ── Remove merged (only with explicit flag) ──────────────────────────────────
 
 if ($RemoveMerged) {
-    if ($merged.Count -eq 0) {
+    $totalMerged = $merged.Count + $mergedDirty.Count
+    if ($totalMerged -eq 0) {
         Write-Ok "No merged worktrees to remove."
     } else {
-        Write-Step "Removing $($merged.Count) merged worktree(s)"
-        foreach ($r in $merged) {
-            Write-Info "  Removing: $($r.path) (branch: $($r.branch))"
-            git worktree remove $r.path 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                git branch -d $r.branch 2>&1 | Out-Null
-                Write-Ok "  Removed $($r.branch)"
+        # Remove clean merged worktrees
+        if ($merged.Count -gt 0) {
+            Write-Step "Removing $($merged.Count) merged worktree(s)"
+            foreach ($r in $merged) {
+                Write-Info "  Removing: $($r.path) (branch: $($r.branch))"
+                git worktree remove $r.path 2>&1
+                if ($LASTEXITCODE -eq 0) {
+                    git branch -d $r.branch 2>&1 | Out-Null
+                    Write-Ok "  Removed $($r.branch)"
+                } else {
+                    Write-Warn "  Failed to remove $($r.path)"
+                }
+            }
+        }
+
+        # Handle merged+dirty worktrees
+        if ($mergedDirty.Count -gt 0) {
+            if ($Force) {
+                Write-Step "Removing $($mergedDirty.Count) merged+dirty worktree(s) (forced)"
+                foreach ($r in $mergedDirty) {
+                    Write-Warn "  Removing dirty merged worktree: $($r.path)"
+                    Write-Warn "    Uncommitted changes will be lost!"
+                    git worktree remove --force $r.path 2>&1
+                    if ($LASTEXITCODE -eq 0) {
+                        git branch -d $r.branch 2>&1 | Out-Null
+                        Write-Ok "  Removed $($r.branch)"
+                    } else {
+                        Write-Warn "  Failed to remove $($r.path)"
+                    }
+                }
             } else {
-                Write-Warn "  Failed to remove $($r.path)"
+                Write-Warn "Skipping $($mergedDirty.Count) merged+dirty worktree(s) — uncommitted changes:"
+                foreach ($r in $mergedDirty) {
+                    Write-Warn "  $($r.path) (branch: $($r.branch))"
+                }
+                Write-Host "  Recover changes first, or use -Force to remove anyway." -ForegroundColor Yellow
             }
         }
     }
 } else {
     Write-Host "DRY RUN — no changes made." -ForegroundColor Yellow
-    if ($merged.Count -gt 0) {
+    $totalMerged = $merged.Count + $mergedDirty.Count
+    if ($totalMerged -gt 0) {
         Write-Host "  To remove merged worktrees:" -ForegroundColor Yellow
         Write-Host "    ./scripts/ai/worktree-janitor.ps1 -RemoveMerged" -ForegroundColor Yellow
+    }
+    if ($mergedDirty.Count -gt 0) {
+        Write-Host "  To force-remove merged+dirty worktrees:" -ForegroundColor Yellow
+        Write-Host "    ./scripts/ai/worktree-janitor.ps1 -RemoveMerged -Force" -ForegroundColor Yellow
     }
     Write-Host ""
 }
 
 # ── Exit code ────────────────────────────────────────────────────────────────
 
-# Exit 1 if there are stale or dirty worktrees needing attention
-if ($stale.Count -gt 0 -or $dirty.Count -gt 0) {
+# Exit 1 if there are stale, dirty, or merged+dirty worktrees needing attention
+if ($stale.Count -gt 0 -or $dirty.Count -gt 0 -or $mergedDirty.Count -gt 0) {
     exit 1
 }
 exit 0
