@@ -260,9 +260,82 @@ if ($ready.Count -gt 0) {
 }
 ```
 
+## Duplicate Route Detection
+
+Before launching a batch, the planner can check whether two or more open issues
+target overlapping routes. This prevents the same route from being worked on in
+parallel or in a later batch without coordination.
+
+### How It Works
+
+The `check-duplicate-route-tasks.js` script:
+
+1. Fetches open issues with the configured label via `gh issue list`.
+2. Parses each issue's **CONTROL APPENDIX** to extract `allowedFiles` and
+   `conflictGroup`.
+3. Derives route identifiers from `allowedFiles` patterns (e.g.
+   `src/modules/auth/**` → `auth`).
+4. Flags a conflict when two issues share the same `conflictGroup` **or** their
+   route sets overlap.
+
+### Command
+
+```bash
+# Scan default label (agent:codex-action-needed)
+node scripts/ai/check-duplicate-route-tasks.js --repo owner/name
+
+# Custom label
+node scripts/ai/check-duplicate-route-tasks.js --label my-label --repo owner/name
+
+# JSON output for CI
+node scripts/ai/check-duplicate-route-tasks.js --repo owner/name --json
+
+# Show help
+node scripts/ai/check-duplicate-route-tasks.js --help
+```
+
+### Parameters
+
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `--label` | No | `agent:codex-action-needed` | GitHub issue label to scan |
+| `--repo` | No | `$GH_REPO` | GitHub repo in `OWNER/NAME` format |
+| `--json` | No | `false` | Output as JSON |
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | No duplicates found |
+| 1 | Duplicate route conflicts detected |
+| 2 | Bad arguments or `gh` CLI failure |
+
+### When to Run
+
+Run **before** `batch-launch.ps1` or `run-self-cycle.ps1` to catch conflicts
+early. The script is read-only and safe to run in CI or locally.
+
+```
+plan-next-batch.ps1             (propose candidates)
+        |
+        v
+check-duplicate-route-tasks.js  (detect conflicts)  <-- this script
+        |
+        v
+batch-launch.ps1                (launch workers)
+```
+
+### Limitations
+
+- Route detection is heuristic: it derives routes from `allowedFiles` path
+  segments, not from a route registry.
+- Broad patterns like `src/**` are skipped to avoid false positives.
+- This is a dry-run detector. It does not block launches automatically.
+
 ## References
 
 - [Self-Cycle Runner](self-cycle-runner.md) — orchestrator that consumes planning output
 - [Migration Matrix](../migration/migration-matrix.md) — slice status source
 - [Batch Launcher](../../scripts/ai/batch-launch.ps1) — worker dispatch
 - [Task Schema](../../scripts/ai/task.schema.json) — worker task contract
+- [Duplicate Route Detector](../../scripts/ai/check-duplicate-route-tasks.js) — dry-run conflict checker
