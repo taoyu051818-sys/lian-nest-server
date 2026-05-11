@@ -441,6 +441,175 @@ if (require.main !== module) {
     assert(result.validationCommandCount === 2, "validationCommandCount matches input length");
   }
 
+  // --- Safety edge — null / non-object payloads --------------------------------
+
+  console.log("\nSafety edge — null / non-object payloads\n");
+
+  {
+    throws(() => mod.preview(null), "throws for null payload");
+    throws(() => mod.preview(undefined), "throws for undefined payload");
+    throws(() => mod.preview("string"), "throws for string payload");
+    throws(() => mod.preview(42), "throws for number payload");
+    throws(() => mod.preview([]), "throws for array payload");
+    throws(() => mod.execute(null), "execute throws for null payload");
+    throws(() => mod.execute([]), "execute throws for array payload");
+  }
+
+  // --- Safety edge — type confusion on required fields ------------------------
+  // BLOCKER: compile-tasks validatePayload does not reject wrong types for
+  // targetIssue (string), allowedFiles (string), validationCommands (string),
+  // or rolePacket (string/number). These tests document current permissive
+  // behavior. An implementation fix adding typeof guards is needed to make
+  // these strict. See issue #853.
+
+  console.log("\nSafety edge — type confusion on required fields\n");
+
+  {
+    // targetIssue accepts a string — should reject non-number
+    const r1 = mod.preview(validPayload({ targetIssue: "not-a-number" }));
+    assert(r1.valid === true, "BLOCKER: targetIssue string passes (should reject)");
+
+    // allowedFiles accepts a string — should reject non-array
+    const r2 = mod.preview(validPayload({ allowedFiles: "single-file.js" }));
+    assert(r2.valid === true, "BLOCKER: allowedFiles string passes (should reject)");
+
+    // validationCommands accepts a string — should reject non-array
+    const r3 = mod.preview(validPayload({ validationCommands: "npm test" }));
+    assert(r3.valid === true, "BLOCKER: validationCommands string passes (should reject)");
+
+    // rolePacket accepts a string — should reject non-object
+    const r4 = mod.preview(validPayload({ rolePacket: "worker" }));
+    assert(r4.valid === true, "BLOCKER: rolePacket string passes (should reject)");
+
+    // rolePacket accepts a number — should reject non-object
+    const r5 = mod.preview(validPayload({ rolePacket: 123 }));
+    assert(r5.valid === true, "BLOCKER: rolePacket number passes (should reject)");
+  }
+
+  // --- Safety edge — preview non-mutation guarantee ---------------------------
+
+  console.log("\nSafety edge — preview non-mutation guarantee\n");
+
+  {
+    const payload = validPayload();
+    const originalAllowed = [...payload.allowedFiles];
+    const originalForbidden = [...payload.forbiddenFiles];
+    const originalValidation = [...payload.validationCommands];
+    mod.preview(payload);
+    assert(
+      JSON.stringify(payload.allowedFiles) === JSON.stringify(originalAllowed),
+      "preview does not mutate input allowedFiles",
+    );
+    assert(
+      JSON.stringify(payload.forbiddenFiles) === JSON.stringify(originalForbidden),
+      "preview does not mutate input forbiddenFiles",
+    );
+    assert(
+      JSON.stringify(payload.validationCommands) === JSON.stringify(originalValidation),
+      "preview does not mutate input validationCommands",
+    );
+  }
+
+  // --- Safety edge — output sanitization (no field leakage) -------------------
+
+  console.log("\nSafety edge — output sanitization\n");
+
+  {
+    const payload = validPayload({
+      outputMode: "v2",
+      budgets: { maxDiffLines: 100 },
+      extraField: "should not appear",
+      secrets: { key: "s3cret" },
+    });
+    const result = mod.execute(payload);
+    const task = result.task;
+    assert(task.extraField === undefined, "v2 task does not leak extraField from payload");
+    assert(task.secrets === undefined, "v2 task does not leak secrets from payload");
+
+    const v1Result = mod.execute(validPayload({ extraField: "nope" }));
+    assert(v1Result.task.extraField === undefined, "v1 task does not leak extraField from payload");
+  }
+
+  // --- Safety edge — array cloning isolation ----------------------------------
+
+  console.log("\nSafety edge — array cloning isolation\n");
+
+  {
+    const payload = validPayload({
+      knowledgeRefs: ["docs/api.md"],
+      promptHandoff: "do the thing",
+    });
+    const result = mod.execute(payload);
+    payload.knowledgeRefs.push("docs/injected.md");
+    assert(
+      result.task.knowledgeRefs.length === 1,
+      "task knowledgeRefs is a clone, not a reference",
+    );
+    payload.allowedFiles.push("injected.js");
+    assert(
+      result.task.allowedFiles.length === 1,
+      "task allowedFiles is a clone, not a reference",
+    );
+  }
+
+  // --- Safety edge — forbiddenFiles defaulting --------------------------------
+
+  console.log("\nSafety edge — forbiddenFiles defaulting\n");
+
+  {
+    const payload = validPayload();
+    delete payload.forbiddenFiles;
+    const result = mod.execute(payload);
+    assert(
+      Array.isArray(result.task.forbiddenFiles),
+      "task forbiddenFiles defaults to array when missing",
+    );
+    assert(
+      result.task.forbiddenFiles.length === 0,
+      "task forbiddenFiles defaults to empty array",
+    );
+  }
+
+  // --- Safety edge — rolePacket.description default ---------------------------
+
+  console.log("\nSafety edge — rolePacket.description default\n");
+
+  {
+    const payload = validPayload({ rolePacket: { actorRole: "test-role" } });
+    const result = mod.execute(payload);
+    assert(
+      result.task.rolePacket.description.includes("723"),
+      "rolePacket.description defaults to fallback with targetIssue",
+    );
+    assert(
+      typeof result.task.rolePacket.description === "string",
+      "rolePacket.description is always a string",
+    );
+  }
+
+  // --- Safety edge — preview result shape (no task object) --------------------
+
+  console.log("\nSafety edge — preview result shape\n");
+
+  {
+    const result = mod.preview(validPayload());
+    assert(result.task === undefined, "preview result does not include task object");
+    assert(result.valid === true, "preview always sets valid=true for valid payloads");
+    assert(result.dryRun === true, "preview always sets dryRun=true");
+  }
+
+  // --- Safety edge — v2 deprecated key removal --------------------------------
+
+  console.log("\nSafety edge — v2 deprecated key removal\n");
+
+  {
+    const result = mod.execute(validPayload({ outputMode: "v2" }));
+    const task = result.task;
+    assert(task.validationCommands === undefined, "v2 removes validationCommands");
+    assert(task.validation !== undefined, "v2 has validation (renamed from validationCommands)");
+    assert(task.budgets === undefined, "v2 removes budgets even when not provided");
+  }
+
   // --- Summary ----------------------------------------------------------------
 
   console.log("\n" + passed + " passed, " + failed + " failed\n");
