@@ -22,6 +22,13 @@ Role prompts for AI workers and reviewers live in [ops/agent-prompts/](ops/agent
 - [Next-Wave Policy](ops/agent-prompts/next-wave-policy.md) - How to continue after a worker wave completes (manual orchestrator, router-driven, serial aggregator).
 - [Writeback Checklist](ops/agent-prompts/writeback-checklist.md) - Verify worker PR comments and label updates actually landed.
 
+## Architecture
+
+- [Database Strategy](docs/architecture/database-strategy.md) — PostgreSQL, Redis, and NodeBB ownership boundaries
+- [ORM Recommendation](docs/architecture/orm-recommendation.md) — Prisma vs Drizzle vs TypeORM evaluation
+- [Schema Slices](docs/architecture/schema-slices.md) — Initial Prisma schema for users, sessions, posts, recommendations, AI records, and audit
+- [Implementation Sequence](docs/architecture/implementation-sequence.md) — Phased rollout plan after bootstrap
+
 ## Migration & Route Parity
 
 - **Route inventory:** `docs/contracts/route-inventory.md` -- all legacy route families.
