@@ -6,11 +6,12 @@ Machine-readable state files consumed by AI automation (scheduler, launch gate, 
 
 ```
 .github/ai-state/
-  launch-locks.json  # Currently held launch locks projection
-  main-health.json   # Current main branch health state
-  provider-pool.json # API provider pool availability state (no secrets)
-  worker-trust.json  # Worker trust state projection seed
-  README.md          # This file
+  launch-locks.json    # Currently held launch locks projection
+  local-resource.json  # Local machine resource capacity projection (no secrets)
+  main-health.json     # Current main branch health state
+  provider-pool.json   # API provider pool availability state (no secrets)
+  worker-trust.json    # Worker trust state projection seed
+  README.md            # This file
 ```
 
 ## main-health.json
@@ -195,6 +196,70 @@ Sanitized projection of API provider pool availability. Written by
 - `stateVersion` enables schema evolution.
 - Each write replaces the entire file (idempotent snapshot, not append-only log).
 - See [provider-pool.md](../../docs/ai-native/provider-pool.md) for the full architecture.
+
+## local-resource.json
+
+Sanitized projection of local machine resource capacity. Written by
+`scripts/ai/update-local-resource-state.ps1` (planned).
+
+### Schema
+
+```jsonc
+{
+  "stateVersion": 1,
+  "cpu": {
+    "cores": "integer | null",
+    "usagePercent": "number | null",
+    "loadAverage": { "oneMin": "number | null", "fiveMin": "number | null", "fifteenMin": "number | null" }
+  },
+  "memory": {
+    "totalGB": "number | null",
+    "usedGB": "number | null",
+    "availableGB": "number | null",
+    "usagePercent": "number | null"
+  },
+  "disk": {
+    "totalGB": "number | null",
+    "usedGB": "number | null",
+    "availableGB": "number | null",
+    "usagePercent": "number | null",
+    "mountPoint": "string | null"
+  },
+  "process": {
+    "runningCount": "integer | null",
+    "maxAllowed": "integer | null",
+    "headroomPercent": "number | null"
+  },
+  "global": {
+    "resourceState": "healthy | constrained | critical | unknown",
+    "lastUpdatedBy": "string",
+    "capturedAt": "ISO-8601",
+    "ttlSeconds": 300
+  }
+}
+```
+
+### Resource States
+
+| State | Meaning |
+|-------|---------|
+| `healthy` | All resources have sufficient headroom for new workers. |
+| `constrained` | One or more resources above warning thresholds; throttle batch size. |
+| `critical` | One or more resources above hard thresholds; block new dispatch. |
+| `unknown` | No data or snapshot is stale; block until refreshed. |
+
+### Downstream Consumers
+
+- **Launch gate**: Reads `global.resourceState` and per-resource metrics to block/throttle worker dispatch.
+- **Orchestrator**: Reads `global.resourceState` to decide batch size.
+- **State reconciler**: Reads `global.capturedAt` and `global.ttlSeconds` to detect stale snapshots.
+
+### Design
+
+- No secrets in this file — only numeric capacity metrics and aggregate state.
+- `stateVersion` enables schema evolution.
+- Each write replaces the entire file (idempotent snapshot, not append-only log).
+- See [local-resource-state.md](../../docs/ai-native/local-resource-state.md) for the full specification.
 
 ## Design Decisions
 
