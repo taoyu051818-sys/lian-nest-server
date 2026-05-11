@@ -615,6 +615,300 @@ console.log("\nBoundary cases: normalizeResults\n");
   assert(normalizedBig[59].ok === true, "last element in large array normalized");
 }
 
+// --- Redaction edge cases: SECRET_KEY_PATTERN key names ----------------------
+
+console.log("\nRedaction edge cases: SECRET_KEY_PATTERN key names\n");
+
+{
+  // secret key
+  const withSecret = { secret: "val1", safe: "ok" };
+  assert(sanitizeObject(withSecret).secret === "[redacted]", "redacts 'secret' key");
+
+  // credential key
+  const withCred = { credential: "val2", safe: "ok" };
+  assert(sanitizeObject(withCred).credential === "[redacted]", "redacts 'credential' key");
+
+  // auth key
+  const withAuth = { auth: "val3", safe: "ok" };
+  assert(sanitizeObject(withAuth).auth === "[redacted]", "redacts 'auth' key");
+
+  // private_key key
+  const withPrivKey = { private_key: "val4", safe: "ok" };
+  assert(sanitizeObject(withPrivKey).private_key === "[redacted]", "redacts 'private_key' key");
+
+  // private-key key
+  const withPrivDash = { "private-key": "val5", safe: "ok" };
+  assert(sanitizeObject(withPrivDash)["private-key"] === "[redacted]", "redacts 'private-key' key");
+
+  // api_key (underscore variant)
+  const withUnderscore = { api_key: "val6", safe: "ok" };
+  assert(sanitizeObject(withUnderscore).api_key === "[redacted]", "redacts 'api_key' key");
+
+  // api-key (dash variant)
+  const withDash = { "api-key": "val7", safe: "ok" };
+  assert(sanitizeObject(withDash)["api-key"] === "[redacted]", "redacts 'api-key' key");
+
+  // Case insensitivity: APIKEY
+  const withUpper = { APIKEY: "val8", safe: "ok" };
+  assert(sanitizeObject(withUpper).APIKEY === "[redacted]", "redacts uppercase APIKEY");
+
+  // Case insensitivity: TOKEN
+  const withUpperToken = { TOKEN: "val9", safe: "ok" };
+  assert(sanitizeObject(withUpperToken).TOKEN === "[redacted]", "redacts uppercase TOKEN");
+
+  // Case insensitivity: Password (mixed case)
+  const withMixed = { Password: "val10", safe: "ok" };
+  assert(sanitizeObject(withMixed).Password === "[redacted]", "redacts mixed-case Password");
+
+  // auth_token compound
+  const withAuthToken = { auth_token: "val11", safe: "ok" };
+  assert(sanitizeObject(withAuthToken).auth_token === "[redacted]", "redacts 'auth_token' compound key");
+}
+
+// --- Redaction edge cases: SECRET_VALUE_PATTERNS variants --------------------
+
+console.log("\nRedaction edge cases: SECRET_VALUE_PATTERNS variants\n");
+
+{
+  // GitHub gho_ token (OAuth)
+  assert(
+    redactSecrets("gho_abc123xyz").includes("[redacted"),
+    "redacts GitHub gho_ token"
+  );
+
+  // GitHub ghs_ token (server-to-server)
+  assert(
+    redactSecrets("ghs_abc123xyz").includes("[redacted"),
+    "redacts GitHub ghs_ token"
+  );
+
+  // GitHub ghu_ token (user-to-server)
+  assert(
+    redactSecrets("ghu_abc123xyz").includes("[redacted"),
+    "redacts GitHub ghu_ token"
+  );
+
+  // AWS ASIA prefix (temporary credentials)
+  assert(
+    redactSecrets("ASIAIOSFODNN7EXAMPLE").includes("[redacted"),
+    "redacts AWS ASIA key"
+  );
+
+  // credential=value pattern
+  assert(
+    redactSecrets("credential=mysecretvalue").includes("[redacted"),
+    "redacts credential=value pattern"
+  );
+
+  // api_key=value pattern
+  assert(
+    redactSecrets("api_key=sk_live_12345").includes("[redacted"),
+    "redacts api_key=value pattern"
+  );
+
+  // api-key=value pattern
+  assert(
+    redactSecrets("api-key=sk_live_12345").includes("[redacted"),
+    "redacts api-key=value pattern"
+  );
+
+  // EC private key
+  assert(
+    redactSecrets("-----BEGIN EC PRIVATE KEY-----\nMIIEow...\n-----END EC PRIVATE KEY-----")
+      .includes("[redacted-private-key]"),
+    "EC private key redacted"
+  );
+
+  // DSA private key
+  assert(
+    redactSecrets("-----BEGIN DSA PRIVATE KEY-----\nMIIEow...\n-----END DSA PRIVATE KEY-----")
+      .includes("[redacted-private-key]"),
+    "DSA private key redacted"
+  );
+
+  // Long base64-like string (40+ chars, no whitespace)
+  const longBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnop"; // 42 chars
+  assert(
+    redactSecrets(longBase64).includes("[redacted"),
+    "redacts long base64-like string (40+ chars)"
+  );
+
+  // Bearer with lowercase
+  assert(
+    redactSecrets("bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc")
+      .includes("[redacted"),
+    "redacts lowercase bearer token"
+  );
+
+  // Basic with lowercase
+  assert(
+    redactSecrets("basic dXNlcjpwYXNz").includes("[redacted"),
+    "redacts lowercase basic auth"
+  );
+}
+
+// --- Redaction edge cases: normalizeResult secret fields ---------------------
+
+console.log("\nRedaction edge cases: normalizeResult secret fields\n");
+
+{
+  // Error message with secret
+  const errorSecret = normalizeResult({
+    ok: false,
+    error: "Auth failed: token=ghp_secret123",
+  });
+  assert(
+    errorSecret.error.includes("[redacted"),
+    "secrets redacted from error field"
+  );
+
+  // Message with secret
+  const msgSecret = normalizeResult({
+    ok: true,
+    message: "Connected with api_key=sk_live_abc123",
+  });
+  assert(
+    msgSecret.message.includes("[redacted"),
+    "secrets redacted from message field"
+  );
+
+  // Preview nested object with secret keys
+  const previewSecret = normalizeResult({
+    ok: true,
+    mode: "preview",
+    preview: { apiKey: "secret-val", providerId: "p1" },
+  });
+  assert(
+    previewSecret.preview.apiKey === "[redacted]",
+    "secret key redacted in preview nested object"
+  );
+  assert(
+    previewSecret.preview.providerId === "p1",
+    "non-secret key preserved in preview nested object"
+  );
+
+  // Result nested object with secret keys
+  const resultSecret = normalizeResult({
+    ok: true,
+    result: { token: "abc123", name: "test" },
+  });
+  assert(
+    resultSecret.result.token === "[redacted]",
+    "secret key redacted in result nested object"
+  );
+  assert(
+    resultSecret.result.name === "test",
+    "non-secret key preserved in result nested object"
+  );
+
+  // Changes array with secret values
+  const changesSecret = normalizeResult({
+    ok: true,
+    changes: [
+      { field: "apiKey", from: "ghp_old123", to: "ghp_new456" },
+      { field: "status", from: "available", to: "disabled" },
+    ],
+  });
+  assert(
+    !JSON.stringify(changesSecret.changes).includes("ghp_old123"),
+    "secrets in changes array values redacted"
+  );
+  assert(
+    !JSON.stringify(changesSecret.changes).includes("ghp_new456"),
+    "second secret in changes array redacted"
+  );
+
+  // Audit nested with multiple secret keys
+  const auditMulti = normalizeResult({
+    ok: true,
+    audit: { token: "t1", apiKey: "k1", password: "p1", actor: "admin" },
+  });
+  assert(auditMulti.audit.token === "[redacted]", "audit token redacted");
+  assert(auditMulti.audit.apiKey === "[redacted]", "audit apiKey redacted");
+  assert(auditMulti.audit.password === "[redacted]", "audit password redacted");
+  assert(auditMulti.audit.actor === "admin", "audit actor preserved with multiple secrets");
+
+  // Deeply nested secret
+  const deepSecret = normalizeResult({
+    ok: true,
+    result: { level1: { level2: { apiKey: "deep-secret", safe: "ok" } } },
+  });
+  assert(
+    deepSecret.result.level1.level2.apiKey === "[redacted]",
+    "deeply nested secret key redacted"
+  );
+  assert(
+    deepSecret.result.level1.level2.safe === "ok",
+    "deeply nested non-secret key preserved"
+  );
+}
+
+// --- Redaction edge cases: stable response shape -----------------------------
+
+console.log("\nRedaction edge cases: stable response shape\n");
+
+{
+  // normalizedAt is valid ISO 8601
+  const r = normalizeResult({ ok: true });
+  assert(
+    !isNaN(Date.parse(r.normalizedAt)),
+    "normalizedAt is valid ISO 8601 date"
+  );
+
+  // schemaVersion is always present
+  assert(r.schemaVersion === 1, "schemaVersion always present");
+
+  // status is always a string
+  assert(typeof r.status === "string", "status is always a string");
+
+  // severity is always a string
+  assert(typeof r.severity === "string", "severity is always a string");
+
+  // actionId defaults to null when no context or raw.action
+  const noAction = normalizeResult({ ok: true });
+  assert(noAction.actionId === null, "actionId defaults to null");
+
+  // label defaults to null when no context
+  assert(noAction.label === null, "label defaults to null");
+
+  // ok is boolean after normalization
+  assert(typeof r.ok === "boolean", "ok is boolean type");
+
+  // Normalized result has all expected top-level keys for success
+  const successKeys = Object.keys(normalizeResult({ ok: true, mode: "preview" }));
+  assert(successKeys.includes("schemaVersion"), "shape includes schemaVersion");
+  assert(successKeys.includes("normalizedAt"), "shape includes normalizedAt");
+  assert(successKeys.includes("status"), "shape includes status");
+  assert(successKeys.includes("severity"), "shape includes severity");
+  assert(successKeys.includes("ok"), "shape includes ok");
+  assert(successKeys.includes("mode"), "shape includes mode for preview");
+
+  // Normalized error result has error-specific keys
+  const errKeys = Object.keys(normalizeResult({ ok: false, error: "fail", errorCode: "X" }));
+  assert(errKeys.includes("error"), "error shape includes error");
+  assert(errKeys.includes("errorCode"), "error shape includes errorCode");
+
+  // Undefined raw fields are absent from output (not undefined-valued)
+  const minimal = normalizeResult({ ok: true });
+  assert(!("error" in minimal), "absent raw.error not in output");
+  assert(!("errorCode" in minimal), "absent raw.errorCode not in output");
+  assert(!("nextAction" in minimal), "absent raw.nextAction not in output");
+  assert(!("changes" in minimal), "absent raw.changes not in output");
+  assert(!("preview" in minimal), "absent raw.preview not in output");
+  assert(!("result" in minimal), "absent raw.result not in output");
+  assert(!("audit" in minimal), "absent raw.audit not in output");
+  assert(!("message" in minimal), "absent raw.message not in output");
+
+  // Falsy-but-valid values preserved (0, false, empty string)
+  const falsyVals = normalizeResult({
+    ok: true,
+    changes: [{ count: 0, active: false, label: "" }],
+  });
+  assert(falsyVals.changes[0].count === 0, "zero preserved in changes");
+  assert(falsyVals.changes[0].active === false, "false preserved in changes");
+  assert(falsyVals.changes[0].label === "", "empty string preserved in changes");
+}
+
 // --- Summary -----------------------------------------------------------------
 
 console.log("\n" + passed + " passed, " + failed + " failed\n");
