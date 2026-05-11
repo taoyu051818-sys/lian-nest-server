@@ -1,0 +1,17 @@
+{
+  "id": "jwt-guard-invalid-bearer",
+  "endpoint": "guard/JwtAuthGuard",
+  "description": "Non-Bearer authorization scheme is rejected with 401",
+  "request": {
+    "method": "GUARD",
+    "headers": {
+      "authorization": "Basic abc123"
+    }
+  },
+  "expected": {
+    "guardThrows": true,
+    "status": 401,
+    "errorMessage": "Missing or invalid Authorization header"
+  },
+  "notes": "Only 'Bearer ' prefix is accepted. Other schemes (Basic, Digest, etc.) are rejected."
+}

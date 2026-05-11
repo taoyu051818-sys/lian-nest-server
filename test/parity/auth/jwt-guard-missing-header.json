@@ -1,0 +1,15 @@
+{
+  "id": "jwt-guard-missing-header",
+  "endpoint": "guard/JwtAuthGuard",
+  "description": "Request without Authorization header is rejected with 401",
+  "request": {
+    "method": "GUARD",
+    "headers": {}
+  },
+  "expected": {
+    "guardThrows": true,
+    "status": 401,
+    "errorMessage": "Missing or invalid Authorization header"
+  },
+  "notes": "Fail-closed: no Authorization header means no user identity, guard rejects immediately."
+}

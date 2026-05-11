@@ -7,5 +7,5 @@ export { CurrentUserUsecase } from './usecases/current-user.usecase';
 export { ChangePasswordUsecase } from './usecases/change-password.usecase';
 export { JwtAuthGuard } from './guards/jwt-auth.guard';
 export type { JwtPayload } from './guards/jwt-auth.guard';
-export { CurrentUser } from './decorators/current-user.decorator';
+export { CurrentUser, extractCurrentUser } from './decorators/current-user.decorator';
 export * from './dto';

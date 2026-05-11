@@ -1,0 +1,25 @@
+{
+  "id": "jwt-guard-valid",
+  "endpoint": "guard/JwtAuthGuard",
+  "description": "Valid JWT with positive sub sets request.user and allows access",
+  "request": {
+    "method": "GUARD",
+    "headers": {
+      "authorization": "Bearer <VALID_JWT>"
+    }
+  },
+  "expected": {
+    "guardReturns": true,
+    "requestUser": {
+      "sub": "<POSITIVE_INT>"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["sub"],
+      "properties": {
+        "sub": { "type": "integer", "minimum": 1 }
+      }
+    }
+  },
+  "notes": "VALID_JWT must be a base64url-encoded JWT with sub > 0 in payload segment. Guard sets request.user to decoded payload."
+}
