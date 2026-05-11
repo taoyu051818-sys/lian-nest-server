@@ -5,9 +5,12 @@
     Posts structured comments using <!-- ai-result:<id>:begin/end --> markers.
     Re-running with the same MarkerId updates the existing comment.
     Supports kinds: execution, review, audit, metrics.
+    Optionally normalizes agent:* labels on the target issue/PR via -StatusLabel.
     See docs/ai-native/result-publishing.md for redaction policy.
 .EXAMPLE
     ./scripts/ai/publish-agent-result.ps1 -Repo "o/r" -TargetIssue 88 -Kind execution -Summary "PASS" -MarkerId "issue-88-exec"
+.EXAMPLE
+    ./scripts/ai/publish-agent-result.ps1 -Repo "o/r" -TargetIssue 88 -Kind execution -Summary "PASS" -MarkerId "issue-88-exec" -StatusLabel "agent:done"
 #>
 
 [CmdletBinding(DefaultParameterSetName = "Issue")]
@@ -42,6 +45,10 @@ param(
 
     [Parameter(Mandatory = $false)]
     [string]$LinkedIssues = "",
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("agent:queued", "agent:running", "agent:blocked", "agent:done")]
+    [string]$StatusLabel,
 
     [Parameter(Mandatory = $false)]
     [switch]$DryRun
@@ -191,6 +198,11 @@ if ($DryRun) {
     Write-Output "Target: $(if ($TargetIssue) { "issue #$TargetIssue" } else { "PR #$TargetPR" })"
     Write-Output "Repo: $Repo"
     Write-Output "Comment size: $($commentBody.Length) chars (limit: $MAX_COMMENT_CHARS)"
+    if ($StatusLabel -and $TargetIssue) {
+        Write-Output "Label transition: remove agent:* labels, add '$StatusLabel' on issue #$TargetIssue"
+    } elseif ($StatusLabel -and $TargetPR) {
+        Write-Output "Label transition: SKIPPED (StatusLabel requires -TargetIssue, not -TargetPR)"
+    }
     Write-Output ""
     Write-Output $commentBody
     Write-Output ""
@@ -238,6 +250,37 @@ if ($existingCommentId) {
         -X POST `
         -f body="$commentBody" | Out-Null
     Write-Output "Posted comment on $targetType #$targetNum."
+}
+
+# ---------------------------------------------------------------------------
+# Label normalization (opt-in via -StatusLabel)
+# ---------------------------------------------------------------------------
+
+if ($StatusLabel) {
+    if ($TargetPR -and -not $TargetIssue) {
+        Write-Warning "StatusLabel is set but -TargetPR was used without -TargetIssue. Skipping label normalization (agent:* labels live on issues)."
+    } elseif ($TargetIssue) {
+        $agentLabels = @("agent:queued", "agent:running", "agent:blocked", "agent:done")
+        $labelsToRemove = $agentLabels | Where-Object { $_ -ne $StatusLabel }
+
+        Write-Output "Normalizing labels on issue #$TargetIssue: removing stale agent:* labels, adding '$StatusLabel'..."
+
+        foreach ($label in $labelsToRemove) {
+            try {
+                gh api "repos/$Repo/issues/$TargetIssue/labels/$label" -X DELETE 2>&1 | Out-Null
+                Write-Verbose "Removed label '$label' from issue #$TargetIssue."
+            } catch {
+                Write-Verbose "Label '$label' was not present on issue #$TargetIssue (expected)."
+            }
+        }
+
+        try {
+            gh api "repos/$Repo/issues/$TargetIssue/labels" -X POST -f name="$StatusLabel" | Out-Null
+            Write-Output "Applied label '$StatusLabel' to issue #$TargetIssue."
+        } catch {
+            Write-Warning "Failed to apply label '$StatusLabel' to issue #$TargetIssue: $_"
+        }
+    }
 }
 
 Write-Output "Done."

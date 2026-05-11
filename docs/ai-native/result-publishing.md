@@ -149,6 +149,57 @@ Set `GH_REPO` env var or pass `-Repo OWNER/NAME`.
 This ensures workers can safely re-publish after fixing issues without
 creating duplicate comments.
 
+## Label Transition
+
+The publisher can normalize `agent:*` labels on the target issue after
+posting a result comment. This is **opt-in** — pass `-StatusLabel` to
+enable label mutation.
+
+### How it works
+
+1. Remove all `agent:*` labels except the target label from the issue.
+2. Apply the specified `-StatusLabel` to the issue.
+
+This ensures the issue always ends up with exactly one `agent:*` label
+reflecting the worker's final state, regardless of what label was
+previously applied.
+
+### Valid values
+
+| Label | Meaning |
+|-------|---------|
+| `agent:queued` | Issue returned to queue |
+| `agent:running` | Worker resumed work |
+| `agent:blocked` | Worker hit a blocker |
+| `agent:done` | Worker completed, ready for review |
+
+### Usage
+
+```powershell
+# Publish result and mark issue as done
+./scripts/ai/publish-agent-result.ps1 `
+    -Repo "owner/name" `
+    -TargetIssue 88 `
+    -Kind execution `
+    -Summary "PASS" `
+    -MarkerId "issue-88-exec" `
+    -StatusLabel "agent:done"
+```
+
+### Dry-run
+
+In dry-run mode, the publisher prints what label changes would occur
+without making any API calls.
+
+### Constraints
+
+- `-StatusLabel` only works with `-TargetIssue`. If used with
+  `-TargetPR` alone, label normalization is skipped with a warning
+  (agent labels live on issues, not PRs).
+- No mutation occurs unless `-StatusLabel` is explicitly passed.
+- The publisher does not infer which label to apply — the caller
+  must specify it.
+
 ## Integration with Worker Contracts
 
 The publisher aligns with the [Worker Task Contract](worker-task-contract.md):
