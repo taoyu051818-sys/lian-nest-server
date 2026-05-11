@@ -323,6 +323,137 @@ if (require.main !== module) {
   }
 
   // ===========================================================================
+  // 9. Allowlist edge cases
+  // ===========================================================================
+
+  console.log("\nAllowlist edge cases\n");
+
+  // Single PR (minimum valid allowlist)
+  try {
+    mod.preview({ prNumbers: [42], repo: "owner/repo" });
+    assert(true, "single PR number passes validation");
+  } catch (err) {
+    assert(
+      /Merge control script not found/.test(err.message),
+      "single PR number passes validation (fails at script, not validation)"
+    );
+  }
+
+  // Duplicate PR numbers accepted (allowlist semantics, not a set)
+  try {
+    mod.preview({ prNumbers: [1, 1, 2, 2], repo: "owner/repo" });
+    assert(true, "duplicate PR numbers accepted");
+  } catch (err) {
+    assert(
+      /Merge control script not found/.test(err.message),
+      "duplicate PR numbers accepted (fails at script, not validation)"
+    );
+  }
+
+  // Extra payload keys are tolerated
+  try {
+    mod.preview({ prNumbers: [1], repo: "owner/repo", extra: "ignored" });
+    assert(true, "extra payload keys do not break validation");
+  } catch (err) {
+    assert(
+      /Merge control script not found/.test(err.message),
+      "extra payload keys tolerated (fails at script, not validation)"
+    );
+  }
+
+  // execute validates prNumbers the same way as preview
+  assertThrows(
+    () => mod.execute({}),
+    /prNumbers must be a non-empty array/,
+    "execute rejects missing prNumbers"
+  );
+
+  assertThrows(
+    () => mod.execute({ prNumbers: [] }),
+    /prNumbers must be a non-empty array/,
+    "execute rejects empty prNumbers"
+  );
+
+  assertThrows(
+    () => mod.execute({ prNumbers: [-1] }),
+    /positive integer/,
+    "execute rejects negative PR number"
+  );
+
+  assertThrows(
+    () => mod.execute({ prNumbers: [0] }),
+    /positive integer/,
+    "execute rejects zero PR number"
+  );
+
+  // ===========================================================================
+  // 10. Dry-run preview contract (source analysis)
+  // ===========================================================================
+
+  console.log("\nDry-run preview contract\n");
+
+  assert(
+    /runMergeScript\(prNumbers,\s*repo,\s*false\)/.test(source),
+    "preview calls runMergeScript with isExecute=false (dry-run)"
+  );
+
+  assert(
+    /runMergeScript\(prNumbers,\s*repo,\s*true\)/.test(source),
+    "execute calls runMergeScript with isExecute=true"
+  );
+
+  assert(
+    /mode:\s*"preview"/.test(source),
+    "preview result includes mode: 'preview'"
+  );
+
+  assert(
+    /healthGate:\s*"skipped"/.test(source),
+    "preview result sets healthGate: 'skipped'"
+  );
+
+  assert(
+    /guards:\s*"skipped"/.test(source),
+    "preview result sets guards: 'skipped'"
+  );
+
+  assert(
+    /No PRs were merged/.test(source),
+    "preview message confirms 'No PRs were merged'"
+  );
+
+  assert(
+    /args\.push\("-Execute"\)/.test(source),
+    "-Execute flag added to args only in execute mode"
+  );
+
+  // ===========================================================================
+  // 11. No broad auto-discovery (source analysis)
+  // ===========================================================================
+
+  console.log("\nNo broad auto-discovery\n");
+
+  assert(
+    !/gh\s+pr\s+list|\.pulls\(|\/pulls\b|listOpenPRs|discoverPRs|searchPRs/i.test(source),
+    "source has no PR auto-discovery mechanism"
+  );
+
+  assert(
+    /prNumbers must be a non-empty array/.test(source),
+    "explicit prNumbers required — no fallback for empty/missing"
+  );
+
+  assert(
+    /Repository not specified/.test(source),
+    "repo must be explicitly specified — no auto-discovery"
+  );
+
+  assert(
+    !/octokit|@octokit|graphql|\/repos\//i.test(source),
+    "source does not call GitHub API to discover PRs"
+  );
+
+  // ===========================================================================
   // Summary
   // ===========================================================================
 
