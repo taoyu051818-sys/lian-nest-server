@@ -1,0 +1,90 @@
+{
+  "id": "topic-detail-malformed-payload",
+  "endpoint": "GET /api/topic/:tid",
+  "description": "Composite fixture covering edge-case malformed tid values that fail Number.isInteger or tid<=0 checks in TopicsUsecase.getByTid.",
+  "scenarios": [
+    {
+      "id": "empty-string",
+      "request": { "method": "GET", "path": "/api/topic/", "params": { "tid": "" } },
+      "expected": { "status": 404, "errorMessage": "Invalid tid: " },
+      "notes": "Number('') is 0, which fails tid<=0."
+    },
+    {
+      "id": "whitespace-only",
+      "request": { "method": "GET", "path": "/api/topic/   ", "params": { "tid": "   " } },
+      "expected": { "status": 404, "errorMessage": "Invalid tid:    " },
+      "notes": "Number('   ') is 0, which fails tid<=0."
+    },
+    {
+      "id": "nan-string",
+      "request": { "method": "GET", "path": "/api/topic/NaN", "params": { "tid": "NaN" } },
+      "expected": { "status": 404, "errorMessage": "Invalid tid: NaN" },
+      "notes": "Number('NaN') is NaN, which fails Number.isInteger."
+    },
+    {
+      "id": "infinity-string",
+      "request": { "method": "GET", "path": "/api/topic/Infinity", "params": { "tid": "Infinity" } },
+      "expected": { "status": 404, "errorMessage": "Invalid tid: Infinity" },
+      "notes": "Number('Infinity') is Infinity, which fails Number.isInteger."
+    },
+    {
+      "id": "negative-infinity",
+      "request": { "method": "GET", "path": "/api/topic/-Infinity", "params": { "tid": "-Infinity" } },
+      "expected": { "status": 404, "errorMessage": "Invalid tid: -Infinity" },
+      "notes": "Number('-Infinity') is -Infinity, which fails Number.isInteger."
+    },
+    {
+      "id": "null-string",
+      "request": { "method": "GET", "path": "/api/topic/null", "params": { "tid": "null" } },
+      "expected": { "status": 404 },
+      "notes": "Number('null') is NaN, which fails Number.isInteger."
+    },
+    {
+      "id": "undefined-string",
+      "request": { "method": "GET", "path": "/api/topic/undefined", "params": { "tid": "undefined" } },
+      "expected": { "status": 404 },
+      "notes": "Number('undefined') is NaN, which fails Number.isInteger."
+    },
+    {
+      "id": "special-characters",
+      "request": { "method": "GET", "path": "/api/topic/@#$", "params": { "tid": "@#$" } },
+      "expected": { "status": 404 },
+      "notes": "Number('@#$') is NaN, which fails Number.isInteger."
+    },
+    {
+      "id": "mixed-alphanumeric",
+      "request": { "method": "GET", "path": "/api/topic/12abc", "params": { "tid": "12abc" } },
+      "expected": { "status": 404 },
+      "notes": "Number('12abc') is NaN, which fails Number.isInteger."
+    },
+    {
+      "id": "leading-zeros",
+      "request": { "method": "GET", "path": "/api/topic/007", "params": { "tid": "007" } },
+      "expected": { "status": 200 },
+      "notes": "Number('007') is 7, which passes validation. Coerced to integer 7."
+    },
+    {
+      "id": "negative-zero",
+      "request": { "method": "GET", "path": "/api/topic/-0", "params": { "tid": "-0" } },
+      "expected": { "status": 404 },
+      "notes": "Number('-0') is -0. Number.isInteger(-0) is true but -0 <= 0 is true, so rejected."
+    },
+    {
+      "id": "scientific-notation",
+      "request": { "method": "GET", "path": "/api/topic/1e2", "params": { "tid": "1e2" } },
+      "expected": { "status": 200 },
+      "notes": "Number('1e2') is 100, which passes validation. Coerced to integer 100."
+    }
+  ],
+  "errorSchema": {
+    "type": "object",
+    "required": ["statusCode", "error", "code"],
+    "properties": {
+      "statusCode": { "type": "integer", "const": 404 },
+      "error": { "type": "string" },
+      "code": { "type": "string" }
+    },
+    "additionalProperties": true
+  },
+  "notes": "Most scenarios are rejected pre-provider by the Number.isInteger/tid<=0 guard. 'leading-zeros' (007->7) and 'scientific-notation' (1e2->100) coerce to valid positive integers and pass through. 'negative-zero' (-0) is rejected by tid<=0."
+}
