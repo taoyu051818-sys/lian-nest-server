@@ -1,0 +1,150 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/taoyu051818-sys/lian-nest-server/schemas/local-resource.schema.json",
+  "title": "LocalResource",
+  "description": "Schema for .github/ai-state/local-resource.json — the local resource projection that enumerates scripts, docs, schemas, policies, and state files available on the local machine. Consumed by the context bundle generator, launch gate, and orchestrator to verify resource availability before dispatching workers. Never contains secrets or credentials.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "capturedAt",
+    "resources"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version pinned to 1. Consumers must reject records with a different version."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this resource projection was captured."
+    },
+    "resources": {
+      "type": "object",
+      "description": "Resource inventory grouped by category.",
+      "additionalProperties": false,
+      "required": ["scripts", "docs", "schemas", "policies", "state"],
+      "properties": {
+        "scripts": {
+          "type": "array",
+          "description": "Local automation scripts in scripts/ai/.",
+          "items": {
+            "$ref": "#/$defs/resourceEntry"
+          }
+        },
+        "docs": {
+          "type": "array",
+          "description": "Documentation files in docs/ai-native/.",
+          "items": {
+            "$ref": "#/$defs/resourceEntry"
+          }
+        },
+        "schemas": {
+          "type": "array",
+          "description": "JSON schema files in schemas/.",
+          "items": {
+            "$ref": "#/$defs/resourceEntry"
+          }
+        },
+        "policies": {
+          "type": "array",
+          "description": "Machine-readable policy files in .github/ai-policy/.",
+          "items": {
+            "$ref": "#/$defs/resourceEntry"
+          }
+        },
+        "state": {
+          "type": "array",
+          "description": "Runtime state projections in .github/ai-state/.",
+          "items": {
+            "$ref": "#/$defs/resourceEntry"
+          }
+        }
+      }
+    },
+    "summary": {
+      "$ref": "#/$defs/resourceSummary"
+    }
+  },
+  "$defs": {
+    "resourceEntry": {
+      "type": "object",
+      "description": "A single local resource file.",
+      "required": ["path", "exists", "category"],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Relative path from the repository root (forward slashes)."
+        },
+        "exists": {
+          "type": "boolean",
+          "description": "Whether the file exists on disk at capture time."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["scripts", "docs", "schemas", "policies", "state"],
+          "description": "Resource category matching the top-level group."
+        },
+        "sizeBytes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "File size in bytes. Null when the file does not exist."
+        },
+        "lastModifiedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 last-modified timestamp. Null when the file does not exist."
+        },
+        "description": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "Optional human-readable description of the resource purpose."
+        }
+      }
+    },
+    "resourceSummary": {
+      "type": "object",
+      "description": "Aggregate counts and health of the local resource inventory.",
+      "required": ["totalFiles", "existingFiles", "missingFiles"],
+      "additionalProperties": false,
+      "properties": {
+        "totalFiles": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of resource entries across all categories."
+        },
+        "existingFiles": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of resource entries where exists is true."
+        },
+        "missingFiles": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of resource entries where exists is false."
+        },
+        "totalBytes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Sum of sizeBytes across all existing resources."
+        },
+        "perCategory": {
+          "type": "object",
+          "description": "Per-category file counts.",
+          "additionalProperties": false,
+          "properties": {
+            "scripts": { "type": "integer", "minimum": 0 },
+            "docs": { "type": "integer", "minimum": 0 },
+            "schemas": { "type": "integer", "minimum": 0 },
+            "policies": { "type": "integer", "minimum": 0 },
+            "state": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}
