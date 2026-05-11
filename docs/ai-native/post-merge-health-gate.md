@@ -64,6 +64,40 @@ When `dependency/generate` is detected, the suggested next steps are:
 3. `npx prisma validate`
 4. If `PrismaClient` is still unresolved, issue or fix a database baseline migration
 
+## Guard Reporting (Non-Blocking)
+
+After health checks complete, the gate runs available guard scripts in **warning mode**. Guard results are informational only and never affect the exit code.
+
+| Guard | Script | Inputs Required | Purpose |
+|---|---|---|---|
+| task boundary | `scripts/guards/check-task-boundary.js` | `.ai/task-manifest.json` | Verifies changed files are within allowed boundaries |
+| pr handoff | `scripts/guards/check-pr-handoff.js` | `.ai/pr-body.md` | Checks PR body has required sections |
+| docs authority | `scripts/guards/check-docs-authority.js` | `docs/` directory | Scans docs for duplicate/stale content |
+
+Guards are skipped automatically when their required inputs are missing. The health gate reports which guards were skipped.
+
+### Guard Output
+
+Guard violations appear in a `GUARD WARNINGS (non-blocking)` section after the failure summary:
+
+```
+==================================================
+GUARD WARNINGS (non-blocking)
+==================================================
+
+  [task boundary] — violations detected (warning only)
+    - src/forbidden-file.ts
+
+  Skipped (missing inputs): pr handoff
+```
+
+### Design Decisions
+
+- Guards run in `--warn-only` / warning mode by default.
+- Guards are skipped (not errors) when inputs are missing.
+- Guard violations do not change the exit code.
+- Guard output is parsed as JSON when available for structured reporting.
+
 ## Exit Codes
 
 - `0` — All checks passed
