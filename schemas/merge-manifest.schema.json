@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/nicholasxsxs/lian-nest-server/schemas/merge-manifest.schema.json",
+  "title": "Merge Batch Manifest",
+  "description": "Schema for controlled auto-merge batch manifests. Records PR allowlist, per-PR outcomes, pre/post commit SHAs, and health gate results.",
+  "type": "object",
+  "required": ["batchId", "timestamp", "repository", "mode", "prs"],
+  "properties": {
+    "batchId": {
+      "type": "string",
+      "description": "Unique identifier for the merge batch (e.g. merge-batch-20260511-173000)",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "description": "ISO 8601 UTC timestamp of the batch run",
+      "format": "date-time"
+    },
+    "repository": {
+      "type": "string",
+      "description": "Target repository in OWNER/NAME format",
+      "pattern": "^[^/]+/[^/]+$"
+    },
+    "mode": {
+      "type": "string",
+      "description": "Whether the batch was a dry-run or executed",
+      "enum": ["dry-run", "execute"]
+    },
+    "prs": {
+      "type": "array",
+      "description": "Explicit list of PRs processed in this batch",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/prEntry"
+      }
+    },
+    "preCommit": {
+      "type": ["string", "null"],
+      "description": "Git HEAD commit SHA before merges (null in dry-run or on pre-merge failure)"
+    },
+    "postCommit": {
+      "type": ["string", "null"],
+      "description": "Git HEAD commit SHA after merges (null when batch does not complete)"
+    },
+    "healthGate": {
+      "$ref": "#/definitions/healthGateResult"
+    },
+    "postHealthCommand": {
+      "type": ["string", "null"],
+      "description": "Health command path (null when -RunHealthGate not used)"
+    },
+    "blockedPrs": {
+      "type": "array",
+      "description": "PRs that were blocked before merge (guard or eligibility failures)",
+      "items": {
+        "$ref": "#/definitions/blockedPrEntry"
+      }
+    },
+    "failureReason": {
+      "type": ["string", "null"],
+      "description": "Top-level failure reason when the entire batch aborts (e.g. guard failure, eligibility check)"
+    }
+  },
+  "definitions": {
+    "prEntry": {
+      "type": "object",
+      "required": ["number", "title", "status"],
+      "properties": {
+        "number": {
+          "type": "integer",
+          "description": "GitHub PR number",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string",
+          "description": "PR title"
+        },
+        "status": {
+          "type": "string",
+          "description": "Outcome of this PR in the batch",
+          "enum": ["eligible", "merged", "failed"]
+        },
+        "failureReason": {
+          "type": ["string", "null"],
+          "description": "Detail on why this PR failed (present when status is 'failed')"
+        }
+      },
+      "additionalProperties": false
+    },
+    "blockedPrEntry": {
+      "type": "object",
+      "required": ["number", "reason"],
+      "properties": {
+        "number": {
+          "type": "integer",
+          "description": "GitHub PR number",
+          "minimum": 1
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why the PR was blocked (guard violation, eligibility failure, etc.)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "healthGateResult": {
+      "type": "string",
+      "description": "Post-merge health gate outcome",
+      "enum": ["pass", "fail", "not-found", "skipped"]
+    }
+  },
+  "additionalProperties": false
+}
