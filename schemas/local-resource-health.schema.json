@@ -1,0 +1,208 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/local-resource-health.schema.json",
+  "title": "LocalResourceHealth",
+  "description": "Schema for local resource health state consumed by the launch gate and WebUI. Captures CPU, memory, disk, process count, and worker concurrency metrics for a single machine. Written by the provider-pool guard or local ops doctor. See docs/ai-native/local-resource-health-schema.md for field-level documentation.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "hostname",
+    "capturedAt",
+    "overall",
+    "cpu",
+    "memory",
+    "disk",
+    "processes",
+    "concurrency"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1. Increment when the schema shape changes."
+    },
+    "hostname": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Machine hostname this snapshot was captured on."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this resource health snapshot was captured."
+    },
+    "overall": {
+      "$ref": "#/definitions/ResourceStatus",
+      "description": "Aggregated resource health status. Derived from the worst individual resource status."
+    },
+    "cpu": {
+      "$ref": "#/definitions/CpuHealth",
+      "description": "CPU utilization metrics."
+    },
+    "memory": {
+      "$ref": "#/definitions/MemoryHealth",
+      "description": "Memory utilization metrics."
+    },
+    "disk": {
+      "$ref": "#/definitions/DiskHealth",
+      "description": "Disk utilization metrics for the primary working volume."
+    },
+    "processes": {
+      "$ref": "#/definitions/ProcessHealth",
+      "description": "Process count metrics."
+    },
+    "concurrency": {
+      "$ref": "#/definitions/ConcurrencyHealth",
+      "description": "Worker concurrency metrics for the launch gate."
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Human-readable warning messages for resources in degraded or critical state."
+    }
+  },
+  "definitions": {
+    "ResourceStatus": {
+      "type": "string",
+      "enum": ["ok", "degraded", "critical"],
+      "description": "Health status for a resource dimension. ok = healthy, degraded = elevated but functional, critical = at or above hard limit."
+    },
+    "CpuHealth": {
+      "type": "object",
+      "required": ["status", "usagePercent", "cores"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/ResourceStatus",
+          "description": "CPU health status derived from usage thresholds."
+        },
+        "usagePercent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Current CPU usage as a percentage (0-100)."
+        },
+        "cores": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of logical CPU cores available."
+        },
+        "loadAverage1m": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "description": "1-minute load average, if available on this platform."
+        }
+      }
+    },
+    "MemoryHealth": {
+      "type": "object",
+      "required": ["status", "usagePercent", "totalBytes", "availableBytes"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/ResourceStatus",
+          "description": "Memory health status derived from usage thresholds."
+        },
+        "usagePercent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Current memory usage as a percentage (0-100)."
+        },
+        "totalBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total physical memory in bytes."
+        },
+        "availableBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Available memory in bytes."
+        }
+      }
+    },
+    "DiskHealth": {
+      "type": "object",
+      "required": ["status", "usagePercent", "totalBytes", "availableBytes", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/ResourceStatus",
+          "description": "Disk health status derived from usage thresholds."
+        },
+        "usagePercent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Current disk usage as a percentage (0-100)."
+        },
+        "totalBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total disk capacity in bytes."
+        },
+        "availableBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Available disk space in bytes."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Filesystem path this disk measurement applies to (e.g. '/' or 'C:\\')."
+        }
+      }
+    },
+    "ProcessHealth": {
+      "type": "object",
+      "required": ["status", "total", "nodeProcessCount"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/ResourceStatus",
+          "description": "Process count health status."
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of running processes on the system."
+        },
+        "nodeProcessCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of Node.js processes currently running."
+        }
+      }
+    },
+    "ConcurrencyHealth": {
+      "type": "object",
+      "required": ["status", "activeWorkers", "maxWorkers"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/ResourceStatus",
+          "description": "Concurrency health status. critical when activeWorkers >= maxWorkers."
+        },
+        "activeWorkers": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of currently active worker tasks."
+        },
+        "maxWorkers": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum allowed concurrent worker tasks."
+        },
+        "queuedTasks": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Number of tasks waiting in the dispatch queue."
+        }
+      }
+    }
+  }
+}
