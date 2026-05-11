@@ -23,6 +23,9 @@ Instead of manually calling each script (state-reconciler, health writer, launch
 
 # Validate fixtures through launch gate (no live GitHub needed)
 ./scripts/ai/run-self-cycle.ps1 -DryRunFixture ./tests/fixtures/self-cycle
+
+# Plan-first: propose next batch via plan-next-batch.ps1, stop for review
+./scripts/ai/run-self-cycle.ps1 -PlanFirst -IssueLabel "agent:codex-action-needed" -Repo owner/name
 ```
 
 ## Parameters
@@ -36,12 +39,22 @@ Instead of manually calling each script (state-reconciler, health writer, launch
 | `-Execute` | No | `$false` | Switch from dry-run to execute mode |
 | `-SkipReconcile` | No | `$false` | Skip the state-reconciler step |
 | `-DryRunFixture` | Yes* | — | Path to fixture directory with pre-built task and health JSON. Runs through launch gate without live GitHub. Mutually exclusive with `-TaskFile` and `-IssueLabel`. |
+| `-PlanFirst` | No | `$false` | Run `plan-next-batch.ps1 -Json` to propose the next batch, then stop for human review. Requires `-IssueLabel` and `-Repo`. Does not auto-launch workers. |
 
 *One of `-TaskFile`, `-IssueLabel`, or `-DryRunFixture` is required.
 
 ## Pipeline Steps
 
 ```
+Step 0a: Plan-First Proposal (only with -PlanFirst)
+    Run plan-next-batch.ps1 -Json to propose next batch
+    Display proposed candidates with risk, conflict groups, readiness
+    Save proposal to temp file for downstream use
+    Stop: human reviews proposal before proceeding
+
+        |
+        v
+
 Step 0: Issue Discovery (only with -IssueLabel)
     Discover open issues by label via gh issue list
     Extract CONTROL APPENDIX metadata from issue bodies
@@ -127,6 +140,7 @@ The runner stops and surfaces a decision to the operator in these cases:
 | Stop Point | Condition | Required Action |
 |------------|-----------|-----------------|
 | No repo specified | `-Repo` not set and `GH_REPO` unset | Pass `-Repo` or set env var |
+| Plan-first proposal review | `-PlanFirst` used | Review proposed batch, re-run with `-IssueLabel` `-Execute` to compile and launch |
 | Issue discovery review | `-IssueLabel` in dry-run mode | Review compiled task contracts, re-run with `-TaskFile` and `-Execute` |
 | No issues found | Label matches zero open issues | Verify label name, check issue state |
 | Main health RED/BLACK | Health marker indicates broken main | Fix main health before continuing |
@@ -137,7 +151,7 @@ The runner stops and surfaces a decision to the operator in these cases:
 
 | Code | Meaning |
 |------|---------|
-| 0 | Cycle completed (dry-run, discovery-complete, or all steps passed) |
+| 0 | Cycle completed (dry-run, discovery-complete, plan-proposed, or all steps passed) |
 | 1 | Cycle blocked by health state or launch gate |
 | 2 | Cycle errored (missing file, script failure) |
 
@@ -238,6 +252,34 @@ Actor role: automation-cycle-worker
 
 When these fields are absent, the runner uses safe defaults and logs a warning.
 
+## Plan-First Workflow
+
+The `-PlanFirst` flag connects the self-cycle runner to `plan-next-batch.ps1` for a dry-run proposal before any task compilation or pipeline execution.
+
+### How It Works
+
+1. The runner calls `plan-next-batch.ps1 -IssueLabel <label> -Repo <repo> -Json`.
+2. The planner scans open issues, parses CONTROL APPENDIX metadata, cross-references the migration matrix, and outputs a prioritized proposal as JSON.
+3. The runner displays the proposed candidates with risk, conflict groups, and readiness.
+4. The runner saves the full proposal to a temp file (`self-cycle-proposal.json`).
+5. The runner stops with a human decision point — no workers are launched.
+
+### Typical Sequence
+
+```powershell
+# 1. Propose next batch (dry-run, stops for review)
+./scripts/ai/run-self-cycle.ps1 -PlanFirst -IssueLabel "agent:codex-action-needed" -Repo owner/name
+
+# 2. Review proposed batch output
+
+# 3. Compile and launch (task compilation + full pipeline)
+./scripts/ai/run-self-cycle.ps1 -IssueLabel "agent:codex-action-needed" -Repo owner/name -Execute
+```
+
+### Relationship to Direct Issue Discovery
+
+`-PlanFirst` delegates to the dedicated planner script (`plan-next-batch.ps1`), which adds migration matrix awareness and slice readiness filtering on top of basic issue discovery. Without `-PlanFirst`, the runner's built-in Step 0 does simpler compilation without matrix context.
+
 ## Future Work
 
 - [x] Auto-generate task files from GitHub issues with agent labels (`-IssueLabel`)
@@ -251,6 +293,8 @@ When these fields are absent, the runner uses safe defaults and logs a warning.
 - [Orchestration](orchestration.md) — batch launcher overview
 - [Launch Gate](launch-gate.md) — health policy matrix
 - [State Reconciler](state-reconciler.md) — drift detection rules
+- [Planning Loop](planning-loop.md) — dry-run planner for next worker batch
+- [plan-next-batch.ps1](../../scripts/ai/plan-next-batch.ps1) — planner script called by `-PlanFirst`
 - [Main Health Policy](main-health-policy.md) — health state definitions and writer workflow
 - [write-main-health-state.ps1](../../scripts/ai/write-main-health-state.ps1) — Health marker writer
 - [ai-state/README.md](../../.github/ai-state/README.md) — Marker schema and downstream consumers

@@ -130,6 +130,19 @@ The planning loop is the first step in the batch workflow:
 2. **Review** — Operator reviews proposed batch
 3. **Execute** — `run-self-cycle.ps1` or `batch-launch.ps1` launches workers
 
+### Self-Cycle Runner Integration (-PlanFirst)
+
+The self-cycle runner can invoke this planner directly via the `-PlanFirst` switch:
+
+```powershell
+# Propose next batch, stop for review
+./scripts/ai/run-self-cycle.ps1 -PlanFirst -IssueLabel "agent:codex-action-needed" -Repo owner/name
+```
+
+When `-PlanFirst` is set, the runner calls `plan-next-batch.ps1 -Json`, displays the proposed batch with risk/conflict/readiness details, saves the proposal to a temp file, and stops with a human decision point. No workers are launched.
+
+This provides migration matrix awareness and slice readiness filtering that the runner's built-in issue discovery (Step 0) does not include.
+
 ## Exit Codes
 
 | Code | Meaning |
