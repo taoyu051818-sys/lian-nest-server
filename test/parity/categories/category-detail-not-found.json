@@ -1,0 +1,30 @@
+{
+  "id": "category-detail-not-found",
+  "endpoint": "GET /api/categories/:cid",
+  "description": "Requesting a non-existent category returns 404 with standard error envelope",
+  "request": {
+    "method": "GET",
+    "path": "/api/categories/999999999",
+    "params": { "cid": "999999999" }
+  },
+  "expected": {
+    "status": 404,
+    "contentType": "application/json",
+    "body": {
+      "statusCode": 404,
+      "error": "Not Found",
+      "code": "NOT_FOUND"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["statusCode", "error", "code"],
+      "properties": {
+        "statusCode": { "type": "integer", "const": 404 },
+        "error": { "type": "string" },
+        "code": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "notes": "Category ID 999999999 is chosen to be unreachable. The error envelope follows the GlobalExceptionFilter format. Invalid cid values (non-numeric, zero, negative) also return 404."
+}

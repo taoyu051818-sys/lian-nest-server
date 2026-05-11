@@ -1,0 +1,42 @@
+{
+  "id": "category-detail-basic",
+  "endpoint": "GET /api/categories/:cid",
+  "description": "Standard category detail with all fields populated from NodeBB",
+  "request": {
+    "method": "GET",
+    "path": "/api/categories/<CATEGORY_ID>",
+    "params": { "cid": "<CATEGORY_ID>" }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "cid": "<CATEGORY_ID>",
+      "name": "<STRING>",
+      "slug": "<STRING>",
+      "description": "<STRING>",
+      "icon": "<STRING>",
+      "color": "<STRING>",
+      "bgColor": "<STRING>",
+      "topicCount": "<NON_NEG_INT>",
+      "postCount": "<NON_NEG_INT>"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["cid", "name", "slug", "description", "icon", "color", "bgColor", "topicCount", "postCount"],
+      "properties": {
+        "cid": { "type": "integer", "minimum": 1 },
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "description": { "type": "string" },
+        "icon": { "type": "string" },
+        "color": { "type": "string" },
+        "bgColor": { "type": "string" },
+        "topicCount": { "type": "integer", "minimum": 0 },
+        "postCount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "notes": "CATEGORY_ID must reference a valid non-disabled seeded NodeBB category. Fields are mapped from NodeBB snake_case (topic_count, post_count) to camelCase (topicCount, postCount). Disabled categories are NOT filtered for detail lookups — the raw NodeBB response is returned as-is."
+}
