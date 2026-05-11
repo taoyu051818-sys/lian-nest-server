@@ -263,6 +263,93 @@ action writes updated state to the provider pool file. Requires explicit
 
 ---
 
+## Test File Placement
+
+Each action module's tests are **co-located** in the same directory as the
+module itself:
+
+```
+tools/provider-pool-webui/actions/
+  compile-tasks.js           ← module
+  compile-tasks.test.js      ← tests for compile-tasks
+  create-issues.js
+  create-issues.test.js
+  ...
+```
+
+### Rules
+
+| Rule | Detail |
+|------|--------|
+| Same directory | Tests live next to the module, not in a separate `__tests__/` tree |
+| Naming | `<module-name>.test.js` — matches the module filename exactly |
+| Framework | No external test framework; uses a simple `assert` helper |
+| Runner | `node tools/provider-pool-webui/actions/<name>.test.js` (standalone) |
+| Inert when required | Every `.test.js` must guard with `require.main !== module` so it exports a no-op shape when loaded by `action-modules.test.js` |
+| Excluded from loader | The server loader skips files ending in `.test.js` — tests are never treated as action modules |
+
+### Why co-located
+
+The loader uses `readdirSync` + `.endsWith(".test.js")` filtering. Co-locating
+tests keeps them discoverable alongside their module without requiring a
+separate test directory or loader config. The `require.main` guard ensures the
+inventory test (`action-modules.test.js`) can safely require every `.js` in
+`actions/` without triggering test execution.
+
+---
+
+## Module Loader
+
+The server discovers dynamic modules at startup via `loadActionModules()` in
+`tools/provider-pool-webui/server.js`.
+
+### Discovery
+
+```
+server.js
+  └─ listActionModuleFiles()
+       └─ readdirSync(ACTIONS_DIR)
+            └─ filter: .endsWith(".js") && !.endsWith(".test.js")
+  └─ loadActionModules()
+       └─ require(file) for each
+            └─ check: mod.id is string, mod.label is string
+                 └─ push to modules array
+```
+
+### Resolution
+
+`resolveAction(actionId)` scans the same file list and returns the module whose
+`id` matches the requested `actionId`. Returns `null` if no match.
+
+### Loader constraints
+
+| Constraint | Enforcement |
+|------------|-------------|
+| File must end in `.js` | `listActionModuleFiles` filter |
+| File must NOT end in `.test.js` | `listActionModuleFiles` filter |
+| Module must export `id` (string) | `loadActionModules` check |
+| Module must export `label` (string) | `loadActionModules` check |
+| Broken modules are skipped | try/catch in loader — no crash |
+| No caching bypass | `require()` cache is used; modules loaded once |
+
+### Adding a test file
+
+1. Create `tools/provider-pool-webui/actions/<name>.test.js`
+2. Add the `require.main` guard at the top:
+
+```js
+if (require.main !== module) {
+  module.exports = { id: "noop-<name>-test", label: "noop", description: "", dangerous: false };
+} else {
+  // ... actual test body ...
+}
+```
+
+3. The loader will automatically skip it (`.test.js` filter).
+4. The inventory test will safely require it (no-op export).
+
+---
+
 ## Module Contract
 
 Every dynamic module must satisfy:
@@ -314,10 +401,12 @@ All mutating actions default to preview mode. The flow:
 
 1. Create `tools/provider-pool-webui/actions/<name>.js`
 2. Export `id`, `label`, `description`, `dangerous`, `preview()`, `execute()`
-3. If the module manages allowlisted state, add a corresponding entry
+3. Create `tools/provider-pool-webui/actions/<name>.test.js` with the
+   `require.main` guard (see [Test File Placement](#test-file-placement))
+4. If the module manages allowlisted state, add a corresponding entry
    in `tools/provider-pool-webui/lib/action-registry.js`
-4. Run `npm run check` to verify
-5. Update this document with the new module entry
+5. Run `npm run check` to verify
+6. Update this document with the new module entry
 
 ---
 
