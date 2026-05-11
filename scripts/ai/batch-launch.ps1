@@ -13,6 +13,12 @@
     conflict-group rules and rejects duplicate non-doc groups before any
     worker dispatch.
 
+    Shared-lock preflight: when tasks declare sharedLocks, the launch gate
+    detects overlapping locks and blocks the batch if two tasks in the same
+    batch claim the same lock. Use sharedLocks to serialize tasks that edit
+    the same file (e.g. "app-module") while keeping distinct conflictGroups
+    so each task gets its own branch/worktree.
+
     The launch gate (check-launch-gate.ps1) runs automatically before any
     worker dispatch. In execute mode, blocked tasks are refused. In dry-run
     mode, the gate decision is displayed for review.
@@ -151,7 +157,8 @@ foreach ($task in $tasks) {
     if (-not $g) { continue }
 
     $allowed = @($task.allowedFiles)
-    $allDocs = ($allowed.Count -gt 0) -and ($allowed | Where-Object { $_ -notmatch "^docs/" }).Count -eq 0
+    $nonDocs = @($allowed | Where-Object { $_ -notmatch "^docs/" })
+    $allDocs = ($allowed.Count -gt 0) -and ($nonDocs.Count -eq 0)
 
     if (-not $groupIsDocsOnly.ContainsKey($g)) {
         $groupIsDocsOnly[$g] = $allDocs
@@ -265,9 +272,50 @@ foreach ($plan in $taskPlans) {
     foreach ($pattern in $task.forbiddenFiles) {
         Write-Host "       - $pattern" -ForegroundColor Gray
     }
+    # Show sharedLocks if present
+    $locksRaw = if ($task.PSObject.Properties.Name -contains "sharedLocks") { $task.sharedLocks } else { $null }
+    if ($locksRaw) {
+        $locks = @($locksRaw)
+        Write-Host "     SharedLocks:" -ForegroundColor Magenta
+        foreach ($lock in $locks) {
+            Write-Host "       @ $lock" -ForegroundColor Magenta
+        }
+    }
 }
 
 # ── Dry run exit ─────────────────────────────────────────────────────────────
+
+# ── Shared-lock preflight summary ─────────────────────────────────────────────
+
+Write-Step "Shared-lock preflight"
+
+$allLocks = @{}
+foreach ($plan in $taskPlans) {
+    $task = $plan.Task
+    $locksRaw = if ($task.PSObject.Properties.Name -contains "sharedLocks") { $task.sharedLocks } else { $null }
+    if ($locksRaw) {
+        foreach ($lock in @($locksRaw)) {
+            if (-not $allLocks.ContainsKey($lock)) {
+                $allLocks[$lock] = @()
+            }
+            $allLocks[$lock] += $task.targetIssue
+        }
+    }
+}
+
+if ($allLocks.Count -eq 0) {
+    Write-Ok "No shared locks declared in this batch"
+} else {
+    foreach ($lock in $allLocks.Keys) {
+        $owners = $allLocks[$lock]
+        if ($owners.Count -gt 1) {
+            Write-Host "   CONFLICT: shared lock '$lock' claimed by issues: $($owners -join ', ')" -ForegroundColor Red
+            Write-Host "   These tasks MUST run sequentially. The launch gate will block if dispatched together." -ForegroundColor Yellow
+        } else {
+            Write-Host "   Lock '$lock' → issue #$($owners[0]) (sole owner)" -ForegroundColor Gray
+        }
+    }
+}
 
 if ($DryRun -and -not $Execute) {
     Write-Host ""
