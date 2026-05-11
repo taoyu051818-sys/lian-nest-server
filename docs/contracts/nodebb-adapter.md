@@ -183,7 +183,10 @@ that business modules consume NodeBB **only** through the provider barrel
 ### 8.2 Running the guard
 
 ```bash
-# Human-readable output (default)
+# Via npm script (recommended — included in ops:guard)
+npm run guard:nodebb-adapter-boundary
+
+# Direct invocation
 node scripts/guards/check-nodebb-adapter-boundary.js
 
 # Machine-readable JSON
@@ -200,9 +203,9 @@ Exit codes: `0` = clean, `1` = violations found, `2` = usage error.
 
 ### 8.3 Enforcement mode
 
-The guard currently runs in **warning-only** mode because the existing codebase
-has known violations (direct `NODEBB_CLIENT` imports in some modules).  Once
-all violations are resolved, remove `--warn-only` to enforce at CI level.
+The guard runs in **check** mode (hard failure on violations) as part of
+`npm run ops:guard`.  The codebase currently has no violations.  If new
+violations are introduced, the guard will fail the ops pipeline and block merges.
 
 ### 8.4 Relationship to Jest boundary spec
 
