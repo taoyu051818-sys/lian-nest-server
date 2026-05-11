@@ -77,6 +77,23 @@ Resolution order in `NodebbHttpClient.buildAuthHeaders()`:
 
 No write methods exist. No callers outside the provider itself.
 
+### 2.6 NodebbSearchProvider (`src/nodebb/providers/nodebb-search.provider.ts`)
+
+| Method                | Auth required? | Auth param | Callers pass auth? |
+|-----------------------|---------------|------------|--------------------|
+| `search(term, options?, auth?)` | No (optional) | `auth?`    | Not yet wired       |
+
+**Callers:** None found in the codebase. The provider is exported from the barrel but not yet consumed by any service or controller.
+
+**Error normalization contract:**
+The provider delegates to `client.get()` and returns the `NodebbNormalizedResponse` envelope as-is — it does not transform or wrap errors. Callers receive:
+- `BodyStatus.OK` with populated or empty `matches` array on success
+- `BodyStatus.NOT_FOUND` when the client returns HTTP 404
+- `BodyStatus.ERROR` for all other HTTP error codes (401, 429, 500, 502, etc.)
+
+**Empty-result contract:**
+A successful search with no matches returns `{ status: 'ok', data: { matches: [], matchCount: 0, pagination: { page: 1, pageCount: 0, itemsPerPage: 10 } } }`. The `matches` array is always present (never `null`).
+
 ---
 
 ## 3. Controller uid placeholder matrix
