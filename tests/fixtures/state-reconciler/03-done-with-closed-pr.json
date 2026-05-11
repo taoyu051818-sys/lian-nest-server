@@ -1,0 +1,23 @@
+{
+  "description": "agent:done but PR closed without merge (also triggers done-without-merge)",
+  "expectedRules": ["done-with-closed-pr", "done-without-merge"],
+  "expectedCount": 2,
+  "issues": [
+    {
+      "number": 202,
+      "title": "Done label but PR rejected",
+      "state": "OPEN",
+      "labels": [{"name": "agent:done"}],
+      "updatedAt": "2026-05-09T12:00:00Z",
+      "linkedPRs": [
+        {
+          "number": 251,
+          "title": "Attempted fix",
+          "state": "CLOSED",
+          "mergedAt": null,
+          "closedAt": "2026-05-09T14:00:00Z"
+        }
+      ]
+    }
+  ]
+}

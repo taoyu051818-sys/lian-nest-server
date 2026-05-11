@@ -1,0 +1,15 @@
+{
+  "description": "agent:running with no open PR and stale (>72h)",
+  "expectedRules": ["stale-running"],
+  "expectedCount": 1,
+  "issues": [
+    {
+      "number": 200,
+      "title": "Stale running issue",
+      "state": "OPEN",
+      "labels": [{"name": "agent:running"}],
+      "updatedAt": "2026-05-01T00:00:00Z",
+      "linkedPRs": []
+    }
+  ]
+}

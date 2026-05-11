@@ -32,6 +32,9 @@ state wins and the reconciler flags the label as stale.
 | `merged-pr-open-issue` | Merged PR exists, issue still open | error | Close issue |
 | `stale-queued` | `agent:queued` for >72h without pickup | info | Re-triage or remove from queue |
 | `blocked-with-open-pr` | `agent:blocked` with an open PR | info | Resume or mark done |
+| `merged-pr-stale-label` | Merged PR but issue label is not `agent:done` | error | Transition label to `agent:done` |
+| `done-with-closed-pr` | `agent:done` but PR closed without merge | error | Re-open work or close issue |
+| `multiple-agent-labels` | More than one `agent:*` label on same issue | warning | Remove incorrect label, keep one |
 
 ### Customizing the Stale Threshold
 
@@ -83,6 +86,47 @@ Fixture JSON format:
 ]
 ```
 
+### Validate fixture directory (CI regression)
+
+```powershell
+./scripts/ai/state-reconciler.ps1 -FixtureDir ./tests/fixtures/state-reconciler/
+```
+
+Each JSON file in the directory must include:
+
+```json
+{
+  "description": "Human-readable scenario description",
+  "expectedRules": ["stale-running", "merged-pr-stale-label"],
+  "expectedCount": 2,
+  "issues": [
+    {
+      "number": 200,
+      "title": "Example",
+      "state": "OPEN",
+      "labels": [{"name": "agent:running"}],
+      "updatedAt": "2026-05-01T00:00:00Z",
+      "linkedPRs": []
+    }
+  ]
+}
+```
+
+The validator checks that each fixture produces exactly the expected
+drift rules and count. Exit code is non-zero if any fixture fails.
+
+Bundled fixtures live in `tests/fixtures/state-reconciler/` and cover:
+
+| Fixture | Scenario | Expected Rules |
+|---------|----------|----------------|
+| `01-stale-running.json` | Running issue, no PR, >72h stale | `stale-running` |
+| `02-merged-pr-stale-label.json` | Merged PR but label still `agent:running` | `merged-pr-stale-label`, `merged-pr-open-issue` |
+| `03-done-with-closed-pr.json` | Done label but PR closed without merge | `done-with-closed-pr`, `done-without-merge` |
+| `04-multiple-agent-labels.json` | Both `agent:running` and `agent:done` | `multiple-agent-labels` |
+| `05-clean-no-drift.json` | Done label with merged PR (issue should close) | `merged-pr-open-issue` |
+| `06-blocked-with-open-pr.json` | Blocked with open PR | `blocked-with-open-pr` |
+| `07-stale-queued.json` | Queued for >72h | `stale-queued` |
+
 ### Show suggested label commands
 
 ```powershell
@@ -115,7 +159,8 @@ The reconciler produces:
 - **Read-only by default.** The `-Apply` flag only prints commands;
   it does not execute them.
 - **Fixture support.** CI can run the reconciler against a JSON snapshot
-  without GitHub API access.
+  without GitHub API access. The `-FixtureDir` mode validates expected
+  drift rules, providing regression coverage for rule changes.
 - **Idempotent output.** Markdown markers allow re-posting without
   duplicates (same pattern as `publish-agent-result.ps1`).
 
