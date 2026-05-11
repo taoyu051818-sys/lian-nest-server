@@ -132,6 +132,24 @@ The publisher aligns with the [Worker Task Contract](worker-task-contract.md):
 Workers should call the publisher as the final step after validation
 evidence is collected.
 
+## Integration with Monitor
+
+The [worker heartbeat monitor](worker-heartbeat.md) can publish a result
+comment automatically on process exit via `-PublishOnComplete`. The monitor
+calls the publisher with these sanitized fields:
+
+| Monitor field | Publisher param | Value |
+|---------------|-----------------|-------|
+| Final state | `-Summary` | `PASS (exit 0, Ns)` or `FAIL (exit N, Ns)` |
+| Target | `-TargetIssue` / `-TargetPR` | From `-IssueNumber` or `-PRNumber` |
+| Kind | `-Kind` | From `-PublishKind` (default: `execution`) |
+| Marker | `-MarkerId` | `<prefix>-<N>-monitor-<taskId>` |
+
+The monitor never passes raw logs, stdout, or stderr to the publisher.
+Only exit code, elapsed time, and task metadata are included.
+
+See [worker-heartbeat.md](worker-heartbeat.md) for full usage examples.
+
 ## See Also
 
 - [Worker Task Contract](worker-task-contract.md) -- Task JSON schema

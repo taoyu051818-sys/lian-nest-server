@@ -8,8 +8,10 @@
 
     This script does NOT:
     - Dump raw logs or stdout/stderr content
-    - Post comments to GitHub issues
     - Modify any runtime source files
+
+    When -PublishOnComplete is set, it invokes publish-agent-result.ps1
+    to post a sanitized, idempotent result comment on exit.
 
 .PARAMETER ProcessId
     PID of the Claude Code batch worker process to monitor.
@@ -32,8 +34,26 @@
 .PARAMETER IssueNumber
     Optional GitHub issue number for the snapshot.
 
+.PARAMETER PublishOnComplete
+    When set, invokes publish-agent-result.ps1 after the worker exits.
+    Posts a sanitized summary comment with idempotent markers.
+    Requires -Repo and either -IssueNumber or -PRNumber.
+
+.PARAMETER Repo
+    GitHub repository (OWNER/NAME) for publish-on-complete.
+    Falls back to GH_REPO env var.
+
+.PARAMETER PRNumber
+    Optional pull request number for publish-on-complete targeting.
+
+.PARAMETER PublishKind
+    Result kind for the publisher. Default: "execution".
+
 .EXAMPLE
     .\wait-claude-batch.ps1 -ProcessId 12345 -SnapshotPath ./monitor-state.json -IssueNumber 87
+
+.EXAMPLE
+    .\wait-claude-batch.ps1 -ProcessId 12345 -PublishOnComplete -Repo "owner/repo" -IssueNumber 87
 #>
 
 [CmdletBinding()]
@@ -51,7 +71,16 @@ param(
 
     [string]$TaskId = "",
 
-    [int]$IssueNumber = 0
+    [int]$IssueNumber = 0,
+
+    [switch]$PublishOnComplete,
+
+    [string]$Repo = $env:GH_REPO,
+
+    [int]$PRNumber = 0,
+
+    [ValidateSet("execution", "review", "audit", "metrics")]
+    [string]$PublishKind = "execution"
 )
 
 Set-StrictMode -Version Latest
@@ -128,6 +157,64 @@ function Write-Snapshot {
     Set-Content -Path $SnapshotPath -Value $json -Encoding UTF8
 }
 
+function Publish-Result {
+    param(
+        [string]$FinalState,
+        [int]$ExitCode,
+        [long]$ElapsedMs
+    )
+
+    $publisherPath = Join-Path $PSScriptRoot "publish-agent-result.ps1"
+    if (-not (Test-Path $publisherPath)) {
+        Write-Warning "Publisher script not found at $publisherPath. Skipping publish."
+        return
+    }
+
+    $resolvedRepo = $Repo
+    if (-not $resolvedRepo) {
+        Write-Warning "PublishOnComplete requires -Repo or GH_REPO env var. Skipping publish."
+        return
+    }
+
+    if ($IssueNumber -le 0 -and $PRNumber -le 0) {
+        Write-Warning "PublishOnComplete requires -IssueNumber or -PRNumber. Skipping publish."
+        return
+    }
+
+    $elapsedSec = [math]::Round($ElapsedMs / 1000)
+    $summary = if ($FinalState -eq "done") {
+        "PASS (exit 0, ${elapsedSec}s)"
+    } else {
+        "FAIL (exit $ExitCode, ${elapsedSec}s)"
+    }
+
+    $markerTarget = if ($IssueNumber -gt 0) { $IssueNumber } else { $PRNumber }
+    $markerPrefix = if ($IssueNumber -gt 0) { "issue" } else { "pr" }
+    $markerId = "$markerPrefix-$markerTarget-monitor-$TaskId"
+
+    $publisherArgs = @{
+        Repo    = $resolvedRepo
+        Kind    = $PublishKind
+        Summary = $summary
+        MarkerId = $markerId
+    }
+
+    if ($IssueNumber -gt 0) {
+        $publisherArgs["TargetIssue"] = $IssueNumber
+    } else {
+        $publisherArgs["TargetPR"] = $PRNumber
+    }
+
+    Write-Host "Publishing result to $resolvedRepo (marker=$markerId)..."
+
+    try {
+        & $publisherPath @publisherArgs
+        Write-Host "Publish completed."
+    } catch {
+        Write-Warning "Publish failed: $_"
+    }
+}
+
 # Main monitoring loop
 Write-Host "Monitoring PID $ProcessId (taskId=$TaskId)"
 Write-Host "Snapshots: $SnapshotPath"
@@ -176,4 +263,12 @@ while ($true) {
     }
 
     Start-Sleep -Milliseconds $PollIntervalMs
+}
+
+# ---------------------------------------------------------------------------
+# Publish-on-complete (opt-in)
+# ---------------------------------------------------------------------------
+
+if ($PublishOnComplete) {
+    Publish-Result -FinalState $state -ExitCode $exitCode -ElapsedMs $elapsedMs
 }

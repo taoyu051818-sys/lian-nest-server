@@ -84,6 +84,27 @@ $proc = Start-Process -FilePath "claude" -ArgumentList "--batch","--issue","87" 
     -PollIntervalMs 30000
 ```
 
+### Publish on Complete
+
+Opt in to publishing a sanitized result comment when the worker exits:
+
+```powershell
+# Target an issue
+.\scripts\ai\wait-claude-batch.ps1 `
+    -ProcessId 12345 `
+    -PublishOnComplete `
+    -Repo "owner/repo" `
+    -IssueNumber 87
+
+# Target a PR with a specific result kind
+.\scripts\ai\wait-claude-batch.ps1 `
+    -ProcessId 12345 `
+    -PublishOnComplete `
+    -Repo "owner/repo" `
+    -PRNumber 90 `
+    -PublishKind review
+```
+
 ### Reading the Snapshot
 
 The monitor writes to `./scripts/ai/monitor-state.json` by default:
@@ -106,17 +127,27 @@ The monitor writes to `./scripts/ai/monitor-state.json` by default:
 
 ## Design Decisions
 
-### Local snapshots only (no GitHub heartbeat publishing)
+### Local snapshots only by default
 
-The initial implementation writes snapshots to a local file. GitHub issue
-comment publishing is deferred because:
+The default mode writes snapshots to a local file only. GitHub comment
+publishing is opt-in via `-PublishOnComplete`. Reasons for opt-in default:
 
 - Token scope requirements vary across forks and CI environments.
 - Raw status comments can clutter issue threads.
 - Local snapshots are sufficient for orchestrator-side monitoring.
 
-A future option (`-PublishHeartbeat`) may post minimal status comments to
-the linked GitHub issue, gated behind explicit token scope verification.
+### Publish-on-complete
+
+When `-PublishOnComplete` is set, the monitor invokes
+`publish-agent-result.ps1` after the worker exits. This posts a single
+sanitized summary comment with idempotent markers to the target issue or
+PR. Key guarantees:
+
+- **No raw logs** — only state, exit code, and elapsed time are published.
+- **Idempotent by marker** — re-running the monitor updates the same comment.
+- **Local-only default** — publishing never happens unless explicitly opted in.
+- **Fail-safe** — publish errors are warnings; the monitor always writes the
+  final local snapshot regardless.
 
 ### No raw log dumping
 
@@ -142,5 +173,6 @@ the gap between worker launch and `agent:done` described in the
 | File | Purpose |
 |------|---------|
 | `scripts/ai/wait-claude-batch.ps1` | PowerShell monitor script |
+| `scripts/ai/publish-agent-result.ps1` | Result publisher (invoked by `-PublishOnComplete`) |
 | `scripts/ai/monitor-state.schema.json` | JSON Schema for snapshots |
 | `docs/ai-native/worker-heartbeat.md` | This document |
