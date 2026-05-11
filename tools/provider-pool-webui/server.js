@@ -47,7 +47,7 @@ ENDPOINTS
   GET /api/actions        List available action modules
   POST /api/actions/preview  Preview an action (dry-run, no side effects)
   POST /api/actions/execute  Execute an action (requires confirmation for dangerous)
-  GET /api/audit          View action execution audit trail
+  GET /api/audit          View action execution audit trail (supports ?actionId=...&status=...&limit=N)
 
 DESCRIPTION
   Local-only HTTP server for viewing provider pool state and policy.
@@ -556,9 +556,48 @@ function handleRequest(req, res) {
   }
 
   if (route === "/api/audit" && req.method === "GET") {
-    const log = readAuditLog();
+    let log = readAuditLog();
+    const params = url.searchParams;
+
+    // Apply filters
+    const actionIdFilter = params.get("actionId");
+    const statusFilter = params.get("status");
+    const limitParam = params.get("limit");
+
+    if (actionIdFilter) {
+      log = log.filter((entry) => entry.actionId === actionIdFilter);
+    }
+
+    if (statusFilter) {
+      log = log.filter((entry) => entry.status === statusFilter);
+    }
+
+    // Apply limit (capped at 500 for safety)
+    const MAX_LIMIT = 500;
+    let limit = log.length;
+    if (limitParam !== null) {
+      const parsedLimit = Number(limitParam);
+      if (!Number.isInteger(parsedLimit) || parsedLimit < 1) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Invalid limit parameter" }));
+        return;
+      }
+      limit = Math.min(parsedLimit, MAX_LIMIT);
+    }
+
+    const filtered = log.slice(0, limit);
+    const filters = {};
+    if (actionIdFilter) filters.actionId = actionIdFilter;
+    if (statusFilter) filters.status = statusFilter;
+    if (limitParam !== null) filters.limit = limit;
+
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ entries: log, total: log.length }, null, 2));
+    res.end(JSON.stringify({
+      entries: filtered,
+      total: filtered.length,
+      unfilteredTotal: readAuditLog().length,
+      filters: Object.keys(filters).length > 0 ? filters : undefined,
+    }, null, 2));
     return;
   }
 
