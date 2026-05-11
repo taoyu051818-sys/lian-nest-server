@@ -200,7 +200,33 @@ sequentially. Tasks with the same non-doc `conflictGroup` are rejected.
 and at least one touches non-doc files, the launcher rejects the batch before
 dispatch. Docs-only groups (all `allowedFiles` under `docs/`) are exempt.
 
-### AppModule Shared Lock in Batch Scheduling
+### Shared Locks: conflictGroup vs sharedLocks
+
+When building high-parallel batches, two metadata fields control scheduling:
+
+| Field | Purpose | When it blocks |
+|-------|---------|----------------|
+| `conflictGroup` | Names the logical area being changed | Two tasks with the **same** non-doc group in one batch → blocked |
+| `sharedLocks` | Names a physical resource (file, module) that must not be edited concurrently | Two tasks claiming the **same lock** in one batch → blocked |
+
+**Key distinction:** `conflictGroup` identifies *what* the task changes (e.g.
+`auth-core`). `sharedLocks` identifies *which shared files* must be serialized
+(e.g. `app-module`). Tasks with different `conflictGroup` values can still
+conflict if they share a lock.
+
+### When to use sharedLocks
+
+Use `sharedLocks` when multiple tasks edit the same file but are otherwise
+independent. Common scenarios:
+
+- **Module wiring** — multiple modules wired into `app.module.ts`
+- **Barrel exports** — multiple additions to an `index.ts` barrel
+- **Config merges** — multiple updates to a shared config file
+
+Without `sharedLocks`, the launcher only checks `conflictGroup` and would
+allow these tasks to run in parallel, causing last-write-wins conflicts.
+
+### AppModule Shared Lock Example
 
 When a batch contains multiple module-wiring tasks (e.g. wiring SearchModule,
 GroupsModule, and TopicsModule into `app.module.ts`), the orchestrator MUST
@@ -225,6 +251,40 @@ waits until the first merges, and the third waits until the second merges.
 
 Launching all three simultaneously causes last-write-wins on `app.module.ts`.
 Only the last worker to commit would have its module import survive.
+
+### Shared-Lock Preflight in Dry-Run Mode
+
+The batch launcher dry-run displays a shared-lock preflight summary after the
+task plan. This shows:
+
+- **Sole owner** — lock is claimed by one task (safe to run)
+- **CONFLICT** — lock is claimed by multiple tasks (must be serialized)
+
+Example dry-run output:
+
+```
+>> Shared-lock preflight
+   CONFLICT: shared lock 'app-module' claimed by issues: 258, 260, 262
+   These tasks MUST run sequentially. The launch gate will block if dispatched together.
+```
+
+The launch gate (`check-launch-gate.ps1`) enforces this at dispatch time —
+tasks with overlapping shared locks are blocked regardless of their
+`conflictGroup` values.
+
+### High-Parallel Batch Strategy
+
+For batches with many tasks, follow this boundary checklist:
+
+1. **Distinct conflictGroups** — each task gets a unique group name so the
+   launcher can run them in parallel worktrees.
+2. **sharedLocks for shared files** — if tasks touch the same physical file,
+   declare a shared lock to force serialization.
+3. **Docs-only exemption** — tasks whose `allowedFiles` are all under `docs/`
+   may share a `conflictGroup` without blocking (docs are additive, not
+   last-write-wins).
+4. **Dry-run first** — always run the launcher without `-Execute` to review
+   the conflict and shared-lock summary before dispatching.
 
 See [Parallel Work Policy](parallel-work-policy.md) §Rule 5 for the full
 shared-lock specification.
