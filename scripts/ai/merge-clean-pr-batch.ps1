@@ -55,6 +55,11 @@
     Print example guard fixture templates (task-manifest.json, PR body)
     and exit. Use this to bootstrap guard testing for a new task.
 
+.PARAMETER ManifestSchema
+    Print the JSON schema for the merge batch manifest and exit. Use
+    this to validate or generate expected manifest structures without
+    performing a live merge.
+
 .EXAMPLE
     # Dry-run with inline PR numbers
     .\scripts\ai\merge-clean-pr-batch.ps1 -PRs 42,45 -Repo owner/name
@@ -82,6 +87,9 @@ param(
 
     [Parameter(Mandatory = $true, ParameterSetName = 'Fixtures')]
     [switch]$ShowFixtures,
+
+    [Parameter(Mandatory = $true, ParameterSetName = 'Schema')]
+    [switch]$ManifestSchema,
 
     [string]$Repo,
 
@@ -483,10 +491,114 @@ None required. All guard fixtures self-contained.
     Write-Host "  - high-risk PRs (src/prisma/auth)           => BLOCK (always human-required)"
 }
 
+function Write-ManifestSchema {
+    Write-Banner "Merge Batch Manifest Schema"
+
+    $schema = @'
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MergeBatchManifest",
+  "type": "object",
+  "required": [
+    "timestamp",
+    "repository",
+    "mode",
+    "prs",
+    "preCommit",
+    "postCommit",
+    "healthGate",
+    "postHealthCommand"
+  ],
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "description": "ISO 8601 UTC timestamp of the run",
+      "format": "date-time"
+    },
+    "repository": {
+      "type": "string",
+      "description": "Target repository in OWNER/NAME format"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["dry-run", "execute"],
+      "description": "Run mode"
+    },
+    "prs": {
+      "type": "array",
+      "description": "Per-PR outcome entries",
+      "items": {
+        "type": "object",
+        "required": ["number", "title", "status"],
+        "properties": {
+          "number": {
+            "type": "integer",
+            "description": "PR number"
+          },
+          "title": {
+            "type": "string",
+            "description": "PR title"
+          },
+          "status": {
+            "type": "string",
+            "description": "PR outcome: eligible (dry-run), merged, or failed with reason",
+            "pattern": "^(eligible|merged|failed: .+)$"
+          }
+        }
+      }
+    },
+    "preCommit": {
+      "type": ["string", "null"],
+      "description": "Git HEAD SHA before merges (null in dry-run or on error)"
+    },
+    "postCommit": {
+      "type": ["string", "null"],
+      "description": "Git HEAD SHA after merges (null in dry-run or when merge fails)"
+    },
+    "healthGate": {
+      "type": "string",
+      "enum": ["pass", "fail", "not-found", "skipped"],
+      "description": "Post-merge health gate result"
+    },
+    "postHealthCommand": {
+      "type": ["string", "null"],
+      "description": "Health command path (null when -RunHealthGate not used)"
+    }
+  }
+}
+'@
+
+    Write-Host $schema
+    Write-Host ""
+    Write-Host "PR status values:"
+    Write-Host "  eligible           - PR passed all checks (dry-run only)"
+    Write-Host "  merged             - PR was successfully squash-merged"
+    Write-Host "  failed: <reason>   - PR merge failed with error detail"
+    Write-Host ""
+    Write-Host "Health gate values:"
+    Write-Host "  pass               - health gate ran and passed"
+    Write-Host "  fail               - health gate ran and failed (non-zero exit)"
+    Write-Host "  not-found          - health gate script not present on disk"
+    Write-Host "  skipped            - -RunHealthGate was not specified"
+    Write-Host ""
+    Write-Host "Batch lifecycle:"
+    Write-Host "  dry-run            - writes manifest with all PRs as 'eligible', healthGate 'skipped'"
+    Write-Host "  execute (all pass) - writes manifest with PRs as 'merged', pre/postCommit, healthGate result"
+    Write-Host "  execute (failure)  - writes manifest with partial outcomes, stops on first failure"
+    Write-Host "  excluded PRs       - batch aborts BEFORE merge; no manifest is written"
+    Write-Host ""
+}
+
 function Main {
     # Show fixtures and exit
     if ($ShowFixtures.IsPresent) {
         Write-GuardFixtures
+        exit 0
+    }
+
+    # Show manifest schema and exit
+    if ($ManifestSchema.IsPresent) {
+        Write-ManifestSchema
         exit 0
     }
 
