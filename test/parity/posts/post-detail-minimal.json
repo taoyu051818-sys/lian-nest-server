@@ -1,0 +1,123 @@
+{
+  "id": "post-detail-minimal",
+  "endpoint": "GET /api/posts/:postId",
+  "description": "Post detail with nullable fields at null and empty arrays — exercises boundary conditions for author avatar, edit state, and tag list",
+  "request": {
+    "method": "GET",
+    "path": "/api/posts/<POST_ID_MINIMAL>",
+    "params": { "postId": "<POST_ID_MINIMAL>" }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "pid": "<POST_ID_MINIMAL>",
+      "tid": "<TOPIC_ID_MINIMAL>",
+      "title": "<STRING>",
+      "slug": "<STRING>",
+      "content": "<STRING>",
+      "contentHtml": "<STRING>",
+      "author": {
+        "uid": "<POSITIVE_INT>",
+        "username": "<STRING>",
+        "avatar": null,
+        "reputation": 0
+      },
+      "timestamp": "<POSITIVE_INT>",
+      "editedTimestamp": null,
+      "editedByUid": null,
+      "voteCount": 0,
+      "bookmarkCount": 0,
+      "replyCount": 0,
+      "viewCount": 0,
+      "tags": [],
+      "isPinned": false,
+      "isLocked": false,
+      "isDeleted": false,
+      "topic": {
+        "tid": "<TOPIC_ID_MINIMAL>",
+        "title": "<STRING>",
+        "slug": "<STRING>",
+        "cid": "<POSITIVE_INT>",
+        "categoryName": "<STRING>",
+        "tagWhitelist": [],
+        "postCount": 1,
+        "viewCount": 0,
+        "timestamp": "<POSITIVE_INT>",
+        "lastPostTime": "<POSITIVE_INT>",
+        "isPinned": false,
+        "isLocked": false,
+        "isDeleted": false
+      }
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": [
+        "pid", "tid", "title", "slug", "content", "contentHtml",
+        "author", "timestamp", "voteCount", "bookmarkCount",
+        "replyCount", "viewCount", "tags", "isPinned", "isLocked",
+        "isDeleted", "topic"
+      ],
+      "properties": {
+        "pid": { "type": "integer", "minimum": 1 },
+        "tid": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "slug": { "type": "string" },
+        "content": { "type": "string" },
+        "contentHtml": { "type": "string" },
+        "author": { "$ref": "#/$defs/PostAuthor" },
+        "timestamp": { "type": "integer", "minimum": 0 },
+        "editedTimestamp": { "type": ["integer", "null"] },
+        "editedByUid": { "type": ["integer", "null"] },
+        "voteCount": { "type": "integer" },
+        "bookmarkCount": { "type": "integer", "minimum": 0 },
+        "replyCount": { "type": "integer", "minimum": 0 },
+        "viewCount": { "type": "integer", "minimum": 0 },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "isPinned": { "type": "boolean" },
+        "isLocked": { "type": "boolean" },
+        "isDeleted": { "type": "boolean" },
+        "topic": { "$ref": "#/$defs/TopicSummary" }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "PostAuthor": {
+          "type": "object",
+          "required": ["uid", "username", "avatar", "reputation"],
+          "properties": {
+            "uid": { "type": "integer", "minimum": 1 },
+            "username": { "type": "string" },
+            "avatar": { "type": ["string", "null"] },
+            "reputation": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "TopicSummary": {
+          "type": "object",
+          "required": [
+            "tid", "title", "slug", "cid", "categoryName",
+            "tagWhitelist", "postCount", "viewCount", "timestamp",
+            "lastPostTime", "isPinned", "isLocked", "isDeleted"
+          ],
+          "properties": {
+            "tid": { "type": "integer", "minimum": 1 },
+            "title": { "type": "string" },
+            "slug": { "type": "string" },
+            "cid": { "type": "integer", "minimum": 1 },
+            "categoryName": { "type": "string" },
+            "tagWhitelist": { "type": "array", "items": { "type": "string" } },
+            "postCount": { "type": "integer", "minimum": 0 },
+            "viewCount": { "type": "integer", "minimum": 0 },
+            "timestamp": { "type": "integer", "minimum": 0 },
+            "lastPostTime": { "type": "integer", "minimum": 0 },
+            "isPinned": { "type": "boolean" },
+            "isLocked": { "type": "boolean" },
+            "isDeleted": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "notes": "POST_ID_MINIMAL must reference a post whose author has no avatar (null), zero reputation, no edits, no votes, no bookmarks, no replies, and no tags. Exercises boundary conditions for nullable and zero-value fields."
+}
