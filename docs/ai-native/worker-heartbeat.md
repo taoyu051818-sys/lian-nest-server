@@ -43,6 +43,49 @@ This monitor closes that gap.
 | `done` | Process exited with code 0. |
 | `failed` | Process exited with a non-zero code. |
 
+## Heartbeat Timeout Policy
+
+The monitor classifies silent workers based on how long stdout/stderr has
+been quiet. The policy has three thresholds:
+
+| Threshold | Default | State Transition |
+|-----------|---------|------------------|
+| `NoOutputThresholdMs` | 60,000 ms (1 min) | `running` → `running:no-output` |
+| `StaleThresholdMs` | 300,000 ms (5 min) | `running:no-output` → `stale` |
+| `PollIntervalMs` | 15,000 ms (15 sec) | Snapshot write cadence |
+
+### No-Kill Guarantee
+
+The monitor **never kills live workers**. A worker in `stale` state is still
+running — the monitor only classifies and reports. Kill decisions, if any,
+are made by the orchestrator or human reviewer, not by this script.
+
+This means:
+- `running:no-output` is informational. The worker may be doing heavy
+  computation, waiting on network I/O, or processing a large context.
+- `stale` is a signal for downstream reconciliation. It does not imply the
+  worker is dead or should be terminated.
+- The `label` field remains `agent:running` for all three alive states
+  (`running`, `running:no-output`, `stale`). Only `done` maps to
+  `agent:done`.
+
+### Silent Worker Classification
+
+When stdout is quiet, the monitor distinguishes states by process liveness
+and elapsed silence:
+
+```
+Process alive + no output < 60s   →  running          (normal)
+Process alive + no output 60s-5m  →  running:no-output (silent, watch)
+Process alive + no output > 5m    →  stale            (signal for review)
+Process exited + code 0           →  done             (success)
+Process exited + non-zero         →  failed           (needs relaunch)
+```
+
+A worker whose stdout is quiet but whose process is still alive is always
+classified as one of the three `running*` states — never as `done` or
+`failed`. The process exit code is the sole determinant of terminal states.
+
 ## Snapshot Schema
 
 Each heartbeat writes a JSON snapshot conforming to
@@ -63,6 +106,23 @@ Key fields:
 | `issueNumber` | int/null | Linked GitHub issue |
 
 ## Usage
+
+### Dry-Run (Policy Inspection)
+
+Use `-DryRun` to print the timeout policy table and threshold configuration
+without monitoring any process. This is the recommended validation entrypoint.
+
+```powershell
+.\scripts\ai\wait-claude-batch.ps1 -DryRun
+```
+
+Custom thresholds are reflected in the dry-run output:
+
+```powershell
+.\scripts\ai\wait-claude-batch.ps1 -DryRun `
+    -NoOutputThresholdMs 120000 `
+    -StaleThresholdMs 600000
+```
 
 ### Basic
 

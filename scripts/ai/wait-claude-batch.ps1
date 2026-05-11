@@ -49,17 +49,25 @@
 .PARAMETER PublishKind
     Result kind for the publisher. Default: "execution".
 
+.PARAMETER DryRun
+    When set, prints the timeout policy table and threshold configuration,
+    then exits without monitoring any process. Useful for validating
+    configuration and understanding the heartbeat state machine.
+
 .EXAMPLE
     .\wait-claude-batch.ps1 -ProcessId 12345 -SnapshotPath ./monitor-state.json -IssueNumber 87
 
 .EXAMPLE
     .\wait-claude-batch.ps1 -ProcessId 12345 -PublishOnComplete -Repo "owner/repo" -IssueNumber 87
+
+.EXAMPLE
+    .\wait-claude-batch.ps1 -DryRun
 #>
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [int]$ProcessId,
+    [Parameter(Mandatory = $false)]
+    [int]$ProcessId = 0,
 
     [string]$SnapshotPath = "./scripts/ai/monitor-state.json",
 
@@ -80,11 +88,50 @@ param(
     [int]$PRNumber = 0,
 
     [ValidateSet("execution", "review", "audit", "metrics")]
-    [string]$PublishKind = "execution"
+    [string]$PublishKind = "execution",
+
+    [switch]$DryRun
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# ---------------------------------------------------------------------------
+# Dry-run: print policy and exit
+# ---------------------------------------------------------------------------
+
+if ($DryRun) {
+    Write-Host "=== Worker Heartbeat Monitor — Dry Run ==="
+    Write-Host ""
+    Write-Host "Threshold Configuration:"
+    Write-Host "  NoOutputThresholdMs : $NoOutputThresholdMs ms ($([math]::Round($NoOutputThresholdMs / 1000))s)"
+    Write-Host "  StaleThresholdMs    : $StaleThresholdMs ms ($([math]::Round($StaleThresholdMs / 1000))s)"
+    Write-Host "  PollIntervalMs      : $PollIntervalMs ms ($([math]::Round($PollIntervalMs / 1000))s)"
+    Write-Host ""
+    Write-Host "Timeout Policy:"
+    Write-Host "  State               Transition Condition              Label"
+    Write-Host "  -----               --------------------              -----"
+    Write-Host "  running             process alive + recent output      agent:running"
+    Write-Host "  running:no-output   no output > $($NoOutputThresholdMs / 1000)s               agent:running"
+    Write-Host "  stale               no output > $($StaleThresholdMs / 1000)s ($($StaleThresholdMs / 60000) min)         agent:running"
+    Write-Host "  done                process exited code 0              agent:done"
+    Write-Host "  failed              process exited non-zero            agent:running"
+    Write-Host ""
+    Write-Host "Key Behavior:"
+    Write-Host "  - Silent workers (running:no-output, stale) are NOT killed."
+    Write-Host "  - The monitor only observes; it never terminates the worker."
+    Write-Host "  - 'stale' signals downstream reconciliation, not a kill decision."
+    Write-Host "  - A live process in 'stale' state may still be working (e.g. long"
+    Write-Host "    compilation, network wait). The label stays agent:running."
+    Write-Host ""
+    Write-Host "Snapshot output: $SnapshotPath"
+    Write-Host "=== End Dry Run ==="
+    exit 0
+}
+
+if ($ProcessId -le 0) {
+    throw "ProcessId is required when not using -DryRun."
+}
 
 if ($TaskId -eq "") {
     $TaskId = $ProcessId.ToString()
