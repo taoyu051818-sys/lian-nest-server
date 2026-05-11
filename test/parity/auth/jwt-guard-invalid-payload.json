@@ -1,0 +1,17 @@
+{
+  "id": "jwt-guard-invalid-payload",
+  "endpoint": "guard/JwtAuthGuard",
+  "description": "JWT with sub <= 0 is rejected with 401",
+  "request": {
+    "method": "GUARD",
+    "headers": {
+      "authorization": "Bearer <INVALID_SUB_JWT>"
+    }
+  },
+  "expected": {
+    "guardThrows": true,
+    "status": 401,
+    "errorMessage": "Invalid token payload"
+  },
+  "notes": "INVALID_SUB_JWT must be a base64url-encoded JWT with sub: 0 or sub: -1. Also covers missing sub and non-numeric sub."
+}

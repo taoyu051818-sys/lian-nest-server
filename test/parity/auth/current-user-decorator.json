@@ -1,0 +1,26 @@
+{
+  "id": "current-user-decorator",
+  "endpoint": "decorator/@CurrentUser",
+  "description": "@CurrentUser() extracts user from request.user set by JwtAuthGuard",
+  "request": {
+    "method": "DECORATOR",
+    "requestUser": {
+      "sub": 42,
+      "email": "user@example.com"
+    }
+  },
+  "expected": {
+    "decoratorReturns": {
+      "sub": 42,
+      "email": "user@example.com"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["sub"],
+      "properties": {
+        "sub": { "type": "integer", "minimum": 1 }
+      }
+    }
+  },
+  "notes": "@CurrentUser() with no argument returns the full JwtPayload. @CurrentUser('sub') would return just 42."
+}

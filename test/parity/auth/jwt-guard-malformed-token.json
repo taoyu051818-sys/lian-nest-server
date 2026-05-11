@@ -1,0 +1,17 @@
+{
+  "id": "jwt-guard-malformed-token",
+  "endpoint": "guard/JwtAuthGuard",
+  "description": "JWT with fewer than 3 dot-separated segments is rejected with 401",
+  "request": {
+    "method": "GUARD",
+    "headers": {
+      "authorization": "Bearer abc.def"
+    }
+  },
+  "expected": {
+    "guardThrows": true,
+    "status": 401,
+    "errorMessage": "Invalid token payload"
+  },
+  "notes": "A valid JWT has exactly 3 segments (header.payload.signature). Two segments fail the parts.length !== 3 check."
+}
