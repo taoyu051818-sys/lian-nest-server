@@ -2,7 +2,12 @@
 .SYNOPSIS
     Suggests migration matrix row updates from PR metadata without mutating by default.
 .DESCRIPTION
-    Reads legacy-shutdown-matrix.md, parses endpoint rows, and suggests status transitions.
+    Two modes:
+    - Endpoint mode (default): Reads legacy-shutdown-matrix.md, parses endpoint rows, and
+      suggests per-endpoint status transitions.
+    - Slice mode (-SliceMatrix): Reads migration-matrix.md, parses slice-level rows from
+      execution phase tables, and suggests per-slice status transitions.
+
     Valid progression (linear, one-step): CONTRACTED -> IMPLEMENTED -> PARITY_TESTED -> LEGACY_DISABLED.
     Dry-run by default. -Apply prints replacement rows. -Write modifies the file.
 .EXAMPLE
@@ -10,6 +15,7 @@
     ./scripts/ai/update-migration-matrix.ps1 -PrMetaPath ./pr-meta.json
     ./scripts/ai/update-migration-matrix.ps1 -Slice A3 -TargetStatus IMPLEMENTED -Apply
     ./scripts/ai/update-migration-matrix.ps1 -Slice A3 -TargetStatus IMPLEMENTED -Write
+    ./scripts/ai/update-migration-matrix.ps1 -Slice A3 -TargetStatus IMPLEMENTED -SliceMatrix -Write
 #>
 
 [CmdletBinding()]
@@ -34,7 +40,10 @@ param(
     [switch]$Apply,
 
     [Parameter(Mandatory = $false)]
-    [switch]$Write
+    [switch]$Write,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SliceMatrix
 )
 
 Set-StrictMode -Version Latest
@@ -87,6 +96,27 @@ function Import-MatrixRows {
     return $rows
 }
 
+# --- Slice matrix parser -----------------------------------------------------
+
+function Import-SliceMatrixRows {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { Write-Fail "Slice matrix file not found: $Path" }
+
+    $rows = @()
+    $phase = ""
+    foreach ($line in (Get-Content $Path)) {
+        if ($line -match "^###\s+Phase\s+\d+:\s+(.+)$") { $phase = $Matches[1].Trim(); continue }
+        # Match rows with an order number, slice ID, and a status column
+        if ($line -match "^\|\s*(\d+)\s*\|\s*([A-Z]\d+|PR\d+)\s*\|(.+)\|\s*`?(NOT_STARTED|CONTRACTED|IMPLEMENTED|PARITY_TESTED|LEGACY_DISABLED)`?\s*\|(.*)\|") {
+            $rows += [PSCustomObject]@{
+                Phase = $phase; Order = [int]$Matches[1]; Slice = $Matches[2]
+                Status = $Matches[4]; Row = $line
+            }
+        }
+    }
+    return $rows
+}
+
 # --- PR metadata loader ------------------------------------------------------
 
 function Import-PrMeta {
@@ -96,7 +126,7 @@ function Import-PrMeta {
     if (-not $data.slice -or -not $data.targetStatus) {
         Write-Fail "PR metadata must include 'slice' and 'targetStatus' fields."
     }
-    return @{ Slice = $data.slice; TargetStatus = $data.targetStatus; ShutdownBlocker = $data.shutdownBlocker }
+    return @{ Slice = $data.slice; TargetStatus = $data.targetStatus; ShutdownBlocker = $data.shutdownBlocker; MatrixType = $data.matrixType }
 }
 
 # --- Suggestion engine -------------------------------------------------------
@@ -122,6 +152,29 @@ function Find-SuggestedUpdates {
             Family = $row.Family; Method = $row.Method; Path = $row.Path; Slice = $row.Slice
             From = $row.Status; To = $NewStatus; Valid = $true
             Reason = "Advance $($row.Status) -> $NewStatus"; Blocker = $blocker
+        }
+    }
+    return $suggestions
+}
+
+function Find-SliceMatrixUpdates {
+    param($Rows, [string]$TargetSlice, [string]$NewStatus)
+    $suggestions = @()
+    $matched = @($Rows | Where-Object { $_.Slice -eq $TargetSlice })
+    foreach ($row in $matched) {
+        if ($row.Status -eq $NewStatus) { continue }
+        if (-not (Test-StatusTransition -From $row.Status -To $NewStatus)) {
+            $suggestions += [PSCustomObject]@{
+                Phase = $row.Phase; Order = $row.Order; Slice = $row.Slice
+                From = $row.Status; To = $NewStatus; Valid = $false
+                Reason = "Invalid: $($row.Status) -> $NewStatus (linear, one-step only)"
+            }
+            continue
+        }
+        $suggestions += [PSCustomObject]@{
+            Phase = $row.Phase; Order = $row.Order; Slice = $row.Slice
+            From = $row.Status; To = $NewStatus; Valid = $true
+            Reason = "Advance $($row.Status) -> $NewStatus"
         }
     }
     return $suggestions
@@ -162,6 +215,55 @@ function Build-MarkdownReport {
     return $lines -join "`n"
 }
 
+function Write-SliceSuggestionReport {
+    param($Suggestions)
+    if ($Suggestions.Count -eq 0) { Write-Output "No matching slice rows found."; return }
+    $valid = @($Suggestions | Where-Object { $_.Valid })
+    $invalid = @($Suggestions | Where-Object { -not $_.Valid })
+    Write-Output "=== SLICE MATRIX UPDATE SUGGESTIONS ==="
+    Write-Output "Rows: $($Suggestions.Count) | Valid: $($valid.Count) | Invalid: $($invalid.Count)"
+    Write-Output ""
+    foreach ($s in $valid) {
+        Write-Output "  [OK]  Phase: $($s.Phase) | Slice $($s.Slice) (order $($s.Order)): $($s.From) -> $($s.To)"
+    }
+    foreach ($s in $invalid) {
+        Write-Output "  [ERR] Slice $($s.Slice): $($s.Reason)"
+    }
+    Write-Output ""
+    Write-Output "=== END SUGGESTIONS ==="
+}
+
+function Build-SliceMarkdownReport {
+    param($Suggestions)
+    $lines = @($MARKER_BEGIN, "", "### Slice Matrix Updater Report", "")
+    $valid = @($Suggestions | Where-Object { $_.Valid })
+    if ($valid.Count -gt 0) {
+        $lines += "| Phase | Slice | Order | From | To |"
+        $lines += "|-------|-------|-------|------|----|"
+        foreach ($s in $valid) {
+            $lines += "| $($s.Phase) | $($s.Slice) | $($s.Order) | ``$($s.From)`` | ``$($s.To)`` |"
+        }
+    } else { $lines += "No valid slice transitions to suggest." }
+    $lines += ""; $lines += $MARKER_END
+    return $lines -join "`n"
+}
+
+function Write-SliceMatrixUpdates {
+    param([string]$Path, $Suggestions)
+    $valid = @($Suggestions | Where-Object { $_.Valid })
+    if ($valid.Count -eq 0) { Write-Output "Nothing to write."; return }
+    $content = Get-Content $Path
+    foreach ($s in $valid) {
+        for ($i = 0; $i -lt $content.Count; $i++) {
+            if ($content[$i] -match "^\|\s*$($s.Order)\s*\|\s*$([regex]::Escape($s.Slice))\s*\|") {
+                $content[$i] = $content[$i] -replace [regex]::Escape($s.From), $s.To
+            }
+        }
+    }
+    Set-Content -Path $Path -Value $content
+    Write-Ok "Updated $($valid.Count) slice row(s) in $Path"
+}
+
 # --- Main --------------------------------------------------------------------
 
 Write-Output "Migration Matrix Updater (dry-run by default)"
@@ -170,21 +272,66 @@ Write-Output ""
 
 # Resolve inputs: CLI args take precedence, then PR metadata
 $slice = $Slice; $targetStatus = $TargetStatus; $shutdownBlocker = $ShutdownBlocker
+$useSliceMatrix = $SliceMatrix.IsPresent
 if ($PrMetaPath) {
     Write-Step "Loading PR metadata: $PrMetaPath"
     $meta = Import-PrMeta -Path $PrMetaPath
     if (-not $slice) { $slice = $meta.Slice }
     if (-not $targetStatus) { $targetStatus = $meta.TargetStatus }
     if (-not $shutdownBlocker -and $meta.ShutdownBlocker) { $shutdownBlocker = $meta.ShutdownBlocker }
+    if ($meta.MatrixType -eq "slice") { $useSliceMatrix = $true }
 }
 if (-not $slice -or -not $targetStatus) {
     Write-Fail "Both -Slice and -TargetStatus required (or provide -PrMetaPath)."
 }
 
-Write-Step "Matrix: $MatrixPath | Slice: $slice -> $targetStatus"
+# Switch to slice-matrix default path
+if ($useSliceMatrix -and -not $PSBoundParameters.ContainsKey("MatrixPath")) {
+    $MatrixPath = "docs/migration/migration-matrix.md"
+}
+
+Write-Step "Matrix: $MatrixPath | Mode: $(if ($useSliceMatrix) { 'slice' } else { 'endpoint' }) | Slice: $slice -> $targetStatus"
 Write-Output ""
 
-# Parse matrix
+# --- Slice matrix mode -------------------------------------------------------
+
+if ($useSliceMatrix) {
+    Write-Step "Parsing slice matrix..."
+    $sliceRows = Import-SliceMatrixRows -Path $MatrixPath
+    Write-Ok "Found $($sliceRows.Count) slice row(s)."
+
+    $matchedRows = @($sliceRows | Where-Object { $_.Slice -eq $slice })
+    if ($matchedRows.Count -eq 0) {
+        Write-Warn "No rows for slice '$slice'. Available: $(($sliceRows | Select-Object -Unique Slice | ForEach-Object { $_.Slice }) -join ', ')"
+        exit 0
+    }
+    Write-Ok "Matched $($matchedRows.Count) row(s) for slice $slice."
+    Write-Output ""
+
+    $suggestions = Find-SliceMatrixUpdates -Rows $sliceRows -TargetSlice $slice -NewStatus $targetStatus
+    Write-SliceSuggestionReport -Suggestions $suggestions
+    $null = Build-SliceMarkdownReport -Suggestions $suggestions
+
+    if ($Apply) {
+        Write-Output ""
+        Write-Step "APPLY MODE (suggestions only, no file mutation)"
+        foreach ($s in @($suggestions | Where-Object { $_.Valid })) {
+            Write-Output "  Slice $($s.Slice) (order $($s.Order)): ``$($s.From)`` -> ``$($s.To)``"
+        }
+        Write-Output "No files were modified."
+    }
+
+    if ($Write) {
+        Write-Output ""
+        Write-Step "WRITE MODE (modifying slice matrix file)"
+        Write-SliceMatrixUpdates -Path $MatrixPath -Suggestions $suggestions
+    }
+
+    exit 0
+}
+
+# --- Endpoint matrix mode (legacy-shutdown-matrix) ---------------------------
+
 Write-Step "Parsing migration matrix..."
 $rows = Import-MatrixRows -Path $MatrixPath
 Write-Ok "Found $($rows.Count) endpoint(s)."
