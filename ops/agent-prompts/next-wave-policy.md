@@ -117,4 +117,5 @@ If a worker reaches `agent:done` but the PR has no worker comment:
 ## See also
 
 - [SOP](../../docs/ai-native/SOP.md) - Full development SOP
+- [Merge Closure SOP](../../docs/ai-native/merge-closure-sop.md) - Controlled merge and health gate
 - [Writeback Checklist](./writeback-checklist.md) - Token and comment verification
