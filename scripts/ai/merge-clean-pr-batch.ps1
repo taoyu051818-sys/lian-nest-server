@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Controlled auto-merge for allowlisted CLEAN, non-draft PRs with
-    optional pre-merge guard integration.
+    optional pre-merge guard integration and manifest write support.
 
 .DESCRIPTION
     Merges an explicit set of PRs after verifying each is non-draft, CLEAN
@@ -10,6 +10,12 @@
 
     The script REQUIRES an explicit PR allowlist — either inline numbers
     or a file path. It will never discover or merge unspecified PRs.
+
+    Every run (dry-run, execute, or blocked) writes a merge batch manifest
+    to .ai/merge-batch-manifests/ conforming to the schema at
+    schemas/merge-manifest.schema.json. The manifest includes a batchId,
+    per-PR outcomes, blocked PRs (when guards/eligibility exclude them),
+    and a top-level failureReason when the batch aborts.
 
     When -RunGuards is specified, local guard checks are executed before
     merge to enforce task boundaries, PR handoff structure, docs authority,
@@ -60,6 +66,12 @@
     this to validate or generate expected manifest structures without
     performing a live merge.
 
+.PARAMETER SelfTest
+    Run a focused self-test that validates manifest write behavior
+    without contacting GitHub. Writes a sample manifest to a temp
+    directory, verifies schema conformance fields (batchId, blockedPrs,
+    failureReason), and reports PASS/FAIL.
+
 .EXAMPLE
     # Dry-run with inline PR numbers
     .\scripts\ai\merge-clean-pr-batch.ps1 -PRs 42,45 -Repo owner/name
@@ -75,6 +87,10 @@
 .EXAMPLE
     # Execute with custom post-merge health command
     .\scripts\ai\merge-clean-pr-batch.ps1 -PRs 42 -Repo owner/name -Execute -RunHealthGate -PostHealthCommand "scripts/custom-check.js --strict"
+
+.EXAMPLE
+    # Run self-test to validate manifest write behavior
+    .\scripts\ai\merge-clean-pr-batch.ps1 -SelfTest
 #>
 
 [CmdletBinding(DefaultParameterSetName = 'InlinePRs')]
@@ -90,6 +106,9 @@ param(
 
     [Parameter(Mandatory = $true, ParameterSetName = 'Schema')]
     [switch]$ManifestSchema,
+
+    [Parameter(Mandatory = $true, ParameterSetName = 'SelfTest')]
+    [switch]$SelfTest,
 
     [string]$Repo,
 
@@ -376,16 +395,21 @@ function Write-MergeManifest {
         [string]$PostCommit,
         [array]$Outcomes,
         [string]$HealthResult,
-        [string]$HealthCommand
+        [string]$HealthCommand,
+        [array]$BlockedPRs,
+        [string]$FailureReason,
+        [string]$ManifestDir
     )
 
-    $manifestDir = Join-Path (Get-Location) '.ai' 'merge-batch-manifests'
-    if (-not (Test-Path $manifestDir)) {
-        New-Item -ItemType Directory -Path $manifestDir -Force | Out-Null
+    $targetDir = if ($ManifestDir) { $ManifestDir } else { Join-Path (Get-Location) '.ai' 'merge-batch-manifests' }
+    if (-not (Test-Path $targetDir)) {
+        New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
     }
 
     $timestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ssZ')
+    $batchId = "merge-batch-$($timestamp -replace ':', '-')"
     $manifest = @{
+        batchId            = $batchId
         timestamp          = (Get-Date).ToUniversalTime().ToString('o')
         repository         = $Repo
         mode               = if ($isExecute) { 'execute' } else { 'dry-run' }
@@ -394,12 +418,15 @@ function Write-MergeManifest {
         postCommit         = if ($PostCommit) { $PostCommit } else { $null }
         healthGate         = $HealthResult
         postHealthCommand  = if ($HealthCommand) { $HealthCommand } else { $null }
+        blockedPrs         = if ($BlockedPRs) { $BlockedPRs } else { @() }
+        failureReason      = if ($FailureReason) { $FailureReason } else { $null }
     }
 
-    $manifestPath = Join-Path $manifestDir "merge-batch-$timestamp.json"
+    $manifestPath = Join-Path $targetDir "merge-batch-$timestamp.json"
     $manifest | ConvertTo-Json -Depth 5 | Set-Content $manifestPath -Encoding UTF8
     Write-Host ""
     Write-Host "Merge batch manifest written to: $manifestPath"
+    return $manifestPath
 }
 
 # ---------------------------------------------------------------------------
@@ -496,20 +523,16 @@ function Write-ManifestSchema {
 
     $schema = @'
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "MergeBatchManifest",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Merge Batch Manifest",
   "type": "object",
-  "required": [
-    "timestamp",
-    "repository",
-    "mode",
-    "prs",
-    "preCommit",
-    "postCommit",
-    "healthGate",
-    "postHealthCommand"
-  ],
+  "required": ["batchId", "timestamp", "repository", "mode", "prs"],
   "properties": {
+    "batchId": {
+      "type": "string",
+      "description": "Unique batch identifier (merge-batch-<timestamp>)",
+      "pattern": "^[a-z0-9-]+$"
+    },
     "timestamp": {
       "type": "string",
       "description": "ISO 8601 UTC timestamp of the run",
@@ -527,24 +550,17 @@ function Write-ManifestSchema {
     "prs": {
       "type": "array",
       "description": "Per-PR outcome entries",
+      "minItems": 1,
       "items": {
         "type": "object",
         "required": ["number", "title", "status"],
         "properties": {
-          "number": {
-            "type": "integer",
-            "description": "PR number"
-          },
-          "title": {
-            "type": "string",
-            "description": "PR title"
-          },
-          "status": {
-            "type": "string",
-            "description": "PR outcome: eligible (dry-run), merged, or failed with reason",
-            "pattern": "^(eligible|merged|failed: .+)$"
-          }
-        }
+          "number": { "type": "integer", "minimum": 1 },
+          "title": { "type": "string" },
+          "status": { "type": "string", "enum": ["eligible", "merged", "failed"] },
+          "failureReason": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
       }
     },
     "preCommit": {
@@ -563,8 +579,26 @@ function Write-ManifestSchema {
     "postHealthCommand": {
       "type": ["string", "null"],
       "description": "Health command path (null when -RunHealthGate not used)"
+    },
+    "blockedPrs": {
+      "type": "array",
+      "description": "PRs blocked by guard or eligibility failures",
+      "items": {
+        "type": "object",
+        "required": ["number", "reason"],
+        "properties": {
+          "number": { "type": "integer", "minimum": 1 },
+          "reason": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "failureReason": {
+      "type": ["string", "null"],
+      "description": "Top-level failure reason when batch aborts"
     }
-  }
+  },
+  "additionalProperties": false
 }
 '@
 
@@ -573,7 +607,7 @@ function Write-ManifestSchema {
     Write-Host "PR status values:"
     Write-Host "  eligible           - PR passed all checks (dry-run only)"
     Write-Host "  merged             - PR was successfully squash-merged"
-    Write-Host "  failed: <reason>   - PR merge failed with error detail"
+    Write-Host "  failed             - PR merge failed (see failureReason in entry)"
     Write-Host ""
     Write-Host "Health gate values:"
     Write-Host "  pass               - health gate ran and passed"
@@ -585,8 +619,136 @@ function Write-ManifestSchema {
     Write-Host "  dry-run            - writes manifest with all PRs as 'eligible', healthGate 'skipped'"
     Write-Host "  execute (all pass) - writes manifest with PRs as 'merged', pre/postCommit, healthGate result"
     Write-Host "  execute (failure)  - writes manifest with partial outcomes, stops on first failure"
-    Write-Host "  excluded PRs       - batch aborts BEFORE merge; no manifest is written"
+    Write-Host "  excluded PRs       - writes manifest with blocked PRs and failureReason, then aborts"
     Write-Host ""
+}
+
+function Invoke-SelfTest {
+    Write-Banner "Self-Test: Manifest Write Behavior"
+
+    $testDir = Join-Path ([System.IO.Path]::GetTempPath()) "merge-manifest-selftest-$(Get-Date -Format 'yyyyMMddHHmmss')"
+    New-Item -ItemType Directory -Path $testDir -Force | Out-Null
+
+    $pass = 0
+    $fail = 0
+
+    # Test 1: dry-run manifest includes batchId, blockedPrs, failureReason
+    Write-Host "TEST 1: dry-run manifest with blocked PRs"
+    $Repo = "test-owner/test-repo"
+    $isExecute = $false
+    $outcomes = @(
+        @{ number = 10; title = "feat: test"; status = 'eligible' }
+    )
+    $blocked = @(
+        @{ number = 11; reason = "forbidden file: src/app.ts" }
+    )
+    $manifestPath = Write-MergeManifest -PreCommit $null -PostCommit $null -Outcomes $outcomes -HealthResult 'skipped' -HealthCommand $null -BlockedPRs $blocked -FailureReason "1 PR(s) excluded by guard or eligibility checks" -ManifestDir $testDir
+    $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+
+    if ($manifest.batchId -match '^merge-batch-[a-z0-9-]+$') {
+        Write-Host "  PASS: batchId present and matches pattern"
+        $pass++
+    } else {
+        Write-Host "  FAIL: batchId missing or invalid: $($manifest.batchId)"
+        $fail++
+    }
+
+    if ($manifest.blockedPrs.Count -eq 1 -and $manifest.blockedPrs[0].number -eq 11) {
+        Write-Host "  PASS: blockedPrs populated correctly"
+        $pass++
+    } else {
+        Write-Host "  FAIL: blockedPrs not populated correctly"
+        $fail++
+    }
+
+    if ($manifest.failureReason -eq "1 PR(s) excluded by guard or eligibility checks") {
+        Write-Host "  PASS: failureReason populated correctly"
+        $pass++
+    } else {
+        Write-Host "  FAIL: failureReason not populated correctly"
+        $fail++
+    }
+
+    # Test 2: execute manifest (success) includes batchId
+    Write-Host ""
+    Write-Host "TEST 2: execute manifest (success path)"
+    $isExecute = $true
+    $outcomes2 = @(
+        @{ number = 20; title = "fix: bug"; status = 'merged' }
+    )
+    $manifestPath2 = Write-MergeManifest -PreCommit "abc123" -PostCommit "def456" -Outcomes $outcomes2 -HealthResult 'pass' -HealthCommand "scripts/post-merge-health-gate.js" -BlockedPRs @() -FailureReason $null -ManifestDir $testDir
+    $manifest2 = Get-Content $manifestPath2 -Raw | ConvertFrom-Json
+
+    if ($manifest2.batchId -match '^merge-batch-[a-z0-9-]+$') {
+        Write-Host "  PASS: batchId present on execute manifest"
+        $pass++
+    } else {
+        Write-Host "  FAIL: batchId missing on execute manifest"
+        $fail++
+    }
+
+    if ($manifest2.mode -eq 'execute') {
+        Write-Host "  PASS: mode is 'execute'"
+        $pass++
+    } else {
+        Write-Host "  FAIL: mode is not 'execute': $($manifest2.mode)"
+        $fail++
+    }
+
+    if (-not $manifest2.blockedPrs -or $manifest2.blockedPrs.Count -eq 0) {
+        Write-Host "  PASS: blockedPrs is empty on success"
+        $pass++
+    } else {
+        Write-Host "  FAIL: blockedPrs should be empty on success"
+        $fail++
+    }
+
+    if ($null -eq $manifest2.failureReason) {
+        Write-Host "  PASS: failureReason is null on success"
+        $pass++
+    } else {
+        Write-Host "  FAIL: failureReason should be null on success"
+        $fail++
+    }
+
+    # Test 3: batch abort manifest
+    Write-Host ""
+    Write-Host "TEST 3: batch abort manifest (merge failure)"
+    $isExecute = $true
+    $outcomes3 = @(
+        @{ number = 30; title = "feat: merged"; status = 'merged' },
+        @{ number = 31; title = "feat: failed"; status = 'failed' }
+    )
+    $manifestPath3 = Write-MergeManifest -PreCommit "abc123" -PostCommit $null -Outcomes $outcomes3 -HealthResult 'skipped' -HealthCommand $null -BlockedPRs @() -FailureReason "Merge failed on PR #31: Not mergeable" -ManifestDir $testDir
+    $manifest3 = Get-Content $manifestPath3 -Raw | ConvertFrom-Json
+
+    if ($manifest3.failureReason -like "Merge failed on PR #31*") {
+        Write-Host "  PASS: failureReason captures merge failure"
+        $pass++
+    } else {
+        Write-Host "  FAIL: failureReason missing merge failure detail"
+        $fail++
+    }
+
+    if ($manifest3.prs.Count -eq 2) {
+        Write-Host "  PASS: partial outcomes preserved"
+        $pass++
+    } else {
+        Write-Host "  FAIL: partial outcomes not preserved"
+        $fail++
+    }
+
+    # Cleanup
+    Remove-Item -Path $testDir -Recurse -Force -ErrorAction SilentlyContinue
+
+    # Summary
+    Write-Host ""
+    Write-Host "Results: $pass passed, $fail failed"
+    if ($fail -gt 0) {
+        Write-Host "SELF-TEST FAILED"
+        exit 1
+    }
+    Write-Host "SELF-TEST PASSED"
 }
 
 function Main {
@@ -599,6 +761,12 @@ function Main {
     # Show manifest schema and exit
     if ($ManifestSchema.IsPresent) {
         Write-ManifestSchema
+        exit 0
+    }
+
+    # Run self-test and exit
+    if ($SelfTest.IsPresent) {
+        Invoke-SelfTest
         exit 0
     }
 
@@ -775,6 +943,14 @@ function Main {
     if ($excluded.Count -gt 0) {
         Write-Host "ABORT: $($excluded.Count) PR(s) excluded. Fix exclusions or remove from allowlist."
         Write-Host "No merges performed."
+        $blockedOutcomes = $eligible | ForEach-Object {
+            @{ number = $_.number; title = $_.title; status = 'eligible' }
+        }
+        $blockedPRList = $excluded | ForEach-Object {
+            @{ number = $_.PR.number; reason = ($_.Reasons -join '; ') }
+        }
+        $blockReason = "$($excluded.Count) PR(s) excluded by guard or eligibility checks"
+        Write-MergeManifest -PreCommit $null -PostCommit $null -Outcomes $blockedOutcomes -HealthResult 'skipped' -HealthCommand $resolvedHealthCommand -BlockedPRs $blockedPRList -FailureReason $blockReason
         exit 1
     }
 
@@ -787,7 +963,13 @@ function Main {
         $dryRunOutcomes = $eligible | ForEach-Object {
             @{ number = $_.number; title = $_.title; status = 'eligible' }
         }
-        Write-MergeManifest -PreCommit $null -PostCommit $null -Outcomes $dryRunOutcomes -HealthResult 'skipped' -HealthCommand $resolvedHealthCommand
+        $dryRunBlocked = @()
+        if ($excluded.Count -gt 0) {
+            $dryRunBlocked = $excluded | ForEach-Object {
+                @{ number = $_.PR.number; reason = ($_.Reasons -join '; ') }
+            }
+        }
+        Write-MergeManifest -PreCommit $null -PostCommit $null -Outcomes $dryRunOutcomes -HealthResult 'skipped' -HealthCommand $resolvedHealthCommand -BlockedPRs $dryRunBlocked -FailureReason $null
         exit 0
     }
 
@@ -817,7 +999,8 @@ function Main {
             Write-Host ""
             Write-Host "Stopping — merge batch aborted after failure on PR #$($pr.number)."
             Write-Host "Merged so far: $($merged.Count) of $($eligible.Count)"
-            Write-MergeManifest -PreCommit $preMergeCommit -Outcomes $mergeOutcomes -HealthResult 'skipped' -HealthCommand $resolvedHealthCommand
+            $mergeFailReason = "Merge failed on PR #$($pr.number): $errMsg"
+            Write-MergeManifest -PreCommit $preMergeCommit -Outcomes $mergeOutcomes -HealthResult 'skipped' -HealthCommand $resolvedHealthCommand -BlockedPRs @() -FailureReason $mergeFailReason
             exit 1
         }
         Write-Host ""
@@ -840,7 +1023,7 @@ function Main {
                 Write-Host "WARNING: Post-merge health gate FAILED (exit code $exitCode)."
                 Write-Host "Do not launch the next wave until main is healthy."
                 $healthResult = 'fail'
-                Write-MergeManifest -PreCommit $preMergeCommit -PostCommit $postMergeCommit -Outcomes $mergeOutcomes -HealthResult $healthResult -HealthCommand $resolvedHealthCommand
+                Write-MergeManifest -PreCommit $preMergeCommit -PostCommit $postMergeCommit -Outcomes $mergeOutcomes -HealthResult $healthResult -HealthCommand $resolvedHealthCommand -BlockedPRs @() -FailureReason "Health gate failed (exit code $exitCode)"
                 exit $exitCode
             }
             Write-Host "Health gate PASSED."
@@ -853,7 +1036,7 @@ function Main {
         }
     }
 
-    Write-MergeManifest -PreCommit $preMergeCommit -PostCommit $postMergeCommit -Outcomes $mergeOutcomes -HealthResult $healthResult -HealthCommand $resolvedHealthCommand
+    Write-MergeManifest -PreCommit $preMergeCommit -PostCommit $postMergeCommit -Outcomes $mergeOutcomes -HealthResult $healthResult -HealthCommand $resolvedHealthCommand -BlockedPRs @() -FailureReason $null
 }
 
 Main
