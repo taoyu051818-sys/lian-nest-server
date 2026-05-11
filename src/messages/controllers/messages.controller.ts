@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards, BadRequestException } from '@nestjs/common';
 import { MessagesUseCase } from '../use-cases/messages.use-case';
 import { CreateMessageDto, MessageResponseDto, MessageListResponseDto } from '../dto/message.dto';
 import { JwtAuthGuard, CurrentUser } from '../../auth';
@@ -30,6 +30,11 @@ export class MessagesController {
     @CurrentUser('sub') uid: number,
     @Param('messageId') messageId: string,
   ): Promise<void> {
-    return this.messagesUseCase.markRead(uid, parseInt(messageId));
+    const trimmed = messageId.trim();
+    const parsed = parseInt(trimmed, 10);
+    if (isNaN(parsed) || parsed <= 0 || String(parsed) !== trimmed) {
+      throw new BadRequestException('Invalid messageId: must be a positive integer');
+    }
+    return this.messagesUseCase.markRead(uid, parsed);
   }
 }

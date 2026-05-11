@@ -90,6 +90,36 @@ describe('MessagesModule', () => {
         'Not implemented: MessagesUseCase.markRead',
       );
     });
+
+    it('should throw BadRequestException for non-numeric messageId', async () => {
+      await expect(messagesController.markRead(1, 'abc')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should throw BadRequestException for float messageId', async () => {
+      await expect(messagesController.markRead(1, '1.5')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should throw BadRequestException for zero messageId', async () => {
+      await expect(messagesController.markRead(1, '0')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should throw BadRequestException for negative messageId', async () => {
+      await expect(messagesController.markRead(1, '-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should throw BadRequestException for empty messageId', async () => {
+      await expect(messagesController.markRead(1, '')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
   });
 
   describe('NotificationsController', () => {
