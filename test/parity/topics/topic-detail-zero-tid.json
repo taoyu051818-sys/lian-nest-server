@@ -1,0 +1,26 @@
+{
+  "id": "topic-detail-zero-tid",
+  "endpoint": "GET /api/topic/:tid",
+  "description": "Requesting a topic with tid=0 returns 404",
+  "request": {
+    "method": "GET",
+    "path": "/api/topic/0",
+    "params": { "tid": "0" }
+  },
+  "expected": {
+    "status": 404,
+    "contentType": "application/json",
+    "body": { "statusCode": 404, "error": "Not Found", "code": "NOT_FOUND" },
+    "bodySchema": {
+      "type": "object",
+      "required": ["statusCode", "error", "code"],
+      "properties": {
+        "statusCode": { "type": "integer", "const": 404 },
+        "error": { "type": "string" },
+        "code": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "notes": "tid=0 fails the tid <= 0 check in TopicsUsecase.getByTid."
+}
