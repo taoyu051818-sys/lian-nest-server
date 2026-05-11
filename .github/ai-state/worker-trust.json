@@ -1,0 +1,125 @@
+{
+  "markerVersion": 1,
+  "capturedAt": "2026-05-11T12:00:00Z",
+  "description": "Worker trust state projection seed — defines trustScore defaults per worker class and scheduling implications.",
+  "workerClasses": {
+    "runtime-feature": {
+      "defaultTrustScore": 0.5,
+      "allowedHealthStates": ["green"],
+      "riskTier": "high",
+      "layer": "feature-repository",
+      "note": "Requires green main; changes affect runtime behavior."
+    },
+    "foundation-fix": {
+      "defaultTrustScore": 0.8,
+      "allowedHealthStates": ["green", "yellow", "red"],
+      "riskTier": "medium",
+      "layer": "runtime-foundation",
+      "note": "Always permitted — exists to repair broken state."
+    },
+    "docs-contract": {
+      "defaultTrustScore": 0.9,
+      "allowedHealthStates": ["green", "yellow"],
+      "riskTier": "low",
+      "layer": "contract-planning",
+      "note": "No runtime impact; safe in yellow state."
+    },
+    "health-gate": {
+      "defaultTrustScore": 0.9,
+      "allowedHealthStates": ["green", "yellow", "red"],
+      "riskTier": "low",
+      "layer": "health-diagnostic",
+      "note": "Always permitted — blocking would deadlock recovery."
+    },
+    "test-only": {
+      "defaultTrustScore": 0.7,
+      "allowedHealthStates": ["green", "yellow"],
+      "riskTier": "medium",
+      "layer": "feature-repository",
+      "note": "Blocked in red; test failures may mask real breakage."
+    },
+    "refactor": {
+      "defaultTrustScore": 0.4,
+      "allowedHealthStates": ["green"],
+      "riskTier": "high",
+      "layer": "feature-repository",
+      "note": "Blocked in yellow/red; refactors on unstable base amplify risk."
+    },
+    "review-audit": {
+      "defaultTrustScore": 0.85,
+      "allowedHealthStates": ["green", "yellow"],
+      "riskTier": "low",
+      "layer": "review-audit",
+      "note": "Read-only; may run in parallel with feature workers."
+    },
+    "merge-release": {
+      "defaultTrustScore": 0.6,
+      "allowedHealthStates": ["green"],
+      "riskTier": "high",
+      "layer": "merge-release",
+      "note": "Depends on feature completion; green main required."
+    }
+  },
+  "trustScore": {
+    "inputs": [
+      {
+        "name": "mainHealthState",
+        "type": "enum",
+        "values": ["green", "yellow", "red", "black"],
+        "weight": 0.3,
+        "description": "Current main branch health from main-health.json. Green adds trust, red/black subtracts."
+      },
+      {
+        "name": "workerClassDefault",
+        "type": "float",
+        "range": [0.0, 1.0],
+        "weight": 0.25,
+        "description": "Baseline trust for the worker class (from this file). Foundation and docs workers have higher defaults."
+      },
+      {
+        "name": "historicalSuccessRate",
+        "type": "float",
+        "range": [0.0, 1.0],
+        "weight": 0.2,
+        "description": "Rolling success rate for this worker class over the last 30 days. Derived from agent:done vs agent:running label transitions."
+      },
+      {
+        "name": "staleWorkerCount",
+        "type": "integer",
+        "min": 0,
+        "weight": 0.15,
+        "description": "Number of currently stale workers. High count reduces trust for new launches."
+      },
+      {
+        "name": "conflictGroupLoad",
+        "type": "integer",
+        "min": 0,
+        "weight": 0.1,
+        "description": "Number of in-flight workers in the same conflict group. Higher load reduces trust."
+      }
+    ],
+    "formula": "weightedSum(inputs) clamped to [0.0, 1.0]",
+    "note": "Inputs are normalized to [0.0, 1.0] before weighting. The formula is a placeholder — actual computation is delegated to the orchestrator."
+  },
+  "scheduling": {
+    "minTrustToLaunch": 0.3,
+    "highTrustThreshold": 0.7,
+    "rules": [
+      {
+        "condition": "trustScore < 0.3",
+        "action": "block_launch",
+        "description": "Do not launch worker. Trust is too low for safe operation."
+      },
+      {
+        "condition": "0.3 <= trustScore < 0.7",
+        "action": "launch_with_monitoring",
+        "description": "Launch worker but enable heartbeat monitoring and require review before merge."
+      },
+      {
+        "condition": "trustScore >= 0.7",
+        "action": "launch_standard",
+        "description": "Standard launch. Worker proceeds through normal lifecycle."
+      }
+    ]
+  }
+}
