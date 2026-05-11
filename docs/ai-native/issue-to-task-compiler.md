@@ -152,6 +152,33 @@ The compiler fits into the orchestration workflow:
 4. **Batch launcher** (`batch-launch.ps1`) creates worktree and runs worker.
 5. **Worker** implements and opens PR.
 
+### Self-Cycle Runner Handoff
+
+The self-cycle runner (`run-self-cycle.ps1`) can invoke issue discovery and
+task compilation automatically via the `-IssueLabel` parameter:
+
+```powershell
+# Discover issues by label, compile to task JSON, review in dry-run
+./scripts/ai/run-self-cycle.ps1 -IssueLabel "agent:codex-action-needed" -Repo owner/name
+
+# After review, feed the compiled task file into the pipeline
+./scripts/ai/run-self-cycle.ps1 -TaskFile ./tasks/discovered-tasks.json -Execute
+```
+
+When `-IssueLabel` is used, the runner:
+
+1. Fetches open issues with the specified label via `gh issue list`.
+2. Parses each issue body for CONTROL APPENDIX metadata (taskType, risk,
+   conflictGroup, allowedFiles, validationCommands, rolePacket).
+3. Builds task JSON contracts with conservative defaults for missing fields.
+4. Writes the compiled array to a temp file.
+5. In dry-run mode: prints contracts and exits for human review.
+6. In execute mode: feeds the task file into the standard pipeline
+   (state reconciler, health gate, launch gate, batch launch).
+
+This removes the manual step of creating task JSON files from issues while
+preserving the human review gate before any work is launched.
+
 ## See Also
 
 - [Worker Task Contract](worker-task-contract.md) -- Schema and field definitions
