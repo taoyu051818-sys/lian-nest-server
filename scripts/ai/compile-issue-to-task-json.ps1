@@ -200,6 +200,23 @@ $task = [ordered]@{
     }
 }
 
+# ── Semantic context handoff ──────────────────────────────────────────────
+# These fields point the worker to the issue body and referenced docs.
+# They are lightweight pointers, not duplicated semantics.
+
+# sourceIssue: always constructed from targetIssue
+$task["sourceIssue"] = "https://github.com/taoyu051818-sys/lian-nest-server/issues/$($issue.targetIssue)"
+
+# knowledgeRefs: pass through from input if present
+if ($issue.PSObject.Properties.Name -contains "knowledgeRefs") {
+    $task["knowledgeRefs"] = @($issue.knowledgeRefs)
+}
+
+# promptHandoff: pass through from input if present
+if ($issue.PSObject.Properties.Name -contains "promptHandoff") {
+    $task["promptHandoff"] = $issue.promptHandoff
+}
+
 # Copy optional fields if present
 $optionalFields = @(
     "attentionAreas", "reviewAndAcceptance", "budgets",

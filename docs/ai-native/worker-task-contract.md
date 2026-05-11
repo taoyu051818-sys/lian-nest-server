@@ -11,8 +11,9 @@ Task JSON is a **control-plane envelope** — it carries scheduling metadata, ro
 | Scheduling boundaries (`allowedFiles`, `forbiddenFiles`, `budgets`, `risk`, `conflictGroup`) | Task JSON |
 | Routing and role assignment (`rolePacket`, `pmPhase`) | Task JSON |
 | Validation gate (`validationCommands`, `mainHealthPolicy`) | Task JSON |
-| **What to build and why** | GitHub issue body, `sourceOfTruthDocs`, role prompt, and docs the worker reads at runtime |
-| **Business rules and acceptance criteria** | GitHub issue body, linked contracts, and architecture docs |
+| Semantic context pointers (`sourceIssue`, `knowledgeRefs`, `promptHandoff`) | Task JSON -- lightweight pointers to sources the worker reads at runtime |
+| **What to build and why** | GitHub issue body (via `sourceIssue`), `knowledgeRefs`, role prompt, and docs the worker reads at runtime |
+| **Business rules and acceptance criteria** | GitHub issue body (via `sourceIssue`), linked contracts, and architecture docs |
 
 The launcher reads JSON to set up the worktree, enforce file boundaries, and run validation commands. The worker reads the GitHub issue body and referenced docs to understand what the task actually means. Workers must not derive task semantics from JSON fields alone — always read the issue and source-of-truth docs first.
 
@@ -58,7 +59,10 @@ The launcher reads JSON to set up the worktree, enforce file boundaries, and run
     "publishPartial": true,
     "maxExtensionMinutes": "number"
   },
-  "pmPhase": "string"
+  "pmPhase": "string",
+  "sourceIssue": "url",
+  "knowledgeRefs": ["file paths or URLs"],
+  "promptHandoff": "concise task description"
 }
 ```
 
@@ -134,6 +138,18 @@ What happens if the worker approaches `hardTimeMinutes` without completing:
 ### pmPhase
 
 The wave phase this task belongs to (e.g., `foundation-wave-1`, `feature-wave-1`). Maps to the wave planning table in `ops/agent-prompts/pm-gate.md`. Used for sequencing and prioritization.
+
+### sourceIssue
+
+GitHub issue URL pointing to the semantic source of truth for this task. The compiler constructs this from `targetIssue`. Workers MUST read the issue body before starting work -- it contains acceptance criteria, business rules, and full context that the task JSON does not encode.
+
+### knowledgeRefs
+
+Array of file paths or URLs the worker should read for semantic context. These point to contracts, architecture docs, SOPs, or other references mentioned in the issue. The compiler passes these through from the input if present.
+
+### promptHandoff
+
+Concise description of what to build and why. Derived from the issue title or body summary. Workers use this as the initial prompt context; full details live in `sourceIssue` and `knowledgeRefs`.
 
 ## Backend Required Fields
 
@@ -270,6 +286,12 @@ For concrete examples by worker tier, see [backend-task-json-examples.md](backen
     "publishPartial": true,
     "maxExtensionMinutes": 10
   },
-  "pmPhase": "foundation-wave-1"
+  "pmPhase": "foundation-wave-1",
+  "sourceIssue": "https://github.com/taoyu051818-sys/lian-nest-server/issues/2",
+  "knowledgeRefs": [
+    "docs/ai-native/worker-task-contract.md",
+    "docs/ai-native/SOP.md"
+  ],
+  "promptHandoff": "Build the AI-native development SOP, role prompts, review gates, and worker contracts."
 }
 ```
