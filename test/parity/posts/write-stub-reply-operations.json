@@ -1,0 +1,46 @@
+{
+  "id": "write-stub-reply-operations",
+  "endpoints": [
+    "POST /api/posts/:postId/replies",
+    "DELETE /api/posts/:postId/replies/:replyId"
+  ],
+  "description": "Reply write operations (create, delete) are stubbed and return 501 Not Implemented. The controller delegates to PostsService which throws NotImplementedException.",
+  "scenarios": [
+    {
+      "id": "create-reply-stub",
+      "request": {
+        "method": "POST",
+        "path": "/api/posts/42/replies",
+        "params": { "postId": "42" },
+        "body": { "content": "This is a reply" }
+      },
+      "expected": {
+        "status": 501,
+        "contentType": "application/json",
+        "body": {
+          "statusCode": 501,
+          "error": "Not Implemented",
+          "message": "PostsService.createReply"
+        }
+      }
+    },
+    {
+      "id": "delete-reply-stub",
+      "request": {
+        "method": "DELETE",
+        "path": "/api/posts/42/replies/100",
+        "params": { "postId": "42", "replyId": "100" }
+      },
+      "expected": {
+        "status": 501,
+        "contentType": "application/json",
+        "body": {
+          "statusCode": 501,
+          "error": "Not Implemented",
+          "message": "PostsService.deleteReply"
+        }
+      }
+    }
+  ],
+  "notes": "Reply write endpoints are contract stubs. The controller delegates to PostsService which throws NotImplementedException. Read endpoints (listReplies) are functional and delegate to NodeBB posts provider."
+}

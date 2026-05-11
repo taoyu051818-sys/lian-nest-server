@@ -7,7 +7,6 @@ import {
   Param,
   Body,
   Query,
-  NotImplementedException,
 } from '@nestjs/common';
 import { PostsService } from './posts.service';
 import type {
@@ -42,21 +41,21 @@ export class PostsController {
   // ---- Write ---------------------------------------------------------------
 
   @Post()
-  createPost(@Body() _body: CreatePostBody): PostDetail {
-    throw new NotImplementedException('PostsController.createPost');
+  createPost(@Body() body: CreatePostBody): PostDetail {
+    return this.postsService.createPost(body);
   }
 
   @Put(':postId')
   updatePost(
-    @Param('postId') _postId: string,
-    @Body() _body: UpdatePostBody,
+    @Param('postId') postId: string,
+    @Body() body: UpdatePostBody,
   ): PostDetail {
-    throw new NotImplementedException('PostsController.updatePost');
+    return this.postsService.updatePost(postId, body);
   }
 
   @Delete(':postId')
-  deletePost(@Param('postId') _postId: string): { deleted: true } {
-    throw new NotImplementedException('PostsController.deletePost');
+  deletePost(@Param('postId') postId: string): { deleted: true } {
+    return this.postsService.deletePost(postId);
   }
 
   // ---- Reactions -----------------------------------------------------------
@@ -70,18 +69,18 @@ export class PostsController {
 
   @Post(':postId/reactions')
   addReaction(
-    @Param('postId') _postId: string,
-    @Body() _body: CreateReactionBody,
+    @Param('postId') postId: string,
+    @Body() body: CreateReactionBody,
   ): PostReactionSummary {
-    throw new NotImplementedException('PostsController.addReaction');
+    return this.postsService.addReaction(postId, body);
   }
 
   @Delete(':postId/reactions/:reactionType')
   removeReaction(
-    @Param('postId') _postId: string,
-    @Param('reactionType') _reactionType: string,
+    @Param('postId') postId: string,
+    @Param('reactionType') reactionType: string,
   ): { removed: true } {
-    throw new NotImplementedException('PostsController.removeReaction');
+    return this.postsService.removeReaction(postId, reactionType);
   }
 
   // ---- Replies -------------------------------------------------------------
@@ -96,17 +95,17 @@ export class PostsController {
 
   @Post(':postId/replies')
   createReply(
-    @Param('postId') _postId: string,
-    @Body() _body: CreateReplyBody,
+    @Param('postId') postId: string,
+    @Body() body: CreateReplyBody,
   ): PostReply {
-    throw new NotImplementedException('PostsController.createReply');
+    return this.postsService.createReply(postId, body);
   }
 
   @Delete(':postId/replies/:replyId')
   deleteReply(
-    @Param('postId') _postId: string,
-    @Param('replyId') _replyId: string,
+    @Param('postId') postId: string,
+    @Param('replyId') replyId: string,
   ): { deleted: true } {
-    throw new NotImplementedException('PostsController.deleteReply');
+    return this.postsService.deleteReply(postId, replyId);
   }
 }
