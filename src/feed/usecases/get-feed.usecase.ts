@@ -19,7 +19,12 @@ export class GetFeedUsecase {
 
   async execute(input: GetFeedInput): Promise<FeedResponseDto> {
     const page = input.page ?? 1;
-    const perPage = input.perPage ?? 20;
+    const perPage = input.perPage ?? input.limit ?? 20;
+    const tags = input.tags?.trim() || undefined;
+    const search = input.search?.trim() || undefined;
+
+    void tags;
+    void search;
 
     const topicsRes = await this.topicsProvider.list({ page });
 

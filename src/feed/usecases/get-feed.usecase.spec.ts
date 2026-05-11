@@ -151,4 +151,114 @@ describe('GetFeedUsecase', () => {
 
     expect(result.items[0].authorUsername).toBe('unknown');
   });
+
+  // --- limit → perPage normalization ---
+
+  it('should use limit as perPage when perPage is not provided', async () => {
+    topicsProvider.list.mockResolvedValue(normalizeOk({ topics: [] }));
+
+    const result = await usecase.execute({ limit: 10, userId: 0 });
+
+    expect(result.perPage).toBe(10);
+  });
+
+  it('should prefer perPage over limit when both are provided', async () => {
+    topicsProvider.list.mockResolvedValue(normalizeOk({ topics: [] }));
+
+    const result = await usecase.execute({ perPage: 5, limit: 15, userId: 0 });
+
+    expect(result.perPage).toBe(5);
+  });
+
+  it('should default perPage to 20 when neither perPage nor limit is provided', async () => {
+    topicsProvider.list.mockResolvedValue(normalizeOk({ topics: [] }));
+
+    const result = await usecase.execute({ userId: 0 });
+
+    expect(result.perPage).toBe(20);
+  });
+
+  it('should default page to 1 when not provided', async () => {
+    topicsProvider.list.mockResolvedValue(normalizeOk({ topics: [] }));
+
+    const result = await usecase.execute({ userId: 0 });
+
+    expect(result.page).toBe(1);
+  });
+
+  // --- tags normalization ---
+
+  it('should normalize tags by trimming whitespace', async () => {
+    topicsProvider.list.mockResolvedValue(normalizeOk({ topics: [] }));
+
+    const result = await usecase.execute({ tags: '  typescript, nestjs  ', userId: 0 });
+
+    expect(result.items).toEqual([]);
+  });
+
+  it('should treat empty string tags as undefined', async () => {
+    topicsProvider.list.mockResolvedValue(normalizeOk({ topics: [] }));
+
+    const result = await usecase.execute({ tags: '   ', userId: 0 });
+
+    expect(result.items).toEqual([]);
+  });
+
+  it('should accept single tag', async () => {
+    topicsProvider.list.mockResolvedValue(normalizeOk({ topics: [] }));
+
+    const result = await usecase.execute({ tags: 'react', userId: 0 });
+
+    expect(result.items).toEqual([]);
+  });
+
+  // --- search normalization ---
+
+  it('should normalize search by trimming whitespace', async () => {
+    topicsProvider.list.mockResolvedValue(normalizeOk({ topics: [] }));
+
+    const result = await usecase.execute({ search: '  hello world  ', userId: 0 });
+
+    expect(result.items).toEqual([]);
+  });
+
+  it('should treat empty string search as undefined', async () => {
+    topicsProvider.list.mockResolvedValue(normalizeOk({ topics: [] }));
+
+    const result = await usecase.execute({ search: '   ', userId: 0 });
+
+    expect(result.items).toEqual([]);
+  });
+
+  it('should accept search with special characters', async () => {
+    topicsProvider.list.mockResolvedValue(normalizeOk({ topics: [] }));
+
+    const result = await usecase.execute({ search: 'c++ & rust', userId: 0 });
+
+    expect(result.items).toEqual([]);
+  });
+
+  // --- combined normalization ---
+
+  it('should normalize all query fields together', async () => {
+    topicsProvider.list.mockResolvedValue(normalizeOk({ topics: [topic] }));
+    postsProvider.getByPid.mockResolvedValue(
+      normalizeOk({ pid: 100, tid: 10, uid: 5, content: 'content', timestamp: 1700000000 }),
+    );
+    usersProvider.getByUid.mockResolvedValue(
+      normalizeOk({ uid: 5, username: 'alice', userslug: 'alice', joindate: 1700000000, reputation: 0, postcount: 10 }),
+    );
+
+    const result = await usecase.execute({
+      page: 2,
+      limit: 10,
+      tags: '  typescript  ',
+      search: '  test  ',
+      userId: 0,
+    });
+
+    expect(result.page).toBe(2);
+    expect(result.perPage).toBe(10);
+    expect(result.items).toHaveLength(1);
+  });
 });
