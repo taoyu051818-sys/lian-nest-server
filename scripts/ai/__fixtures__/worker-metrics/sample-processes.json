@@ -1,0 +1,21 @@
+{
+  "markerVersion": 1,
+  "capturedAt": "2026-05-11T12:00:00Z",
+  "workers": [
+    {
+      "conflictGroup": "worker-metrics-tests",
+      "issue": 604,
+      "branch": "claude/issue-604-worker-metrics-tests"
+    },
+    {
+      "conflictGroup": "control-loop",
+      "issue": 605,
+      "branch": "claude/issue-605-control-loop"
+    },
+    {
+      "conflictGroup": "no-branch-group",
+      "issue": 606,
+      "branch": null
+    }
+  ]
+}
