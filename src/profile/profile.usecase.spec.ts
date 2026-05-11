@@ -461,6 +461,38 @@ describe('ProfileUsecase', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('should throw BadRequestException for non-numeric string pageSize', async () => {
+      await expect(
+        usecase.getLiked('42', { pageSize: 'xyz' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException for fractional string page', async () => {
+      await expect(
+        usecase.getLiked('42', { page: '2.5' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException for string pageSize exceeding max', async () => {
+      await expect(
+        usecase.getLiked('42', { pageSize: '51' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should accept string page=1 with no pageSize', async () => {
+      mockUsersProvider.getLiked.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
+      const result = await usecase.getLiked('42', { page: '3' });
+
+      expect(result.page).toBe(3);
+      expect(result.pageSize).toBe(10);
+    });
+
     it('should include fallback pagination when validation fails', async () => {
       mockUsersProvider.getLiked.mockResolvedValue({
         status: BodyStatus.NOT_FOUND,
@@ -612,6 +644,38 @@ describe('ProfileUsecase', () => {
       await expect(
         usecase.getHistory('42', { page: 'abc' }),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException for non-numeric string pageSize', async () => {
+      await expect(
+        usecase.getHistory('42', { pageSize: 'xyz' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException for fractional string page', async () => {
+      await expect(
+        usecase.getHistory('42', { page: '2.5' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException for string pageSize exceeding max', async () => {
+      await expect(
+        usecase.getHistory('42', { pageSize: '51' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should accept string page=1 with no pageSize', async () => {
+      mockUsersProvider.getHistory.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
+      const result = await usecase.getHistory('42', { page: '3' });
+
+      expect(result.page).toBe(3);
+      expect(result.pageSize).toBe(10);
     });
 
     it('should include fallback pagination when validation fails', async () => {

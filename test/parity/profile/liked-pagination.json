@@ -1,0 +1,47 @@
+{
+  "id": "liked-pagination",
+  "endpoint": "GET /api/profile/:uid/liked",
+  "description": "Liked items with explicit page=2, pageSize=5",
+  "request": {
+    "method": "GET",
+    "path": "/api/profile/<USER_UID>/liked",
+    "params": { "uid": "<USER_UID>" },
+    "query": { "page": 2, "pageSize": 5 }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "items": "<ARRAY>",
+      "total": "<NON_NEG_INT>",
+      "page": 2,
+      "pageSize": 5,
+      "source": "nodebb"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["items", "total", "page", "pageSize", "source"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "type", "targetId", "likedAt"],
+            "properties": {
+              "id": { "type": "string" },
+              "type": { "type": "string", "enum": ["topic", "post"] },
+              "targetId": { "type": "string" },
+              "likedAt": { "type": "string", "format": "date-time" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "total": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "const": 2 },
+        "pageSize": { "type": "integer", "const": 5 },
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] }
+      },
+      "additionalProperties": false
+    }
+  }
+}
