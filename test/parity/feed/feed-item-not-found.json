@@ -1,0 +1,22 @@
+{
+  "id": "feed-item-not-found",
+  "endpoint": "GET /api/feed/:feedItemId",
+  "description": "Single feed item by invalid ID returns 404",
+  "request": {
+    "method": "GET",
+    "path": "/api/feed/t999999",
+    "query": {},
+    "params": { "feedItemId": "t999999" },
+    "headers": {}
+  },
+  "expected": {
+    "status": 404,
+    "contentType": "application/json",
+    "body": {
+      "statusCode": 404,
+      "message": "<STRING>",
+      "error": "Not Found"
+    }
+  },
+  "notes": "t999999 is assumed to not exist in the test seed. Adjust if needed."
+}
