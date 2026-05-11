@@ -13,11 +13,14 @@
       - active        — unmerged with recent commits
 
     Default mode is dry-run: prints a classification report with no side effects.
+    The dry-run report shows what actions would be taken for each category,
+    making it safe to run in CI or before launching new workers.
 
-    Use -RemoveMerged to actually remove worktrees whose branches are fully
-    merged into main. This is the ONLY removal path and never touches dirty
-    or stale worktrees. Merged+dirty worktrees are skipped with a warning
-    unless -Force is also specified.
+    Safety policy:
+      - Only merged worktrees are ever removed (via -RemoveMerged).
+      - Dirty and stale worktrees are NEVER removed automatically.
+      - Merged+dirty worktrees require -Force to remove.
+      - No worktree is deleted without an explicit removal flag.
 
 .PARAMETER WorktreeRoot
     Optional filter — only scan worktrees under this directory path.
@@ -31,17 +34,26 @@
     Remove worktrees whose branches are fully merged into main. Without this
     switch the script is always dry-run.
 
-.EXAMPLE
-    # Dry-run report
-    ./scripts/ai/worktree-janitor.ps1
-
-.EXAMPLE
-    # Remove merged worktrees only
-    ./scripts/ai/worktree-janitor.ps1 -RemoveMerged
+.PARAMETER DryRun
+    Explicit dry-run mode. Prints the classification report and shows what
+    actions would be taken without making any changes. This is the default
+    behavior; use this flag to be explicit about intent.
 
 .PARAMETER Force
     When used with -RemoveMerged, also removes merged+dirty worktrees.
     Without this switch, merged+dirty worktrees are skipped with a warning.
+
+.EXAMPLE
+    # Dry-run report (default — no changes)
+    ./scripts/ai/worktree-janitor.ps1
+
+.EXAMPLE
+    # Explicit dry-run (same as default, but intent is clear)
+    ./scripts/ai/worktree-janitor.ps1 -DryRun
+
+.EXAMPLE
+    # Remove merged worktrees only
+    ./scripts/ai/worktree-janitor.ps1 -RemoveMerged
 
 .EXAMPLE
     # Custom stale threshold
@@ -57,11 +69,18 @@ param(
     [string]$WorktreeRoot = "",
     [int]$StaleDays = 14,
     [switch]$RemoveMerged,
+    [switch]$DryRun,
     [switch]$Force
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# DryRun takes precedence over RemoveMerged for safety
+if ($DryRun -and $RemoveMerged) {
+    Write-Warn "-DryRun specified with -RemoveMerged; running in dry-run mode (no changes)."
+    $RemoveMerged = $false
+}
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -290,16 +309,48 @@ if ($RemoveMerged) {
     }
 } else {
     Write-Host "DRY RUN — no changes made." -ForegroundColor Yellow
+    Write-Host ""
+
+    # Show what -RemoveMerged would do
     $totalMerged = $merged.Count + $mergedDirty.Count
     if ($totalMerged -gt 0) {
-        Write-Host "  To remove merged worktrees:" -ForegroundColor Yellow
-        Write-Host "    ./scripts/ai/worktree-janitor.ps1 -RemoveMerged" -ForegroundColor Yellow
+        Write-Host "  Actions if -RemoveMerged:" -ForegroundColor Yellow
+        if ($merged.Count -gt 0) {
+            Write-Host "    Would remove $($merged.Count) merged worktree(s):" -ForegroundColor Yellow
+            foreach ($r in $merged) {
+                Write-Host "      - $($r.branch) ($($r.path))" -ForegroundColor Gray
+            }
+        }
+        if ($mergedDirty.Count -gt 0) {
+            Write-Host "    Would skip $($mergedDirty.Count) merged+dirty worktree(s) (use -Force to include):" -ForegroundColor Yellow
+            foreach ($r in $mergedDirty) {
+                Write-Host "      - $($r.branch) ($($r.path))" -ForegroundColor Gray
+            }
+        }
+        Write-Host "    Command: ./scripts/ai/worktree-janitor.ps1 -RemoveMerged" -ForegroundColor Yellow
+        Write-Host ""
     }
-    if ($mergedDirty.Count -gt 0) {
-        Write-Host "  To force-remove merged+dirty worktrees:" -ForegroundColor Yellow
-        Write-Host "    ./scripts/ai/worktree-janitor.ps1 -RemoveMerged -Force" -ForegroundColor Yellow
+
+    # Show policy for dirty worktrees (never auto-removed)
+    if ($dirty.Count -gt 0) {
+        Write-Host "  Dirty worktrees (unmerged, $($dirty.Count) found) — policy: NEVER auto-removed:" -ForegroundColor Yellow
+        foreach ($r in $dirty) {
+            Write-Host "    - $($r.branch) ($($r.path))" -ForegroundColor Gray
+        }
+        Write-Host "    Action: cd <path> && git stash  OR  commit changes first" -ForegroundColor Yellow
+        Write-Host ""
     }
-    Write-Host ""
+
+    # Show policy for stale worktrees (never auto-removed)
+    if ($stale.Count -gt 0) {
+        Write-Host "  Stale worktrees (>$StaleDays days, $($stale.Count) found) — policy: NEVER auto-removed:" -ForegroundColor Yellow
+        foreach ($r in $stale) {
+            $daysLabel = if ($r.staleDays -ne $null) { "$($r.staleDays)d" } else { "?" }
+            Write-Host "    - $($r.branch) last=$($r.lastCommit) [$daysLabel] ($($r.path))" -ForegroundColor Gray
+        }
+        Write-Host "    Action: review manually, then git worktree remove <path> && git branch -D <branch>" -ForegroundColor Yellow
+        Write-Host ""
+    }
 }
 
 # ── Exit code ────────────────────────────────────────────────────────────────
