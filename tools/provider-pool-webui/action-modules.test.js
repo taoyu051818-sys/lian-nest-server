@@ -3,18 +3,16 @@
 /**
  * action-modules.test.js
  *
- * Tests for WebUI action modules loaded from actions/ directory.
- * Validates module contract, preview/execute safety, and sanitization.
+ * Tests for WebUI action modules (merge-prs).
  * No external test framework — uses a simple assert helper.
+ * Does NOT perform real merges; validates module shape and
+ * payload validation only.
  *
  * Run: node tools/provider-pool-webui/action-modules.test.js
  */
 
-const fs = require("node:fs");
-const path = require("node:path");
-const os = require("node:os");
-
-const ACTIONS_DIR = path.join(__dirname, "actions");
+const path = require("path");
+const fs = require("fs");
 
 let passed = 0;
 let failed = 0;
@@ -29,312 +27,269 @@ function assert(condition, name) {
   }
 }
 
-// --- Helpers -----------------------------------------------------------------
+// --- Module loading ---------------------------------------------------------
 
-function loadAllModules() {
-  if (!fs.existsSync(ACTIONS_DIR)) return [];
-  const files = fs.readdirSync(ACTIONS_DIR).filter((f) => f.endsWith(".js"));
-  const modules = [];
-  for (const file of files) {
-    try {
-      const mod = require(path.join(ACTIONS_DIR, file));
-      modules.push({ file, mod });
-    } catch (e) {
-      console.error("  SKIP  " + file + " (load error: " + e.message + ")");
-    }
-  }
-  return modules;
-}
+console.log("\nModule loading\n");
 
-function createTmpDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "action-test-"));
-}
+const ACTIONS_DIR = path.resolve(__dirname, "actions");
 
-function writeJson(filePath, data) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n", "utf-8");
-}
+assert(fs.existsSync(ACTIONS_DIR), "actions/ directory exists");
 
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, "utf-8"));
-}
+const mergePrsPath = path.join(ACTIONS_DIR, "merge-prs.js");
+assert(fs.existsSync(mergePrsPath), "actions/merge-prs.js exists");
 
-/**
- * Check that an object contains no secret-like values.
- * Returns true if safe.
- */
-function hasNoSecrets(obj) {
-  const secretPattern = /(api[_-]?key|token|secret|password|credential)/i;
-  const json = JSON.stringify(obj);
-  // Check that no key in the object matches secret patterns
-  function check(o) {
-    if (!o || typeof o !== "object") return true;
-    for (const [k, v] of Object.entries(o)) {
-      if (secretPattern.test(k)) return false;
-      if (typeof v === "object" && !check(v)) return false;
-    }
-    return true;
-  }
-  return check(obj);
-}
+const mergePrs = require(mergePrsPath);
 
-// --- Load modules ------------------------------------------------------------
+// --- Module shape -----------------------------------------------------------
 
-console.log("\n=== Action Module Tests ===\n");
+console.log("\nModule shape\n");
 
-const allModules = loadAllModules();
-assert(allModules.length > 0, "At least one action module loaded from actions/");
+assert(typeof mergePrs.id === "string", "module exports id as string");
+assert(mergePrs.id === "merge-prs", "module id is 'merge-prs'");
+assert(typeof mergePrs.label === "string", "module exports label as string");
+assert(mergePrs.label === "Merge PRs", "label is 'Merge PRs'");
+assert(
+  typeof mergePrs.description === "string",
+  "module exports description as string"
+);
+assert(
+  mergePrs.description.length > 0,
+  "description is non-empty"
+);
+assert(
+  mergePrs.dangerous === true,
+  "module is marked dangerous (requires confirm:true)"
+);
+assert(
+  typeof mergePrs.preview === "function",
+  "module exports preview function"
+);
+assert(
+  typeof mergePrs.execute === "function",
+  "module exports execute function"
+);
 
-// --- Module contract tests ---------------------------------------------------
+// --- Payload validation: preview --------------------------------------------
 
-console.log("\nModule contract\n");
+console.log("\nPayload validation (preview)\n");
 
-for (const { file, mod } of allModules) {
-  const prefix = "module[" + file + "]";
-
-  assert(typeof mod.id === "string" && mod.id.length > 0, prefix + " has string id");
-  assert(typeof mod.label === "string" && mod.label.length > 0, prefix + " has string label");
-  assert(typeof mod.description === "string", prefix + " has string description");
-  assert(typeof mod.dangerous === "boolean", prefix + " has boolean dangerous");
-  assert(typeof mod.execute === "function", prefix + " has execute function");
-}
-
-// --- Provider rotation specific tests ----------------------------------------
-
-console.log("\nprovider-rotation module\n");
-
-const rotationModule = allModules.find((m) => m.mod.id === "provider-rotation");
-
-if (rotationModule) {
-  const mod = rotationModule.mod;
-
-  assert(mod.id === "provider-rotation", "id is 'provider-rotation'");
-  assert(mod.label === "Provider Key Rotation", "label is 'Provider Key Rotation'");
-  assert(mod.dangerous === true, "dangerous is true (requires confirmation)");
-  assert(typeof mod.preview === "function", "has preview function");
-
-  // --- Preview tests with temp state -----------------------------------------
-
-  console.log("\nprovider-rotation preview\n");
-
-  const tmpDir = createTmpDir();
-  const statePath = path.join(tmpDir, "provider-pool.json");
-  const policyPath = path.join(tmpDir, "provider-pool-policy.json");
-
-  writeJson(statePath, {
-    stateVersion: 1,
-    providers: [
-      {
-        id: "test-provider",
-        status: "exhausted",
-        currentConcurrency: 0,
-        maxConcurrency: 2,
-        cooldownExpiresAt: "2099-12-31T23:59:59Z",
-        consecutiveFailures: 3,
-        totalQuotaEvents: 5,
-      },
-    ],
-    global: {
-      totalActiveWorkers: 0,
-      globalMaxWorkers: 3,
-      availableProviders: 0,
-      exhaustedProviders: 1,
-      disabledProviders: 0,
-    },
-  });
-
-  writeJson(policyPath, {
-    policyVersion: 1,
-    providers: [
-      {
-        id: "test-provider",
-        label: "Test Provider",
-        source: "env-var",
-        maxConcurrency: 2,
-      },
-      {
-        id: "disabled-prov",
-        label: "Disabled Provider",
-        source: "env-var",
-        maxConcurrency: 1,
-      },
-    ],
-    secretSources: { allowed: ["env-var"] },
-  });
-
-  // Valid preview
-  const previewResult = mod.preview({
-    providerId: "test-provider",
-    statePath,
-    policyPath,
-  });
-
-  assert(previewResult !== null && typeof previewResult === "object", "preview returns object");
-  assert(previewResult.status === "preview", "preview status is 'preview'");
-  assert(previewResult.dryRun === true, "preview dryRun is true");
-  assert(previewResult.providerId === "test-provider", "preview includes providerId");
-  assert(previewResult.plan !== undefined, "preview includes plan");
-  assert(previewResult.plan.canRotate === true, "plan.canRotate is true");
-  assert(
-    previewResult.plan.currentState.status === "exhausted",
-    "plan shows current status exhausted"
-  );
-  assert(
-    previewResult.plan.targetState.status === "available",
-    "plan shows target status available"
-  );
-  assert(hasNoSecrets(previewResult), "preview contains no secrets");
-
-  // Preview with nonexistent provider
-  let previewThrew = false;
+{
+  let threw = false;
   try {
-    mod.preview({ providerId: "nonexistent", statePath, policyPath });
+    mergePrs.preview(null);
   } catch (e) {
-    previewThrew = true;
-    assert(e.message.includes("not found"), "preview throws for missing provider");
+    threw = true;
+    assert(
+      e.message.includes("Payload must be an object"),
+      "preview(null) throws 'Payload must be an object'"
+    );
   }
-  assert(previewThrew, "preview throws on invalid provider");
-
-  // Preview with missing providerId
-  let missingIdThrew = false;
-  try {
-    mod.preview({});
-  } catch (e) {
-    missingIdThrew = true;
-    assert(e.message.includes("providerId"), "preview throws for missing providerId");
-  }
-  assert(missingIdThrew, "preview throws on missing providerId");
-
-  // --- Execute tests with temp state -----------------------------------------
-
-  console.log("\nprovider-rotation execute\n");
-
-  // Execute on a copy of the state
-  const execStatePath = path.join(tmpDir, "exec-state.json");
-  writeJson(execStatePath, {
-    stateVersion: 1,
-    providers: [
-      {
-        id: "test-provider",
-        status: "exhausted",
-        currentConcurrency: 0,
-        maxConcurrency: 2,
-        cooldownExpiresAt: "2099-12-31T23:59:59Z",
-        consecutiveFailures: 3,
-        totalQuotaEvents: 5,
-      },
-    ],
-    global: {
-      totalActiveWorkers: 0,
-      globalMaxWorkers: 3,
-      availableProviders: 0,
-      exhaustedProviders: 1,
-      disabledProviders: 0,
-    },
-  });
-
-  const execResult = mod.execute({
-    providerId: "test-provider",
-    reason: "test rotation",
-    statePath: execStatePath,
-    policyPath,
-  });
-
-  assert(execResult !== null && typeof execResult === "object", "execute returns object");
-  assert(execResult.status === "rotated", "execute status is 'rotated'");
-  assert(execResult.dryRun === false, "execute dryRun is false");
-  assert(execResult.providerId === "test-provider", "execute includes providerId");
-  assert(Array.isArray(execResult.changes), "execute includes changes array");
-  assert(execResult.changes.length > 0, "execute has at least one change");
-  assert(hasNoSecrets(execResult), "execute contains no secrets");
-
-  // Verify state was actually modified
-  const updatedState = readJson(execStatePath);
-  const updatedProvider = updatedState.providers.find((p) => p.id === "test-provider");
-  assert(updatedProvider.status === "available", "state: provider status is now available");
-  assert(updatedProvider.cooldownExpiresAt === null, "state: cooldown cleared");
-  assert(updatedProvider.consecutiveFailures === 0, "state: failures reset to 0");
-
-  // Execute with nonexistent provider
-  let execThrew = false;
-  try {
-    mod.execute({ providerId: "nonexistent", statePath: execStatePath, policyPath });
-  } catch (e) {
-    execThrew = true;
-    assert(e.message.includes("not found"), "execute throws for missing provider");
-  }
-  assert(execThrew, "execute throws on invalid provider");
-
-  // Execute with missing providerId
-  let execMissingThrew = false;
-  try {
-    mod.execute({});
-  } catch (e) {
-    execMissingThrew = true;
-  }
-  assert(execMissingThrew, "execute throws on missing providerId");
-
-  // --- Disabled provider rotation test ---------------------------------------
-
-  console.log("\nprovider-rotation: disabled provider\n");
-
-  const disabledStatePath = path.join(tmpDir, "disabled-state.json");
-  writeJson(disabledStatePath, {
-    stateVersion: 1,
-    providers: [
-      {
-        id: "disabled-prov",
-        status: "disabled",
-        currentConcurrency: 0,
-        maxConcurrency: 1,
-        cooldownExpiresAt: null,
-        consecutiveFailures: 0,
-        totalQuotaEvents: 2,
-      },
-    ],
-    global: {
-      totalActiveWorkers: 0,
-      globalMaxWorkers: 3,
-      availableProviders: 0,
-      exhaustedProviders: 0,
-      disabledProviders: 1,
-    },
-  });
-
-  const disabledResult = mod.execute({
-    providerId: "disabled-prov",
-    statePath: disabledStatePath,
-    policyPath,
-  });
-
-  assert(disabledResult.status === "rotated", "disabled provider rotation succeeds");
-
-  const disabledState = readJson(disabledStatePath);
-  assert(
-    disabledState.providers[0].status === "available",
-    "disabled provider is now available"
-  );
-  assert(
-    disabledState.global.availableProviders === 1,
-    "global count updated for disabled provider"
-  );
-
-  // Cleanup
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-} else {
-  console.log("  SKIP  provider-rotation module not found\n");
+  assert(threw, "preview(null) throws");
 }
 
-// --- Summary -----------------------------------------------------------------
-
-console.log("\n=== Results ===");
-console.log("  Passed: " + passed);
-console.log("  Failed: " + failed);
-console.log("");
-
-if (failed > 0) {
-  process.exit(1);
-} else {
-  console.log("All tests passed.");
-  process.exit(0);
+{
+  let threw = false;
+  try {
+    mergePrs.preview({});
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("prNumbers"),
+      "preview({}) throws about prNumbers"
+    );
+  }
+  assert(threw, "preview({}) throws");
 }
+
+{
+  let threw = false;
+  try {
+    mergePrs.preview({ prNumbers: [] });
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("non-empty"),
+      "preview with empty prNumbers throws about non-empty"
+    );
+  }
+  assert(threw, "preview with empty prNumbers throws");
+}
+
+{
+  let threw = false;
+  try {
+    mergePrs.preview({ prNumbers: ["abc"] });
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("positive integer"),
+      "preview with string PR throws about positive integer"
+    );
+  }
+  assert(threw, "preview with string PR throws");
+}
+
+{
+  let threw = false;
+  try {
+    mergePrs.preview({ prNumbers: [-1] });
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("positive integer"),
+      "preview with negative PR throws about positive integer"
+    );
+  }
+  assert(threw, "preview with negative PR throws");
+}
+
+{
+  let threw = false;
+  try {
+    mergePrs.preview({ prNumbers: [1.5] });
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("positive integer"),
+      "preview with float PR throws about positive integer"
+    );
+  }
+  assert(threw, "preview with float PR throws");
+}
+
+// --- Payload validation: execute --------------------------------------------
+
+console.log("\nPayload validation (execute)\n");
+
+{
+  let threw = false;
+  try {
+    mergePrs.execute(null);
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("Payload must be an object"),
+      "execute(null) throws 'Payload must be an object'"
+    );
+  }
+  assert(threw, "execute(null) throws");
+}
+
+{
+  let threw = false;
+  try {
+    mergePrs.execute({});
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("prNumbers"),
+      "execute({}) throws about prNumbers"
+    );
+  }
+  assert(threw, "execute({}) throws");
+}
+
+{
+  let threw = false;
+  try {
+    mergePrs.execute({ prNumbers: [42] });
+  } catch (e) {
+    threw = true;
+    // Should throw about missing repo (no payload.repo and no GH_REPO env)
+    assert(
+      e.message.includes("Repository") || e.message.includes("repo"),
+      "execute with valid PRs but no repo throws about repository"
+    );
+  }
+  assert(threw, "execute with valid PRs but no repo throws");
+}
+
+// --- Repo validation --------------------------------------------------------
+
+console.log("\nRepo validation\n");
+
+{
+  let threw = false;
+  try {
+    mergePrs.preview({ prNumbers: [42], repo: "not-a-valid-repo" });
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("OWNER/NAME"),
+      "invalid repo format throws about OWNER/NAME"
+    );
+  }
+  assert(threw, "invalid repo format throws");
+}
+
+{
+  let threw = false;
+  try {
+    mergePrs.preview({ prNumbers: [42], repo: "" });
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("Repository not specified"),
+      "empty repo throws about not specified"
+    );
+  }
+  assert(threw, "empty repo throws");
+}
+
+// --- Module integration with server loading ---------------------------------
+
+console.log("\nServer integration\n");
+
+// Simulate how server.js loads modules
+const serverPath = path.resolve(__dirname, "server.js");
+assert(fs.existsSync(serverPath), "server.js exists for integration reference");
+
+// Verify the module would be accepted by loadActionModules validation
+assert(
+  typeof mergePrs.id === "string" && typeof mergePrs.label === "string",
+  "module passes server loadActionModules shape check"
+);
+
+// Verify dangerous flag is coerced correctly (server does !!mod.dangerous)
+assert(
+  !!mergePrs.dangerous === true,
+  "module dangerous flag coerces to true"
+);
+
+// --- No secrets in module ---------------------------------------------------
+
+console.log("\nNo secrets in module\n");
+
+const moduleSource = fs.readFileSync(mergePrsPath, "utf-8");
+assert(
+  !/sk-ant-/.test(moduleSource),
+  "module source contains no API key patterns"
+);
+assert(
+  !/ghp_/.test(moduleSource),
+  "module source contains no GitHub token patterns"
+);
+assert(
+  !/process\.env\.(?!GH_REPO)/.test(moduleSource),
+  "module only reads GH_REPO from env (no secret env vars)"
+);
+
+// --- No raw stdout/stderr in module ----------------------------------------
+
+console.log("\nNo raw stdout/stderr exposure\n");
+
+// The module should never return raw stderr to the caller
+assert(
+  !moduleSource.includes("err.stderr"),
+  "module does not expose raw stderr"
+);
+// The module sanitizes stdout through extractManifest only
+assert(
+  moduleSource.includes("extractManifest"),
+  "module uses extractManifest to sanitize output"
+);
+
+// --- Summary ----------------------------------------------------------------
+
+console.log("\n" + passed + " passed, " + failed + " failed\n");
+process.exit(failed > 0 ? 1 : 0);
