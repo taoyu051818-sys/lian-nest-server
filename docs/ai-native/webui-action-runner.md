@@ -77,11 +77,30 @@ const result = await runAction("disable-provider", {
 {
   ok: false,
   action: "disable-provider",
-  mode: "rejected",          // or "confirmation-required"
+  mode: "rejected",
   error: "Provider not found: nonexistent",
   timestamp: "2026-05-11T14:30:00.000Z"
 }
 ```
+
+### Confirmation-Required Result
+
+```js
+{
+  ok: false,
+  action: "disable-provider",
+  mode: "confirmation-required",
+  changes: [ ... ],          // what would change
+  summary: "Disable provider ...",  // human-readable preview
+  error: "Execute mode requires confirm=true",
+  timestamp: "2026-05-11T14:30:00.000Z"
+}
+```
+
+Error responses are sanitized — they never contain secret values from
+`params`, even if the caller passed them. State read failures use the
+generic message `"Cannot read provider pool state"` rather than exposing
+file paths.
 
 ---
 
@@ -113,7 +132,24 @@ const result = await runAction("disable-provider", {
 ```
 
 Execute mode without `confirm: true` returns `mode: "confirmation-required"`
-and does not modify state.
+and does not modify state. The response still includes `changes` and `summary`
+so the caller can present what *would* happen before asking for confirmation.
+
+```js
+const result = await runAction("disable-provider", {
+  dryRun: false,
+  params: { providerId: "provider-default" },
+});
+// result.ok === false
+// result.mode === "confirmation-required"
+// result.changes → [{ target, field, from, to }]  (what would change)
+// result.summary → human-readable description
+// State file is NOT modified.
+// Audit log is NOT written.
+```
+
+All five allowlisted actions are dangerous without confirm — state mutations
+are never applied unless `confirm: true` is passed.
 
 ### Rejected
 
@@ -122,15 +158,49 @@ Actions not in the allowlist, or with invalid parameters, return
 
 ---
 
+## Refusal Paths
+
+Every failure mode returns `ok: false` with a descriptive `error` string.
+Error messages never contain secret values, parameter payloads, or internal
+file paths (see [Security Constraints](#security-constraints)).
+
+| Trigger | Error | Mode |
+|---------|-------|------|
+| Action not in `ALLOWED_ACTIONS` | `"Action not allowlisted: <action>"` | `rejected` |
+| Missing `params` object | `"params object is required"` | `rejected` |
+| Missing `providerId` for provider-scoped action | `"providerId is required"` | `rejected` |
+| Missing `value` for adjust actions | `"value is required"` | `rejected` |
+| State file unreadable | `"Cannot read provider pool state"` | `rejected` |
+| Provider not found | `"Provider not found: <id>"` | `rejected` |
+| Provider already disabled (disable-provider) | `"Provider is already disabled"` | `rejected` |
+| Provider not disabled (enable-provider) | `"Provider is not disabled (current: <status>)"` | `rejected` |
+| No active cooldown (reset-cooldown) | `"Provider has no active cooldown"` | `rejected` |
+| Value not positive integer | `"value must be a positive integer"` | `rejected` |
+| Concurrency exceeds globalMaxWorkers | `"value (<n>) exceeds globalMaxWorkers (<n>)"` | `rejected` |
+| Execute without `confirm: true` | `"Execute mode requires confirm=true"` | `confirmation-required` |
+| Operation timeout exceeded | `"Action timed out after <n>ms"` | (thrown error) |
+
+The refusal check order is:
+1. Allowlist → 2. Params shape → 3. State file → 4. Handler validation
+
+Steps 1–3 short-circuit before the handler runs. Step 4 runs the
+action-specific validation (provider existence, state constraints).
+
+---
+
 ## Validation Rules
 
-| Action | Constraint |
-|--------|-----------|
-| `disable-provider` | Provider must exist and not already be disabled |
-| `enable-provider` | Provider must exist and be in `disabled` status |
-| `reset-cooldown` | Provider must exist and have an active `cooldownExpiresAt` |
-| `adjust-max-concurrency` | Value must be positive integer, not exceed `globalMaxWorkers` |
-| `adjust-global-max-workers` | Value must be positive integer |
+These are the handler-level validations (step 4 in the refusal chain).
+Pre-checks (allowlist, params shape, state file) are documented in
+[Refusal Paths](#refusal-paths).
+
+| Action | Constraint | Refusal error |
+|--------|-----------|---------------|
+| `disable-provider` | Provider must exist and not already be disabled | `"Provider not found"` / `"Provider is already disabled"` |
+| `enable-provider` | Provider must exist and be in `disabled` status | `"Provider not found"` / `"Provider is not disabled"` |
+| `reset-cooldown` | Provider must exist and have an active `cooldownExpiresAt` | `"Provider not found"` / `"Provider has no active cooldown"` |
+| `adjust-max-concurrency` | Value must be positive integer, not exceed `globalMaxWorkers` | `"positive integer"` / `"exceeds globalMaxWorkers"` |
+| `adjust-global-max-workers` | Value must be positive integer | `"positive integer"` |
 
 ---
 
@@ -138,6 +208,14 @@ Actions not in the allowlist, or with invalid parameters, return
 
 Every `runAction` call produces an audit entry (returned in `result.audit`).
 In execute mode, entries are appended to `provider-ui-audit.ndjson`:
+
+**Preview mode:** The audit entry is returned in `result.audit` but is NOT
+written to the audit file. No file is created. This lets callers display
+what *would* be logged without side effects.
+
+**Execute mode:** The audit entry is appended to `provider-ui-audit.ndjson`
+as a single-line JSON object (NDJSON format). Each subsequent action
+appends a new line. The file is created if it does not exist.
 
 ```json
 {
@@ -156,6 +234,18 @@ In execute mode, entries are appended to `provider-ui-audit.ndjson`:
 Audit entries never contain secrets. Parameters with keys containing
 `secret`, `token`, `key`, or `password` are stripped before logging.
 
+Audit entry fields:
+
+| Field | Description |
+|-------|-------------|
+| `timestamp` | ISO 8601 timestamp of the action |
+| `action` | The action name |
+| `params` | Sanitized parameters (secret/token/key/password keys stripped) |
+| `actor` | Who initiated the action (default: `"webui"`) |
+| `mode` | `"preview"` or `"execute"` |
+| `changes` | Array of `{ target, field, from, to }` |
+| `summary` | Human-readable description (never contains secrets) |
+
 ---
 
 ## Security Constraints
@@ -165,6 +255,7 @@ Audit entries never contain secrets. Parameters with keys containing
 | Allowlist only | Actions not in `ALLOWED_ACTIONS` are rejected |
 | No secret exposure | `sanitizeProvider()` strips `secret`, `sourcePath`, `secretSources` |
 | No secret logging | `sanitizeParams()` strips keys matching secret/token/key/password |
+| Error sanitization | Error responses never contain secret param values; state read failures use generic `"Cannot read provider pool state"` |
 | Preview by default | `dryRun` defaults to `true` |
 | Confirmation required | Execute mode needs explicit `confirm: true` |
 | Timeout bounded | Default 5s, configurable via `timeoutMs` |
