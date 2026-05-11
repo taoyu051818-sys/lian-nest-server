@@ -172,6 +172,92 @@ The module warns (non-blocking) when:
 
 ---
 
+## Safety Contract
+
+### Schema Validation
+
+Validation runs on both `preview` and `execute`. Errors throw; warnings
+are non-blocking.
+
+**Payload type guard:** Payload must be a non-null, non-array object.
+`null`, `undefined`, primitives, and arrays all fail with
+`"Payload must be a non-null object"`.
+
+**Required fields:**
+`targetIssue`, `taskType`, `risk`, `conflictGroup`, `allowedFiles`,
+`validationCommands`, `rolePacket`.
+
+Each required field is checked for three failure modes:
+- `undefined` or `null`
+- empty array
+- whitespace-only string
+
+All missing fields are batched into a single error message.
+
+**Enum constraints:**
+
+| Field | Valid values |
+|-------|-------------|
+| `taskType` | `execution`, `research`, `review` |
+| `risk` | `low`, `medium`, `high` |
+
+**Nested constraints:**
+- `rolePacket.actorRole` must be truthy when `rolePacket` is an object.
+
+**Known type-conflation gaps** ([#853](https://github.com/taoyu051818-sys/lian-nest-server/issues/853)):
+The validator currently accepts strings where integers or arrays are
+expected for `targetIssue`, `allowedFiles`, `validationCommands`, and
+`rolePacket`. These are tracked as known defects.
+
+### Dry-Run Output Guarantees
+
+`preview` returns a summary only — the compiled `task` object is never
+included:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `valid` | `true` | Always set for payloads that pass validation |
+| `outputMode` | string | `v1` or `v2` |
+| `targetIssue` | integer | Echoed from input |
+| `taskType` | string | Echoed from input |
+| `risk` | string | Echoed from input |
+| `conflictGroup` | string | Echoed from input |
+| `allowedFileCount` | number | Count, not the array itself |
+| `forbiddenFileCount` | number | Count, not the array itself |
+| `validationCommandCount` | number | Count, not the array itself |
+| `warnings` | string[] | Non-blocking warnings |
+| `dryRun` | `true` | Always set |
+
+No `task` key is present in the preview response. This prevents preview
+from leaking compiled task data.
+
+### Task Boundary Constraints
+
+**Immutable defaults:**
+
+| Field | Default |
+|-------|---------|
+| `targetPR` | `null` |
+| `issues` | `[]` |
+| `expectedPR` | `true` |
+| `forbiddenFiles` | `[]` |
+| `rolePacket.description` | `"Worker for issue #<targetIssue>"` |
+| `sourceIssue` | Derived from repo URL + issue number |
+
+**Array cloning:** All array fields (`allowedFiles`, `forbiddenFiles`,
+`validationCommands`, `knowledgeRefs`) are shallow-cloned. Mutating
+payload arrays after `execute()` does not affect the returned task.
+
+**No field leakage:** Extra payload fields (e.g. `extraField`, `secrets`)
+are not passed through to the output task. Only explicitly listed fields
+are copied, preventing accidental exposure of payload metadata.
+
+**Non-mutation guarantee:** Neither `preview` nor `execute` mutates the
+input payload. All array fields remain reference-identical to their
+pre-call values.
+
+---
+
 ## Example: curl
 
 ```bash
