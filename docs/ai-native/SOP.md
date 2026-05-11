@@ -11,7 +11,7 @@ Complete standard operating procedure for issue-driven, AI-worker-based developm
 
 ## Roles
 
-See [roles.md](roles.md) for full role definitions and [../ops/agent-prompts/](../ops/agent-prompts/) for executable prompts.
+See [roles.md](roles.md) for full role definitions and [../../ops/agent-prompts/](../../ops/agent-prompts/) for executable prompts.
 
 | Role | Responsibility |
 |------|---------------|
