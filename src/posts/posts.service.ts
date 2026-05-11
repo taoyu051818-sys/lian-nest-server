@@ -10,6 +10,7 @@ import {
 } from '../nodebb';
 import type {
   PostDetail,
+  PostListItem,
   PostPaginatedList,
   PostReactionSummary,
   PostReply,
@@ -36,8 +37,27 @@ export class PostsService {
 
   // ---- Read ----------------------------------------------------------------
 
-  listPosts(_query: ListPostsQuery): PostPaginatedList {
-    throw new NotImplementedException('PostsService.listPosts');
+  async listPosts(query: ListPostsQuery): Promise<PostPaginatedList> {
+    const page = Math.max(1, Math.floor(Number(query.page) || 1));
+    const perPage = Math.max(1, Math.min(100, Math.floor(Number(query.perPage) || 20)));
+
+    const res = await this.topicsProvider.list({ page });
+
+    if (res.status !== BodyStatus.OK || !res.data) {
+      return { items: [], totalCount: 0, page, perPage };
+    }
+
+    const topics = res.data.topics ?? [];
+
+    const items: PostListItem[] = topics.map((t) => ({
+      id: String(t.mainPid),
+      author: { uid: t.uid, username: '', avatar: null, reputation: 0 },
+      content: t.title,
+      createdAt: new Date(t.timestamp * 1000).toISOString(),
+      replyCount: Math.max(0, (t.postcount ?? 1) - 1),
+    }));
+
+    return { items, totalCount: items.length, page, perPage };
   }
 
   async getPostDetail(postId: string): Promise<PostDetail> {
