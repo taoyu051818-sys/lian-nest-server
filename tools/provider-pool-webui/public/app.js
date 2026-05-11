@@ -768,20 +768,49 @@ function buildPayloadForm(actionMeta, allData) {
   const form = el('div', { className: 'action-form' });
   const providers = allData.state?.providers || [];
 
-  // If the action id hints at provider context, add a provider selector
-  const isProviderAction = /provider|cooldown|retry/i.test(actionMeta.id);
+  // Structured form for merge-prs action
+  const isMergePrsAction = actionMeta.id === 'merge-prs';
 
-  if (isProviderAction && providers.length > 0) {
-    const selectWrap = el('div', { className: 'action-form__field' });
-    selectWrap.append(el('label', { className: 'action-form__label', textContent: 'Provider' }));
+  if (isMergePrsAction) {
+    // PR Numbers input
+    const prWrap = el('div', { className: 'action-form__field' });
+    prWrap.append(el('label', { className: 'action-form__label', textContent: 'PR Numbers' }));
+    prWrap.append(el('input', {
+      className: 'action-form__input',
+      type: 'text',
+      'data-field': 'prNumbers',
+      placeholder: 'e.g. 760, 759, 758',
+      autocomplete: 'off',
+    }));
+    form.append(prWrap);
 
-    const select = el('select', { className: 'action-form__select', 'data-field': 'providerId' });
-    select.append(el('option', { value: '', textContent: '— select provider —' }));
-    for (const p of providers) {
-      select.append(el('option', { value: p.id, textContent: `${p.id} (${p.status})` }));
+    // Repo input (optional)
+    const repoWrap = el('div', { className: 'action-form__field' });
+    repoWrap.append(el('label', { className: 'action-form__label', textContent: 'Repository (optional)' }));
+    repoWrap.append(el('input', {
+      className: 'action-form__input',
+      type: 'text',
+      'data-field': 'repo',
+      placeholder: 'e.g. owner/repo (defaults to GH_REPO env)',
+      autocomplete: 'off',
+    }));
+    form.append(repoWrap);
+  } else {
+    // If the action id hints at provider context, add a provider selector
+    const isProviderAction = /provider|cooldown|retry/i.test(actionMeta.id);
+
+    if (isProviderAction && providers.length > 0) {
+      const selectWrap = el('div', { className: 'action-form__field' });
+      selectWrap.append(el('label', { className: 'action-form__label', textContent: 'Provider' }));
+
+      const select = el('select', { className: 'action-form__select', 'data-field': 'providerId' });
+      select.append(el('option', { value: '', textContent: '— select provider —' }));
+      for (const p of providers) {
+        select.append(el('option', { value: p.id, textContent: `${p.id} (${p.status})` }));
+      }
+      selectWrap.append(select);
+      form.append(selectWrap);
     }
-    selectWrap.append(select);
-    form.append(selectWrap);
   }
 
   // Generic JSON payload editor for advanced params
@@ -812,12 +841,32 @@ function collectFormPayload(form) {
     if (input.value) payload[input.dataset.field] = input.value;
   }
 
+  // Parse prNumbers from comma-separated text into array of integers
+  if (typeof payload.prNumbers === 'string' && payload.prNumbers.trim()) {
+    const parsed = payload.prNumbers
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => Number.isInteger(n) && n > 0);
+    payload.prNumbers = parsed.length > 0 ? parsed : undefined;
+    if (payload.prNumbers === undefined) delete payload.prNumbers;
+  }
+
   // Merge JSON payload if provided
   const textarea = form.querySelector('textarea[data-field="jsonPayload"]');
   if (textarea && textarea.value.trim()) {
     try {
       const jsonPayload = JSON.parse(textarea.value.trim());
+      // Structured fields take precedence over JSON payload
       Object.assign(payload, jsonPayload);
+      // Re-apply prNumbers if it was set from structured input
+      const prInput = form.querySelector('input[data-field="prNumbers"]');
+      if (prInput && prInput.value.trim()) {
+        const reParsed = prInput.value
+          .split(',')
+          .map((s) => parseInt(s.trim(), 10))
+          .filter((n) => Number.isInteger(n) && n > 0);
+        if (reParsed.length > 0) payload.prNumbers = reParsed;
+      }
     } catch {
       // ignore invalid JSON — server will handle it
     }

@@ -43,6 +43,18 @@ const FIELD_TYPES = Object.freeze({
     placeholder: "e.g. strategy",
     autocomplete: "off",
   }),
+  prNumbers: Object.freeze({
+    type: "text",
+    label: "PR Numbers",
+    placeholder: "e.g. 760, 759, 758 (comma-separated)",
+    autocomplete: "off",
+  }),
+  repo: Object.freeze({
+    type: "text",
+    label: "Repository",
+    placeholder: "e.g. owner/repo",
+    autocomplete: "off",
+  }),
 });
 
 const DEFAULT_FIELD = Object.freeze({

@@ -47,6 +47,8 @@ assert(FIELD_TYPES.workerId.type === "text", "workerId type is text");
 assert(FIELD_TYPES.target.type === "text", "target type is text");
 assert(FIELD_TYPES.value.type === "number", "value type is number");
 assert(FIELD_TYPES.field.type === "text", "field type is text");
+assert(FIELD_TYPES.prNumbers.type === "text", "prNumbers type is text");
+assert(FIELD_TYPES.repo.type === "text", "repo type is text");
 
 // --- RISK_BADGE constants ----------------------------------------------------
 
@@ -116,6 +118,20 @@ console.log("\nbuildFieldDescriptor\n");
   const f5 = buildFieldDescriptor("field");
   assert(f5.name === "field", "field field name correct");
   assert(f5.label === "Policy Field", "field label is humanized");
+
+  const fPr = buildFieldDescriptor("prNumbers");
+  assert(fPr.name === "prNumbers", "prNumbers field name correct");
+  assert(fPr.type === "text", "prNumbers type is text");
+  assert(fPr.required === true, "prNumbers is required");
+  assert(fPr.label === "PR Numbers", "prNumbers label is correct");
+  assert(typeof fPr.placeholder === "string", "prNumbers has placeholder");
+
+  const fRepo = buildFieldDescriptor("repo");
+  assert(fRepo.name === "repo", "repo field name correct");
+  assert(fRepo.type === "text", "repo type is text");
+  assert(fRepo.required === true, "repo is required");
+  assert(fRepo.label === "Repository", "repo label is correct");
+  assert(typeof fRepo.placeholder === "string", "repo has placeholder");
 
   // Unknown field gets default treatment
   const f6 = buildFieldDescriptor("customParam");
