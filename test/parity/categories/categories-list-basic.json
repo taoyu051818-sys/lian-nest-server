@@ -1,0 +1,60 @@
+{
+  "id": "categories-list-basic",
+  "endpoint": "GET /api/categories",
+  "description": "Standard categories list with mapped results from NodeBB categories",
+  "request": {
+    "method": "GET",
+    "path": "/api/categories"
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "categories": [
+        {
+          "cid": "<POSITIVE_INT>",
+          "name": "<STRING>",
+          "slug": "<STRING>",
+          "description": "<STRING>",
+          "icon": "<STRING>",
+          "color": "<STRING>",
+          "bgColor": "<STRING>",
+          "topicCount": "<NON_NEG_INT>",
+          "postCount": "<NON_NEG_INT>"
+        }
+      ],
+      "source": "nodebb"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["categories", "source"],
+      "properties": {
+        "categories": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CategoryItem" }
+        },
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "CategoryItem": {
+          "type": "object",
+          "required": ["cid", "name", "slug", "description", "icon", "color", "bgColor", "topicCount", "postCount"],
+          "properties": {
+            "cid": { "type": "integer", "minimum": 1 },
+            "name": { "type": "string" },
+            "slug": { "type": "string" },
+            "description": { "type": "string" },
+            "icon": { "type": "string" },
+            "color": { "type": "string" },
+            "bgColor": { "type": "string" },
+            "topicCount": { "type": "integer", "minimum": 0 },
+            "postCount": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "notes": "Categories list maps from NodeBB categories. Disabled categories are filtered out. When NodeBB is unreachable or returns an error, the response falls back to an empty list with source=fallback."
+}

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CategoriesModule } from './categories';
 import { ConfigModule, ConfigService } from './config';
 import { HealthModule } from './health';
 import { MessagesModule } from './messages';
@@ -10,6 +11,7 @@ import { TagsModule } from './tags';
 
 @Module({
   imports: [
+    CategoriesModule,
     ConfigModule,
     HealthModule,
     MessagesModule,
