@@ -1,0 +1,64 @@
+{
+  "id": "write-stub-post-operations",
+  "endpoints": [
+    "POST /api/posts",
+    "PUT /api/posts/:postId",
+    "DELETE /api/posts/:postId"
+  ],
+  "description": "Post write operations (create, update, delete) are stubbed and return 501 Not Implemented. The controller delegates to PostsService which throws NotImplementedException.",
+  "scenarios": [
+    {
+      "id": "create-post-stub",
+      "request": {
+        "method": "POST",
+        "path": "/api/posts",
+        "body": { "content": "Hello world" }
+      },
+      "expected": {
+        "status": 501,
+        "contentType": "application/json",
+        "body": {
+          "statusCode": 501,
+          "error": "Not Implemented",
+          "message": "PostsService.createPost"
+        }
+      }
+    },
+    {
+      "id": "update-post-stub",
+      "request": {
+        "method": "PUT",
+        "path": "/api/posts/1",
+        "params": { "postId": "1" },
+        "body": { "content": "Updated content" }
+      },
+      "expected": {
+        "status": 501,
+        "contentType": "application/json",
+        "body": {
+          "statusCode": 501,
+          "error": "Not Implemented",
+          "message": "PostsService.updatePost"
+        }
+      }
+    },
+    {
+      "id": "delete-post-stub",
+      "request": {
+        "method": "DELETE",
+        "path": "/api/posts/1",
+        "params": { "postId": "1" }
+      },
+      "expected": {
+        "status": 501,
+        "contentType": "application/json",
+        "body": {
+          "statusCode": 501,
+          "error": "Not Implemented",
+          "message": "PostsService.deletePost"
+        }
+      }
+    }
+  ],
+  "notes": "All post write endpoints are contract stubs. The controller delegates to PostsService which throws NotImplementedException. NodeBB write semantics are not implemented. These stubs establish the API surface for future implementation."
+}

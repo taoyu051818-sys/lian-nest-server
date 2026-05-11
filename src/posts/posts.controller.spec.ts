@@ -8,6 +8,13 @@ const mockPostsService = {
   listPosts: jest.fn(),
   listReactions: jest.fn(),
   listReplies: jest.fn(),
+  createPost: jest.fn(),
+  updatePost: jest.fn(),
+  deletePost: jest.fn(),
+  addReaction: jest.fn(),
+  removeReaction: jest.fn(),
+  createReply: jest.fn(),
+  deleteReply: jest.fn(),
 };
 
 describe('PostsController', () => {
@@ -56,24 +63,39 @@ describe('PostsController', () => {
   // ---- Write ---------------------------------------------------------------
 
   describe('createPost', () => {
-    it('should throw NotImplementedException', () => {
+    it('should delegate to PostsService.createPost', () => {
+      mockPostsService.createPost.mockImplementation(() => {
+        throw new NotImplementedException('PostsService.createPost');
+      });
+
       expect(() => controller.createPost({ content: 'hello' })).toThrow(
         NotImplementedException,
       );
+      expect(mockPostsService.createPost).toHaveBeenCalledWith({ content: 'hello' });
     });
   });
 
   describe('updatePost', () => {
-    it('should throw NotImplementedException', () => {
-      expect(() =>
-        controller.updatePost('1', { content: 'updated' }),
-      ).toThrow(NotImplementedException);
+    it('should delegate to PostsService.updatePost', () => {
+      mockPostsService.updatePost.mockImplementation(() => {
+        throw new NotImplementedException('PostsService.updatePost');
+      });
+
+      expect(() => controller.updatePost('1', { content: 'updated' })).toThrow(
+        NotImplementedException,
+      );
+      expect(mockPostsService.updatePost).toHaveBeenCalledWith('1', { content: 'updated' });
     });
   });
 
   describe('deletePost', () => {
-    it('should throw NotImplementedException', () => {
+    it('should delegate to PostsService.deletePost', () => {
+      mockPostsService.deletePost.mockImplementation(() => {
+        throw new NotImplementedException('PostsService.deletePost');
+      });
+
       expect(() => controller.deletePost('1')).toThrow(NotImplementedException);
+      expect(mockPostsService.deletePost).toHaveBeenCalledWith('1');
     });
   });
 
@@ -94,18 +116,28 @@ describe('PostsController', () => {
   });
 
   describe('addReaction', () => {
-    it('should throw NotImplementedException', () => {
-      expect(() =>
-        controller.addReaction('1', { type: 'like' as any }),
-      ).toThrow(NotImplementedException);
+    it('should delegate to PostsService.addReaction', () => {
+      mockPostsService.addReaction.mockImplementation(() => {
+        throw new NotImplementedException('PostsService.addReaction');
+      });
+
+      expect(() => controller.addReaction('1', { type: 'like' as any })).toThrow(
+        NotImplementedException,
+      );
+      expect(mockPostsService.addReaction).toHaveBeenCalledWith('1', { type: 'like' });
     });
   });
 
   describe('removeReaction', () => {
-    it('should throw NotImplementedException', () => {
+    it('should delegate to PostsService.removeReaction', () => {
+      mockPostsService.removeReaction.mockImplementation(() => {
+        throw new NotImplementedException('PostsService.removeReaction');
+      });
+
       expect(() => controller.removeReaction('1', 'like')).toThrow(
         NotImplementedException,
       );
+      expect(mockPostsService.removeReaction).toHaveBeenCalledWith('1', 'like');
     });
   });
 
@@ -124,18 +156,26 @@ describe('PostsController', () => {
   });
 
   describe('createReply', () => {
-    it('should throw NotImplementedException', () => {
-      expect(() =>
-        controller.createReply('1', { content: 'reply' }),
-      ).toThrow(NotImplementedException);
+    it('should delegate to PostsService.createReply', () => {
+      mockPostsService.createReply.mockImplementation(() => {
+        throw new NotImplementedException('PostsService.createReply');
+      });
+
+      expect(() => controller.createReply('1', { content: 'reply' })).toThrow(
+        NotImplementedException,
+      );
+      expect(mockPostsService.createReply).toHaveBeenCalledWith('1', { content: 'reply' });
     });
   });
 
   describe('deleteReply', () => {
-    it('should throw NotImplementedException', () => {
-      expect(() => controller.deleteReply('1', 'r1')).toThrow(
-        NotImplementedException,
-      );
+    it('should delegate to PostsService.deleteReply', () => {
+      mockPostsService.deleteReply.mockImplementation(() => {
+        throw new NotImplementedException('PostsService.deleteReply');
+      });
+
+      expect(() => controller.deleteReply('1', 'r1')).toThrow(NotImplementedException);
+      expect(mockPostsService.deleteReply).toHaveBeenCalledWith('1', 'r1');
     });
   });
 });

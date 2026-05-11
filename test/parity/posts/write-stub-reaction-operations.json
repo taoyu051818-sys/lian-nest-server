@@ -1,0 +1,46 @@
+{
+  "id": "write-stub-reaction-operations",
+  "endpoints": [
+    "POST /api/posts/:postId/reactions",
+    "DELETE /api/posts/:postId/reactions/:reactionType"
+  ],
+  "description": "Reaction write operations (add, remove) are stubbed and return 501 Not Implemented. The controller delegates to PostsService which throws NotImplementedException.",
+  "scenarios": [
+    {
+      "id": "add-reaction-stub",
+      "request": {
+        "method": "POST",
+        "path": "/api/posts/42/reactions",
+        "params": { "postId": "42" },
+        "body": { "type": "like" }
+      },
+      "expected": {
+        "status": 501,
+        "contentType": "application/json",
+        "body": {
+          "statusCode": 501,
+          "error": "Not Implemented",
+          "message": "PostsService.addReaction"
+        }
+      }
+    },
+    {
+      "id": "remove-reaction-stub",
+      "request": {
+        "method": "DELETE",
+        "path": "/api/posts/42/reactions/like",
+        "params": { "postId": "42", "reactionType": "like" }
+      },
+      "expected": {
+        "status": 501,
+        "contentType": "application/json",
+        "body": {
+          "statusCode": 501,
+          "error": "Not Implemented",
+          "message": "PostsService.removeReaction"
+        }
+      }
+    }
+  ],
+  "notes": "Reaction write endpoints are contract stubs. The controller delegates to PostsService which throws NotImplementedException. Supported reaction types are defined in PostReactionType enum: like, love, haha, wow, sad, angry."
+}
