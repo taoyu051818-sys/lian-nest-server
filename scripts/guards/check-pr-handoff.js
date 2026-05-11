@@ -43,12 +43,56 @@ function findSections(body) {
   return found;
 }
 
+function extractSectionBody(body, sectionAliases) {
+  const lines = body.split('\n');
+  let capturing = false;
+  const collected = [];
+  for (const line of lines) {
+    if (/^#{1,6}\s/.test(line)) {
+      const normalized = line.replace(/^#+\s*/, '').trim().toLowerCase();
+      if (sectionAliases.some((a) => a === normalized)) {
+        capturing = true;
+        continue;
+      } else if (capturing) {
+        break;
+      }
+    } else if (capturing) {
+      collected.push(line);
+    }
+  }
+  return collected.join('\n');
+}
+
+function validateEvidence(body) {
+  const validationSection = REQUIRED_SECTIONS.find((s) => s.canonical === 'Validation');
+  const sectionText = extractSectionBody(body, validationSection.aliases);
+  const warnings = [];
+
+  if (!sectionText.trim()) {
+    warnings.push('Validation section is empty — no evidence provided');
+    return warnings;
+  }
+
+  const hasPassOrFail = /^.*\b(PASS|FAIL)\b/im.test(sectionText);
+  if (!hasPassOrFail) {
+    warnings.push('Validation section has no PASS/FAIL results — evidence is incomplete');
+  }
+
+  return warnings;
+}
+
 function validate(body) {
   const found = findSections(body);
   const missing = REQUIRED_SECTIONS
     .map((s) => s.canonical)
     .filter((name) => !found.has(name));
-  return { ok: missing.length === 0, found: [...found], missing };
+
+  const warnings = [];
+  if (found.has('Validation')) {
+    warnings.push(...validateEvidence(body));
+  }
+
+  return { ok: missing.length === 0, found: [...found], missing, warnings };
 }
 
 function parseArgs(argv) {
@@ -89,6 +133,12 @@ async function main() {
   } else if (result.ok) {
     console.log('PR handoff guard passed.');
     console.log('Found sections: ' + result.found.join(', '));
+    if (result.warnings.length > 0) {
+      console.warn('Warnings:');
+      for (const w of result.warnings) {
+        console.warn('  ⚠ ' + w);
+      }
+    }
   } else {
     console.error('PR handoff guard FAILED.');
     console.error('Missing required sections:');
@@ -101,7 +151,7 @@ async function main() {
 }
 
 // Exported for testing
-module.exports = { validate, findSections, headingMatches, REQUIRED_SECTIONS };
+module.exports = { validate, findSections, headingMatches, extractSectionBody, validateEvidence, REQUIRED_SECTIONS };
 
 if (require.main === module) {
   main();
