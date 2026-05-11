@@ -121,6 +121,77 @@ What happens if the worker approaches `hardTimeMinutes` without completing:
 
 The wave phase this task belongs to (e.g., `foundation-wave-1`, `feature-wave-1`). Maps to the wave planning table in `ops/agent-prompts/pm-gate.md`. Used for sequencing and prioritization.
 
+## Backend Required Fields
+
+Backend tasks (NestJS runtime, Prisma schema, database migrations, health gates) require additional metadata beyond the base contract. These fields are **mandatory** for any backend worker task JSON.
+
+### sourceOfTruthDocs
+
+Array of file paths or URLs that define the authoritative spec for this task. Every code change must trace back to a documented contract, schema, or SOP.
+
+**Why required**: Backend changes affect data integrity and runtime stability. Reviewers need to verify the worker followed the agreed spec, not invented behavior.
+
+```json
+"sourceOfTruthDocs": [
+  "docs/ai-native/worker-task-contract.md",
+  "docs/contracts/feed-read-only-contract.md"
+]
+```
+
+### blockedBy
+
+Array of issue numbers or worker task IDs that must merge before this task can start. If empty, the task is unblocked.
+
+**Why required**: Backend layers have hard sequencing (runtime foundation before feature workers). Incorrect ordering causes cascading failures.
+
+```json
+"blockedBy": [68]
+```
+
+### mainHealthPolicy
+
+Defines what health checks must pass before the worker can open a PR. One of:
+
+- `"gate-all"`: All existing health checks must pass (default for runtime/feature workers).
+- `"gate-docs-only"`: Only docs consistency checks required (docs workers).
+- `"gate-none"`: No automated health gate (research tasks).
+
+**Why required**: Different backend worker tiers have different health requirements. A foundation worker needs full build + Prisma validate; a docs worker only needs link checks.
+
+```json
+"mainHealthPolicy": "gate-all"
+```
+
+### generatedCodePolicy
+
+Defines how the worker should handle generated artifacts (e.g., Prisma client). One of:
+
+- `"forbid"`: Worker must not commit generated files. Use for most feature and docs workers.
+- `"allow-with-regenerate-note"`: Worker may commit generated files but MUST include the regenerate command in the commit message. Use for schema migration workers.
+- `"source-artifact"`: Generated output IS the deliverable (e.g., API type generation). Use for type-gen workers.
+
+**Why required**: Prisma 7 generated client (`src/generated/prisma/**`) is ~2k files. Without a clear policy, workers either bloat PRs with stale generated code or break builds by not regenerating.
+
+```json
+"generatedCodePolicy": "allow-with-regenerate-note"
+```
+
+### Full Backend Schema Extension
+
+When constructing a backend worker task JSON, include all base fields **plus** these four. The combined schema:
+
+```json
+{
+  "...base fields from Schema section above...": "",
+  "sourceOfTruthDocs": ["docs/..."],
+  "blockedBy": [],
+  "mainHealthPolicy": "gate-all | gate-docs-only | gate-none",
+  "generatedCodePolicy": "forbid | allow-with-regenerate-note | source-artifact"
+}
+```
+
+For concrete examples by worker tier, see [backend-task-json-examples.md](backend-task-json-examples.md).
+
 ## Example
 
 ```json
