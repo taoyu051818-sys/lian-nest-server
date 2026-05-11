@@ -303,6 +303,134 @@ One file per fixture. Prefix by module, suffix by scenario.
 
 ---
 
+### 5. GET /api/categories/:cid/topics
+
+**Source:** Planned — CategoriesModule (not yet implemented)
+**Auth:** None (public)
+**Path params:** `cid` (integer)
+**Query params:** `page` (int, min 1, default 1), `perPage` (int, 1-100, default 20)
+
+#### Fixture: `category-topics-basic`
+
+```jsonc
+{
+  "id": "category-topics-basic",
+  "endpoint": "GET /api/categories/:cid/topics",
+  "description": "Category topic listing with default pagination returns first page",
+  "request": {
+    "method": "GET",
+    "path": "/api/categories/<CATEGORY_ID>/topics",
+    "params": { "cid": "<CATEGORY_ID>" }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "topics": "<ARRAY>",
+      "totalCount": "<NON_NEG_INT>",
+      "page": 1,
+      "perPage": 20,
+      "source": "nodebb"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["topics", "totalCount", "page", "perPage", "source"],
+      "properties": {
+        "topics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CategoryTopicItem" }
+        },
+        "totalCount": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "const": 1 },
+        "perPage": { "type": "integer", "const": 20 },
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "notes": "CATEGORY_ID must reference a valid non-disabled seeded NodeBB category. Default pagination (page=1, perPage=20) applied when omitted."
+}
+```
+
+#### Fixture: `category-topics-pagination`
+
+```jsonc
+{
+  "id": "category-topics-pagination",
+  "endpoint": "GET /api/categories/:cid/topics",
+  "description": "Category topic listing with explicit page=2, perPage=5",
+  "request": {
+    "method": "GET",
+    "path": "/api/categories/<CATEGORY_ID>/topics",
+    "params": { "cid": "<CATEGORY_ID>" },
+    "query": { "page": 2, "perPage": 5 }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "topics": "<ARRAY>",
+      "totalCount": "<NON_NEG_INT>",
+      "page": 2,
+      "perPage": 5,
+      "source": "nodebb"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["topics", "totalCount", "page", "perPage", "source"],
+      "properties": {
+        "topics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CategoryTopicItem" }
+        },
+        "totalCount": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "const": 2 },
+        "perPage": { "type": "integer", "const": 5 },
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] }
+      },
+      "additionalProperties": false
+    }
+  }
+}
+```
+
+#### Fixture: `category-topics-not-found`
+
+```jsonc
+{
+  "id": "category-topics-not-found",
+  "endpoint": "GET /api/categories/:cid/topics",
+  "description": "Requesting topics for a non-existent category returns 404",
+  "request": {
+    "method": "GET",
+    "path": "/api/categories/999999999/topics",
+    "params": { "cid": "999999999" }
+  },
+  "expected": {
+    "status": 404,
+    "contentType": "application/json",
+    "body": {
+      "statusCode": 404,
+      "error": "Not Found",
+      "code": "NOT_FOUND"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["statusCode", "error", "code"],
+      "properties": {
+        "statusCode": { "type": "integer", "const": 404 },
+        "error": { "type": "string" },
+        "code": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "notes": "Error envelope follows GlobalExceptionFilter format, consistent with category-detail-not-found."
+}
+```
+
+---
+
 ## Shared Schema Definitions
 
 When using JSON Schema validation, include these `$defs`:
@@ -325,6 +453,22 @@ When using JSON Schema validation, include these `$defs`:
         "authorUid": { "type": "integer", "minimum": 1 },
         "authorUsername": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "CategoryTopicItem": {
+      "type": "object",
+      "required": ["tid", "uid", "cid", "title", "slug", "mainPid", "postcount", "viewcount", "timestamp"],
+      "properties": {
+        "tid": { "type": "integer", "minimum": 1 },
+        "uid": { "type": "integer", "minimum": 1 },
+        "cid": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "slug": { "type": "string" },
+        "mainPid": { "type": "integer", "minimum": 1 },
+        "postcount": { "type": "integer", "minimum": 0 },
+        "viewcount": { "type": "integer", "minimum": 0 },
+        "timestamp": { "type": "integer", "minimum": 0 }
       },
       "additionalProperties": false
     }

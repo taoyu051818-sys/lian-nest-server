@@ -1,0 +1,67 @@
+{
+  "id": "category-topics-basic",
+  "endpoint": "GET /api/categories/:cid/topics",
+  "description": "Category topic listing with default pagination returns first page of topics",
+  "request": {
+    "method": "GET",
+    "path": "/api/categories/<CATEGORY_ID>/topics",
+    "params": { "cid": "<CATEGORY_ID>" }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "topics": [
+        {
+          "tid": "<POSITIVE_INT>",
+          "uid": "<POSITIVE_INT>",
+          "cid": "<POSITIVE_INT>",
+          "title": "<STRING>",
+          "slug": "<STRING>",
+          "mainPid": "<POSITIVE_INT>",
+          "postcount": "<NON_NEG_INT>",
+          "viewcount": "<NON_NEG_INT>",
+          "timestamp": "<POSITIVE_INT>"
+        }
+      ],
+      "totalCount": "<NON_NEG_INT>",
+      "page": 1,
+      "perPage": 20,
+      "source": "nodebb"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["topics", "totalCount", "page", "perPage", "source"],
+      "properties": {
+        "topics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CategoryTopicItem" }
+        },
+        "totalCount": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "const": 1 },
+        "perPage": { "type": "integer", "const": 20 },
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "CategoryTopicItem": {
+          "type": "object",
+          "required": ["tid", "uid", "cid", "title", "slug", "mainPid", "postcount", "viewcount", "timestamp"],
+          "properties": {
+            "tid": { "type": "integer", "minimum": 1 },
+            "uid": { "type": "integer", "minimum": 1 },
+            "cid": { "type": "integer", "minimum": 1 },
+            "title": { "type": "string" },
+            "slug": { "type": "string" },
+            "mainPid": { "type": "integer", "minimum": 1 },
+            "postcount": { "type": "integer", "minimum": 0 },
+            "viewcount": { "type": "integer", "minimum": 0 },
+            "timestamp": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "notes": "CATEGORY_ID must reference a valid non-disabled seeded NodeBB category. Default query params (page=1, perPage=20) are applied when omitted. Topic fields follow the same shape as tag-topics-basic. When NodeBB is unreachable or returns an error, the response falls back to an empty list with source=fallback."
+}
