@@ -67,6 +67,30 @@ OPEN -> IN_PROGRESS -> IN_REVIEW -> MERGED / CLOSED
 7. **IN_REVIEW -> CLOSED**: Review gate rejects, pm-gate closes.
 8. **OPEN -> CLOSED**: pm-gate closes as won't-do or duplicate.
 
+## Publisher Label Normalization
+
+The [result publisher](result-publishing.md) can enforce label transitions
+after posting a result comment. When `-StatusLabel` is passed, the
+publisher:
+
+1. Removes all existing `agent:*` labels from the issue.
+2. Applies the specified label.
+
+This ensures the issue ends up with exactly one `agent:*` label matching
+the worker's final state. The behavior is **opt-in** — no label mutation
+occurs unless the caller explicitly passes `-StatusLabel`.
+
+### Typical publisher-driven transitions
+
+| Worker outcome | StatusLabel | Result |
+|---------------|-------------|--------|
+| PR opened | `agent:done` | `agent:running` removed, `agent:done` applied |
+| Blocked | `agent:blocked` | `agent:running` removed, `agent:blocked` applied |
+| Re-queued | `agent:queued` | `agent:running` removed, `agent:queued` applied |
+
+See [result-publishing.md](result-publishing.md) for full usage and
+constraints.
+
 ## Issue Template
 
 Every issue must include:
