@@ -1,0 +1,158 @@
+{
+  "policyVersion": 1,
+  "description": "Machine-readable local resource thresholds for CPU, memory, and disk that control whether a worker may launch on the local host. The orchestrator checks these limits before dispatching a new worker process.",
+
+  "sourceDocs": [
+    "docs/ai-native/local-resource-policy.md",
+    "docs/ai-native/launch-policy.md",
+    "docs/ai-native/provider-pool-guard.md"
+  ],
+
+  "cpu": {
+    "description": "CPU utilization thresholds measured as a percentage of total available cores.",
+    "unit": "percent",
+    "measurementWindow": "60s",
+    "thresholds": {
+      "launchBlock": {
+        "value": 90,
+        "meaning": "Do not launch new workers when sustained CPU usage exceeds this level."
+      },
+      "launchWarn": {
+        "value": 75,
+        "meaning": "Emit a warning but allow launch. New workers may experience degraded throughput."
+      },
+      "healthy": {
+        "value": 50,
+        "meaning": "Nominal operating range. Full throughput available."
+      }
+    },
+    "samplingCommand": {
+      "windows": "powershell -Command \"(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average\"",
+      "linux": "grep 'cpu ' /proc/stat | awk '{usage=($2+$4)*100/($2+$4+$5)} END {print usage}'",
+      "note": "Sampled once at pre-launch gate. Not continuous polling."
+    }
+  },
+
+  "memory": {
+    "description": "System memory thresholds measured as percentage of total physical RAM in use.",
+    "unit": "percent",
+    "measurementWindow": "instant",
+    "thresholds": {
+      "launchBlock": {
+        "value": 92,
+        "meaning": "Do not launch new workers when available memory is critically low. Risk of OOM kill."
+      },
+      "launchWarn": {
+        "value": 80,
+        "meaning": "Emit a warning. Worker processes may be swapped out, degrading latency."
+      },
+      "healthy": {
+        "value": 60,
+        "meaning": "Nominal operating range. Full throughput available."
+      }
+    },
+    "samplingCommand": {
+      "windows": "powershell -Command \"$os=Get-CimInstance Win32_OperatingSystem; [math]::Round(($os.TotalVisibleMemorySize-$os.FreePhysicalMemory)/$os.TotalVisibleMemorySize*100,1)\"",
+      "linux": "free | awk '/Mem:/ {printf \"%.1f\", $3/$2*100}'",
+      "note": "Sampled once at pre-launch gate. Not continuous polling."
+    }
+  },
+
+  "disk": {
+    "description": "Disk usage thresholds for the volume hosting the repository (working directory). Measured as percentage of total capacity in use.",
+    "unit": "percent",
+    "measurementWindow": "instant",
+    "targetVolume": "working-directory",
+    "thresholds": {
+      "launchBlock": {
+        "value": 95,
+        "meaning": "Do not launch new workers when disk is nearly full. Build artifacts and logs will fail to write."
+      },
+      "launchWarn": {
+        "value": 85,
+        "meaning": "Emit a warning. Large build outputs or log files may cause intermittent failures."
+      },
+      "healthy": {
+        "value": 70,
+        "meaning": "Nominal operating range. Full throughput available."
+      }
+    },
+    "samplingCommand": {
+      "windows": "powershell -Command \"Get-PSDrive (Get-Location).Drive.Name | Select-Object -ExpandProperty Used; Get-PSDrive (Get-Location).Drive.Name | Select-Object -ExpandProperty Free\"",
+      "linux": "df -P . | awk 'NR==2 {gsub(/%/,\"\",$5); print $5}'",
+      "note": "Sampled once at pre-launch gate. Target volume is the one hosting the current working directory."
+    }
+  },
+
+  "processCount": {
+    "description": "Cap on concurrent worker processes on the local host to prevent resource exhaustion from runaway scheduling.",
+    "unit": "count",
+    "thresholds": {
+      "launchBlock": {
+        "value": 30,
+        "meaning": "Do not launch new workers when total live worker count reaches this ceiling."
+      },
+      "launchWarn": {
+        "value": 25,
+        "meaning": "Emit a warning. Approaching the process ceiling."
+      },
+      "healthy": {
+        "value": 15,
+        "meaning": "Nominal operating range."
+      }
+    },
+    "countingMethod": {
+      "description": "Count processes whose command line includes the worker entrypoint marker.",
+      "marker": "claude-worker",
+      "note": "The orchestrator counts its own child processes. External tooling should use OS process enumeration."
+    }
+  },
+
+  "compositeDecision": {
+    "description": "How individual resource checks combine into a single launch/no-launch decision.",
+    "rule": "block-if-any-block",
+    "details": {
+      "block": "If ANY resource (CPU, memory, disk, processCount) is at or above its launchBlock threshold, the launch is blocked.",
+      "warn": "If ANY resource is at or above its launchWarn threshold (but none at block), the launch proceeds with a warning logged.",
+      "clear": "If ALL resources are below their launchWarn thresholds, the launch proceeds cleanly."
+    },
+    "decisionOrder": ["processCount", "cpu", "memory", "disk"],
+    "decisionOrderRationale": "Process count is cheapest to check and most likely to hit the ceiling. CPU and memory are sampled next (OS calls). Disk is last (least likely to be the binding constraint)."
+  },
+
+  "remediation": {
+    "description": "Recommended actions when a launch is blocked or warned.",
+    "cpuBlock": [
+      "Wait for current workers to complete before retrying.",
+      "Reduce concurrency in provider-pool-policy.json if sustained high CPU is observed."
+    ],
+    "memoryBlock": [
+      "Wait for current workers to complete or be killed by the OS.",
+      "Check for memory leaks in long-running worker processes.",
+      "Consider reducing globalMaxWorkers in provider-pool-policy.json."
+    ],
+    "diskBlock": [
+      "Clean build artifacts: rm -rf dist/ .cache/",
+      "Prune old worktrees: git worktree prune",
+      "Rotate or compress large log files."
+    ],
+    "processBlock": [
+      "Wait for workers to finish their current task.",
+      "Investigate hung processes that are not making progress.",
+      "Force-terminate zombie workers if confirmed stuck."
+    ]
+  },
+
+  "enforcement": {
+    "mode": "advisory-with-blocking",
+    "enforcedBy": "orchestrator-pre-launch-gate",
+    "failClosed": true,
+    "notes": "The orchestrator MUST check resource thresholds before every worker launch. If the check script fails or returns an unexpected format, the launch is blocked (fail-closed)."
+  },
+
+  "metadata": {
+    "createdAt": "2026-05-11",
+    "issue": 521,
+    "maintainer": "ai-native-tooling-worker"
+  }
+}
