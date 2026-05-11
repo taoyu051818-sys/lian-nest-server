@@ -392,6 +392,58 @@ console.log("\nEADDRINUSE tests\n");
       const data = JSON.parse(res.body);
       assert(Array.isArray(data.entries), "GET /api/audit has entries array");
       assert(data.total === 0, "GET /api/audit returns empty when no executions");
+      assert(data.unfilteredTotal === 0, "GET /api/audit includes unfilteredTotal");
+    }
+
+    // GET /api/audit with limit filter
+    {
+      const res = await fetch(`http://127.0.0.1:${port}/api/audit?limit=10`);
+      assert(res.status === 200, "GET /api/audit?limit=10 returns 200");
+      const data = JSON.parse(res.body);
+      assert(Array.isArray(data.entries), "GET /api/audit?limit has entries array");
+      assert(data.total === 0, "GET /api/audit?limit returns empty when no executions");
+    }
+
+    // GET /api/audit with invalid limit
+    {
+      const res = await fetch(`http://127.0.0.1:${port}/api/audit?limit=abc`);
+      assert(res.status === 400, "GET /api/audit?limit=abc returns 400");
+      const data = JSON.parse(res.body);
+      assert(data.error.includes("Invalid limit"), "GET /api/audit?limit=abc shows error message");
+    }
+
+    // GET /api/audit with negative limit
+    {
+      const res = await fetch(`http://127.0.0.1:${port}/api/audit?limit=-1`);
+      assert(res.status === 400, "GET /api/audit?limit=-1 returns 400");
+    }
+
+    // GET /api/audit with actionId filter
+    {
+      const res = await fetch(`http://127.0.0.1:${port}/api/audit?actionId=test-action`);
+      assert(res.status === 200, "GET /api/audit?actionId=test-action returns 200");
+      const data = JSON.parse(res.body);
+      assert(Array.isArray(data.entries), "GET /api/audit?actionId has entries array");
+    }
+
+    // GET /api/audit with status filter
+    {
+      const res = await fetch(`http://127.0.0.1:${port}/api/audit?status=success`);
+      assert(res.status === 200, "GET /api/audit?status=success returns 200");
+      const data = JSON.parse(res.body);
+      assert(Array.isArray(data.entries), "GET /api/audit?status has entries array");
+    }
+
+    // GET /api/audit with combined filters
+    {
+      const res = await fetch(`http://127.0.0.1:${port}/api/audit?actionId=test&status=success&limit=5`);
+      assert(res.status === 200, "GET /api/audit with combined filters returns 200");
+      const data = JSON.parse(res.body);
+      assert(Array.isArray(data.entries), "GET /api/audit combined filters has entries array");
+      assert(data.filters !== undefined, "GET /api/audit combined filters includes filters object");
+      assert(data.filters.actionId === "test", "GET /api/audit combined filters includes actionId");
+      assert(data.filters.status === "success", "GET /api/audit combined filters includes status");
+      assert(data.filters.limit === 5, "GET /api/audit combined filters includes limit");
     }
 
     // GET /api/actions — wrong method (POST to GET-only route still works)
