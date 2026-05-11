@@ -1,0 +1,58 @@
+{
+  "id": "posts-list-default-pagination",
+  "endpoint": "GET /api/posts",
+  "description": "Posts list uses default pagination when no query params provided",
+  "request": {
+    "method": "GET",
+    "path": "/api/posts",
+    "query": {}
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "page": 1,
+      "perPage": 20
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["items", "totalCount", "page", "perPage"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PostListItem" }
+        },
+        "totalCount": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "minimum": 1 },
+        "perPage": { "type": "integer", "minimum": 1, "maximum": 100 }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "PostListItem": {
+          "type": "object",
+          "required": ["id", "author", "content", "createdAt", "replyCount"],
+          "properties": {
+            "id": { "type": "string" },
+            "author": { "$ref": "#/$defs/PostAuthor" },
+            "content": { "type": "string" },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "replyCount": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "PostAuthor": {
+          "type": "object",
+          "required": ["uid", "username", "avatar", "reputation"],
+          "properties": {
+            "uid": { "type": "integer", "minimum": 1 },
+            "username": { "type": "string" },
+            "avatar": { "type": ["string", "null"] },
+            "reputation": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "notes": "When no page/perPage query params are provided, defaults are page=1 and perPage=20."
+}
