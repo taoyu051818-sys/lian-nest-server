@@ -5,6 +5,7 @@ launch plan.  Preview mode returns the plan without side effects; execute mode
 dispatches the batch when the gate passes.
 
 > **Closes:** [#680](https://github.com/taoyu051818-sys/lian-nest-server/issues/680)
+> **Documents:** [#878](https://github.com/taoyu051818-sys/lian-nest-server/issues/878)
 
 ---
 
@@ -104,13 +105,77 @@ The module implements the same gate logic as `check-launch-gate.ps1`:
 
 ---
 
+## Validation Contract
+
+### Task Field Defaults
+
+Task fields are resolved with these defaults when missing from the payload:
+
+| Field | Default | Notes |
+|-------|---------|-------|
+| `conflictGroup` | `null` | |
+| `risk` | `"medium"` | |
+| `taskType` | `"execution"` | |
+| `mainHealthPolicy` | `null` | |
+| `allowedFiles` | `[]` | Must be an array |
+| `sharedLocks` | `[]` | Must be an array |
+
+No schema or type validation is applied to individual field values.
+
+### Health State Resolution
+
+`.github/ai-state/main-health.json` is read to extract `health.state`.
+If the file is missing or unreadable, the state defaults to `"green"`.
+Unknown states (not in the permission matrix) block all worker types.
+
+### Queue Fallback
+
+When `payload.tasks` is absent or empty, the module reads
+`.github/ai-state/webui-queue-state.json` and filters for
+`status: "queued"` entries. If `entries` is not an array, the
+fallback silently returns no tasks.
+
+### Edge Cases
+
+| Input | Behavior |
+|-------|----------|
+| `null` / `undefined` payload | Returns `status: "empty"`, `gateReport: null` |
+| Empty `tasks` array and no queue file | Returns `status: "empty"`, `gateReport: null` |
+| Unknown health state (e.g. `"purple"`) | All worker types blocked with `rule: "health-state-blocked"` |
+| Missing `main-health.json` | Defaults to `"green"` (all allowed) |
+| Missing `running-tasks.json` | No running-worker conflicts detected |
+| `allowedFiles: []` | Classifies as `"health-repair"` (fallback) |
+| Docs-only conflict group duplicate | Exempt — two docs tasks may share a `conflictGroup` |
+| `mainHealthPolicy: "gate-docs-only"` | Forces `"docs"` type regardless of `allowedFiles` |
+| `mainHealthPolicy: "gate-none"` | Forces `"research"` type regardless of `allowedFiles` |
+
+### Conflict Rule Priority
+
+When a task matches multiple blocking rules, only the first applies.
+Priority order:
+
+1. `health-state-blocked` — worker type not permitted for current health
+2. `conflict-group-duplicate` — non-docs duplicate conflict group in batch
+3. `shared-lock-overlap` — lock name already claimed in batch
+4. `running-worker-conflict` — conflict group matches an active worker
+
+---
+
 ## Preview Response
+
+Preview mode returns the gate report and launch plan without side effects.
+The response contract varies by outcome.
+
+### Dry-Run (tasks present)
 
 ```json
 {
   "status": "preview",
   "mode": "dry-run",
-  "mainHealth": { "state": "green", "source": ".github/ai-state/main-health.json" },
+  "mainHealth": {
+    "state": "green",
+    "source": "/abs/path/.github/ai-state/main-health.json"
+  },
   "gateReport": {
     "reportVersion": 1,
     "capturedAt": "2026-05-12T00:15:00.000Z",
@@ -119,6 +184,7 @@ The module implements the same gate logic as `check-launch-gate.ps1`:
     "tasks": [
       {
         "targetIssue": 680,
+        "targetPR": null,
         "conflictGroup": "webui-action-launch-batch",
         "risk": "high",
         "taskType": "execution",
@@ -134,10 +200,81 @@ The module implements the same gate logic as `check-launch-gate.ps1`:
     "runningWorkerConflicts": [],
     "allAllowed": true
   },
-  "launchPlan": { "..." : "..." },
+  "launchPlan": {
+    "planVersion": 1,
+    "capturedAt": "2026-05-12T00:15:00.000Z",
+    "mainHealth": { "state": "green", "capturedAt": "2026-05-12T00:15:00.000Z" },
+    "selectedTasks": [],
+    "rejectedTasks": [],
+    "locksAcquired": [],
+    "budgetReservations": {
+      "totalMaxFiles": 4,
+      "totalMaxLinesChanged": 700,
+      "taskCount": 1,
+      "softTimeMinutesMax": 45,
+      "hardTimeMinutesMax": 90
+    },
+    "allAllowed": true
+  },
   "message": "All 1 task(s) cleared for launch."
 }
 ```
+
+`launchPlan.selectedTasks` contains tasks that passed the gate;
+`rejectedTasks` contains blocked tasks. `budgetReservations` aggregates
+the `budget` fields from all tasks.
+
+### Dry-Run (blocked tasks)
+
+When any task is blocked, `gateReport.allAllowed` is `false` and
+`launchPlan.allAllowed` is `false`. The message changes:
+
+```json
+{
+  "status": "preview",
+  "mode": "dry-run",
+  "gateReport": { "...": "..." },
+  "launchPlan": { "...": "..." },
+  "message": "1 of 2 task(s) blocked."
+}
+```
+
+### Empty Preview
+
+When no tasks are found from either payload or queue:
+
+```json
+{
+  "status": "empty",
+  "message": "No tasks to evaluate. Provide payload.tasks or queue entries.",
+  "gateReport": null
+}
+```
+
+### Gate Report Task Entry
+
+Each entry in `gateReport.tasks` contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `targetIssue` | number | Issue number |
+| `targetPR` | number/null | PR number if applicable |
+| `conflictGroup` | string/null | Conflict group name |
+| `risk` | string | `"high"`, `"medium"`, or `"low"` |
+| `taskType` | string | `"execution"` or `"research"` |
+| `workerType` | string | Classified worker type |
+| `mainState` | string | Health state at check time |
+| `allowed` | boolean | Whether this task passed the gate |
+| `reason` | string/null | Human-readable block reason |
+| `rule` | string/null | Rule that blocked, or `null` |
+
+### Conflict Summary Arrays
+
+| Field | Contents |
+|-------|----------|
+| `duplicateConflictGroups` | Conflict group names that appeared more than once |
+| `sharedLockConflicts` | Lock names claimed by multiple tasks |
+| `runningWorkerConflicts` | `{ issue, conflictGroup }` for active worker overlaps |
 
 ---
 
