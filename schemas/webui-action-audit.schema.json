@@ -1,0 +1,129 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/webui-action-audit.schema.json",
+  "title": "WebUIActionAudit",
+  "description": "Schema for an append-only WebUI action audit entry. Every action request (preview or execute) produces one audit record for traceability. Designed for NDJSON append-only logs. See docs/ai-native/webui-action-contract.md for policy and field-level documentation.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "auditId",
+    "requestId",
+    "mode",
+    "actionType",
+    "riskLevel",
+    "outcome",
+    "requestedAt",
+    "capturedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1."
+    },
+    "auditId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9._-]+$",
+      "description": "Unique id for this audit entry. Used as the idempotency key in the audit log."
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9._-]+$",
+      "description": "Matches the requestId from the originating WebUIActionRequest."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["preview", "execute"],
+      "description": "Mode that was requested."
+    },
+    "actionType": {
+      "type": "string",
+      "enum": [
+        "retry-worker",
+        "cancel-worker",
+        "clear-queue-entry",
+        "adjust-provider-concurrency",
+        "disable-provider",
+        "enable-provider",
+        "pause-orchestration",
+        "resume-orchestration",
+        "override-gate",
+        "force-merge-pr",
+        "refresh-health",
+        "rebalance-workers"
+      ],
+      "description": "The action type that was requested."
+    },
+    "riskLevel": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"],
+      "description": "Risk classification from the request."
+    },
+    "humanRequired": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the action required human initiation."
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["success", "blocked", "error", "skipped"],
+      "description": "Outcome of the action."
+    },
+    "targetSummary": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "One-line summary of what the action targeted (e.g. 'issue:540, provider:openai-1'). Never contains secrets."
+    },
+    "allowlistUsed": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The allowlist that was enforced. Empty for preview mode or when not applicable."
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "maxLength": 1000,
+      "description": "The justification provided in the request. Null for preview mode or low-risk actions without a reason."
+    },
+    "requestedBy": {
+      "type": ["string", "null"],
+      "maxLength": 200,
+      "description": "Identity of the requester (e.g. 'human:login', 'agent:worker-id'). Null if unknown."
+    },
+    "blockerCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of blockers if outcome was blocked. 0 otherwise."
+    },
+    "errorCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of errors if outcome was error. 0 otherwise."
+    },
+    "effectCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of effects produced or applied."
+    },
+    "requestedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when the action was requested."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this audit entry was written."
+    },
+    "durationMs": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Wall-clock time for the action. Null for preview mode."
+    }
+  },
+  "additionalProperties": false
+}
