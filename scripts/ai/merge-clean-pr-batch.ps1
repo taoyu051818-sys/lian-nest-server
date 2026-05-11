@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-    Controlled auto-merge for allowlisted CLEAN, non-draft PRs.
+    Controlled auto-merge for allowlisted CLEAN, non-draft PRs with
+    optional pre-merge guard integration.
 
 .DESCRIPTION
     Merges an explicit set of PRs after verifying each is non-draft, CLEAN
@@ -9,6 +10,11 @@
 
     The script REQUIRES an explicit PR allowlist — either inline numbers
     or a file path. It will never discover or merge unspecified PRs.
+
+    When -RunGuards is specified, local guard checks are executed before
+    merge to enforce task boundaries, PR handoff structure, docs authority,
+    and generated Prisma freshness. Guard failures block merge (fail-closed).
+    Guards are skipped when their required inputs are not present.
 
 .PARAMETER PRs
     One or more PR numbers to merge. Cannot be combined with -AllowlistFile.
@@ -30,6 +36,14 @@
 
 .PARAMETER RunHealthGate
     After a successful batch, run scripts/post-merge-health-gate.js.
+
+.PARAMETER RunGuards
+    Run local guard checks before merge. Guards enforce:
+    - Task boundary (forbidden/outside-allowed files) — blocking
+    - PR handoff (required body sections) — blocking
+    - Docs authority (duplicate basenames/titles) — warning-only
+    - Generated Prisma freshness (client without schema) — blocking
+    Guards are skipped when their required inputs are missing.
 
 .EXAMPLE
     # Dry-run with inline PR numbers
@@ -58,7 +72,9 @@ param(
 
     [switch]$Execute,
 
-    [switch]$RunHealthGate
+    [switch]$RunHealthGate,
+
+    [switch]$RunGuards
 )
 
 Set-StrictMode -Version Latest
@@ -95,8 +111,157 @@ function Invoke-Gh {
 
 function Get-PRInfo {
     param([int]$PRNumber, [string]$Repository)
-    $json = Invoke-Gh "pr view $PRNumber --repo $Repository --json number,title,isDraft,mergeable,state,statusCheckRollup,headRefName"
+    $json = Invoke-Gh "pr view $PRNumber --repo $Repository --json number,title,isDraft,mergeable,state,statusCheckRollup,headRefName,files,body"
     return $json | ConvertFrom-Json
+}
+
+# ---------------------------------------------------------------------------
+# Guard helpers
+# ---------------------------------------------------------------------------
+
+function Normalize-FilePath {
+    param([string]$Path)
+    return $Path -replace '\\', '/'
+}
+
+function Test-TaskBoundary {
+    param([array]$ChangedFiles, [string]$ManifestPath)
+
+    if (-not (Test-Path $ManifestPath)) {
+        return @()
+    }
+
+    try {
+        $manifest = Get-Content $ManifestPath -Raw | ConvertFrom-Json
+    }
+    catch {
+        Write-Host "   WARNING: Could not parse manifest: $_"
+        return @()
+    }
+
+    $allowed = @()
+    $forbidden = @()
+    if ($manifest.allowedFiles) { $allowed = @($manifest.allowedFiles) }
+    if ($manifest.forbiddenFiles) { $forbidden = @($manifest.forbiddenFiles) }
+
+    $failures = @()
+    foreach ($file in $ChangedFiles) {
+        $normalized = Normalize-FilePath $file
+        foreach ($pattern in $forbidden) {
+            $regex = '^' + ($pattern -replace '\.', '\.' -replace '\*', '.*' -replace '\?', '.') + '$'
+            $regex = $regex -replace '/\.\*\$', '/.*$'
+            if ($normalized -match $regex) {
+                $failures += "forbidden file: $file"
+                break
+            }
+        }
+        if ($allowed.Count -gt 0) {
+            $matched = $false
+            foreach ($pattern in $allowed) {
+                $regex = '^' + ($pattern -replace '\.', '\.' -replace '\*', '.*' -replace '\?', '.') + '$'
+                $regex = $regex -replace '/\.\*\$', '/.*$'
+                if ($normalized -match $regex) {
+                    $matched = $true
+                    break
+                }
+            }
+            if (-not $matched) {
+                $failures += "outside allowed boundary: $file"
+            }
+        }
+    }
+    return $failures
+}
+
+function Test-PRHandoff {
+    param([string]$Body, [string]$FilePath)
+
+    $content = $Body
+    if ($FilePath -and (Test-Path $FilePath)) {
+        $content = Get-Content $FilePath -Raw
+    }
+
+    if (-not $content -or [string]::IsNullOrWhiteSpace($content)) {
+        return @('PR body is empty — handoff sections required')
+    }
+
+    $requiredSections = @(
+        @{ Name = 'summary'; Aliases = @('summary', 'overview') },
+        @{ Name = 'changed files'; Aliases = @('changed files', 'files changed', 'changes') },
+        @{ Name = 'linked issues'; Aliases = @('linked issues', 'linked issue', 'issue', 'issues') },
+        @{ Name = 'validation'; Aliases = @('validation', 'validation commands', 'test plan', 'testing') },
+        @{ Name = 'non-goals'; Aliases = @('non-goals', 'non goals', 'nongoals', 'out of scope') },
+        @{ Name = 'risk / rollback'; Aliases = @('risk / rollback', 'risk', 'rollback', 'risk/rollback', 'risk & rollback') },
+        @{ Name = 'follow-up handoff'; Aliases = @('follow-up handoff', 'follow up handoff', 'handoff', 'follow-up') }
+    )
+
+    $headings = @()
+    foreach ($line in ($content -split "`n")) {
+        $trimmed = $line.Trim()
+        if ($trimmed -match '^#{1,6}\s+(.+)$') {
+            $headings += $Matches[1].Trim().ToLower()
+        }
+    }
+
+    $missing = @()
+    foreach ($section in $requiredSections) {
+        $found = $false
+        foreach ($heading in $headings) {
+            if ($heading -in $section.Aliases) {
+                $found = $true
+                break
+            }
+        }
+        if (-not $found) {
+            $missing += $section.Name
+        }
+    }
+
+    if ($missing.Count -gt 0) {
+        return @("missing handoff sections: $($missing -join ', ')")
+    }
+    return @()
+}
+
+function Invoke-DocsAuthorityGuard {
+    param([string]$RepoRoot)
+
+    $guardPath = Join-Path $RepoRoot 'scripts' 'guards' 'check-docs-authority.js'
+    $docsPath = Join-Path $RepoRoot 'docs'
+
+    if (-not (Test-Path $guardPath)) { return $null }
+    if (-not (Test-Path $docsPath)) { return $null }
+
+    $output = & node $guardPath --warn-only --json 2>&1 | Out-String
+    return @{
+        Output   = $output.Trim()
+        ExitCode = $LASTEXITCODE
+    }
+}
+
+function Test-GeneratedPrismaFreshness {
+    param([array]$ChangedFiles)
+
+    $GENERATED_PREFIX = 'src/generated/prisma/'
+    $SCHEMA_PATH = 'prisma/schema.prisma'
+
+    $hasSchema = $false
+    $hasGenerated = $false
+
+    foreach ($file in $ChangedFiles) {
+        $normalized = Normalize-FilePath $file
+        if ($normalized -eq $SCHEMA_PATH) {
+            $hasSchema = $true
+        }
+        if ($normalized.StartsWith($GENERATED_PREFIX)) {
+            $hasGenerated = $true
+        }
+    }
+
+    if ($hasGenerated -and -not $hasSchema) {
+        return @('generated Prisma client changed without schema update')
+    }
+    return @()
 }
 
 # ---------------------------------------------------------------------------
@@ -204,10 +369,54 @@ function Main {
     Write-Host "  Mode        : $modeLabel"
     Write-Host "  PR count    : $($prNumbers.Count)"
     Write-Host "  Health gate : $($RunHealthGate.IsPresent)"
+    Write-Host "  Guards      : $($RunGuards.IsPresent)"
     if ($isExecute) {
         Write-Host "  WARNING     : -Execute mode will perform real merges!"
     }
     Write-Host ""
+
+    # Guard configuration
+    $manifestPath = Join-Path (Get-Location) '.ai' 'task-manifest.json'
+    $handoffPath = Join-Path (Get-Location) '.ai' 'pr-body.md'
+    $repoRoot = (Get-Location).Path
+
+    $guardStatus = @{
+        'task-boundary' = 'SKIPPED (no manifest)'
+        'pr-handoff' = 'SKIPPED (no file)'
+        'docs-authority' = 'SKIPPED'
+        'generated-prisma' = 'SKIPPED'
+    }
+
+    if ($RunGuards.IsPresent) {
+        if (Test-Path $manifestPath) {
+            $guardStatus['task-boundary'] = 'CHECKING'
+        }
+        $guardStatus['pr-handoff'] = 'CHECKING (PR body)'
+        $guardStatus['docs-authority'] = 'CHECKING (warn-only)'
+        $guardStatus['generated-prisma'] = 'CHECKING'
+    }
+
+    # Pre-run docs authority (repo-wide, run once)
+    $docsAuthorityFailures = @()
+    if ($RunGuards.IsPresent) {
+        $docsResult = Invoke-DocsAuthorityGuard -RepoRoot $repoRoot
+        if ($docsResult -and $docsResult.ExitCode -ne 0) {
+            $docsAuthorityFailures = @('docs authority violations detected (see guard output)')
+            $guardStatus['docs-authority'] = 'WARN'
+        }
+        elseif ($docsResult) {
+            $guardStatus['docs-authority'] = 'PASS'
+        }
+    }
+
+    if ($RunGuards.IsPresent) {
+        Write-Banner "Guard Configuration"
+        Write-Host "  task-boundary    : $($guardStatus['task-boundary'])"
+        Write-Host "  pr-handoff       : $($guardStatus['pr-handoff'])"
+        Write-Host "  docs-authority   : $($guardStatus['docs-authority'])"
+        Write-Host "  generated-prisma : $($guardStatus['generated-prisma'])"
+        Write-Host ""
+    }
 
     # Validate and collect eligible PRs
     $eligible = @()
@@ -226,6 +435,38 @@ function Main {
         }
 
         $reasons = Test-PREligible -PRInfo $info
+
+        # Run guard checks if enabled
+        if ($RunGuards.IsPresent -and $reasons.Count -eq 0) {
+            $changedFiles = @()
+            if ($info.files) {
+                $changedFiles = @($info.files | ForEach-Object { $_.path })
+            }
+
+            # Task boundary guard (blocking)
+            if (Test-Path $manifestPath) {
+                $guardReasons = Test-TaskBoundary -ChangedFiles $changedFiles -ManifestPath $manifestPath
+                $reasons += $guardReasons
+            }
+
+            # PR handoff guard (blocking)
+            if ($reasons.Count -eq 0) {
+                $guardReasons = Test-PRHandoff -Body $info.body -FilePath $handoffPath
+                $reasons += $guardReasons
+            }
+
+            # Docs authority guard (warning-only, non-blocking)
+            if ($reasons.Count -eq 0 -and $docsAuthorityFailures.Count -gt 0) {
+                Write-Host "   docs-authority: WARN (non-blocking)"
+            }
+
+            # Generated Prisma guard (blocking)
+            if ($reasons.Count -eq 0) {
+                $guardReasons = Test-GeneratedPrismaFreshness -ChangedFiles $changedFiles
+                $reasons += $guardReasons
+            }
+        }
+
         if ($reasons.Count -eq 0) {
             Write-Host "   ELIGIBLE: #$prNum — $($info.title)"
             Write-Host "            branch: $($info.headRefName)"
@@ -278,6 +519,9 @@ function Main {
     # Dry-run stops here
     if (-not $isExecute) {
         Write-Host "DRY-RUN — no merges performed. Use -Execute to merge."
+        if ($RunGuards.IsPresent) {
+            Write-Host "Guards were checked. Add -RunGuards in execute mode to enforce."
+        }
         exit 0
     }
 
