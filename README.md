@@ -17,6 +17,11 @@ This repository is the AI-native development home for the new LIAN backend. The 
 
 Role prompts for AI workers and reviewers live in [ops/agent-prompts/](ops/agent-prompts/).
 
+### Automation Policy
+
+- [Next-Wave Policy](ops/agent-prompts/next-wave-policy.md) - How to continue after a worker wave completes (manual orchestrator, router-driven, serial aggregator).
+- [Writeback Checklist](ops/agent-prompts/writeback-checklist.md) - Verify worker PR comments and label updates actually landed.
+
 ## Migration & Route Parity
 
 - **Route inventory:** `docs/contracts/route-inventory.md` -- all legacy route families.
