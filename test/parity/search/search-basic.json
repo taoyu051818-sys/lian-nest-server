@@ -1,0 +1,56 @@
+{
+  "id": "search-basic",
+  "endpoint": "GET /api/search",
+  "description": "Full-text search with term query param returns matched results",
+  "request": {
+    "method": "GET",
+    "path": "/api/search?term=<SEARCH_TERM>",
+    "query": { "term": "<SEARCH_TERM>" }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "term": "<STRING>",
+      "items": [
+        {
+          "id": "<POSITIVE_INT>",
+          "title": "<STRING>",
+          "snippet": "<STRING>",
+          "timestamp": "<POSITIVE_INT>"
+        }
+      ],
+      "total": "<NON_NEG_INT>",
+      "page": 1,
+      "pages": "<NON_NEG_INT>",
+      "source": "nodebb"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["term", "items", "total", "page", "pages", "source"],
+      "properties": {
+        "term": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "title", "snippet", "timestamp"],
+            "properties": {
+              "id": { "type": "integer", "minimum": 1 },
+              "title": { "type": "string" },
+              "snippet": { "type": "string" },
+              "timestamp": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "total": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "minimum": 1 },
+        "pages": { "type": "integer", "minimum": 0 },
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "notes": "SEARCH_TERM must match at least one seeded NodeBB topic or post. Results are mapped from NodeBB search API."
+}

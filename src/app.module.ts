@@ -8,6 +8,7 @@ import { toNodebbAuthMode } from './nodebb/types';
 import { PostsModule } from './posts';
 import { ProfileModule } from './profile';
 import { TagsModule } from './tags';
+import { SearchModule } from './search';
 import { TopicsModule } from './topics';
 import { UsersModule } from './users';
 
@@ -19,6 +20,7 @@ import { UsersModule } from './users';
     MessagesModule,
     PostsModule,
     ProfileModule,
+    SearchModule,
     TagsModule,
     TopicsModule,
     UsersModule,

@@ -44,3 +44,4 @@ export { NodebbUsersProvider } from './providers/nodebb-users.provider';
 export { NodebbNotificationsProvider } from './providers/nodebb-notifications.provider';
 export { NodebbTagsProvider } from './providers/nodebb-tags.provider';
 export { NodebbCategoriesProvider } from './providers/nodebb-categories.provider';
+export { NodebbSearchProvider } from './providers/nodebb-search.provider';
