@@ -280,7 +280,140 @@ console.log('\ncheck-local-resource tests\n');
   assert(readiness.ready === true, 'blockOnCritical false → does not block on threshold');
 }
 
-// --- checkLocalResource (integration) ---
+// --- Pressure edge coverage (issue #859) ---
+
+console.log('\nPressure edge coverage\n');
+
+// checkThresholds: available exactly at threshold (strict < boundary, no violation)
+{
+  const state = validState();
+  state.resources[0].available = 1024; // equals threshold
+  const result = checkThresholds(validPolicy(), state);
+  assert(result.violations.length === 0, 'available == threshold does not trigger critical violation');
+  assert(result.warnings.length === 0, 'available == threshold does not trigger warning');
+}
+
+// checkThresholds: available just below threshold
+{
+  const state = validState();
+  state.resources[0].available = 1023;
+  const result = checkThresholds(validPolicy(), state);
+  assert(result.violations.length === 1, 'available < threshold triggers critical violation');
+}
+
+// checkThresholds: info severity below threshold goes to warnings, not violations
+{
+  const policy = validPolicy();
+  policy.resources.push({ id: 'cpu', type: 'cpu', threshold: 80, severity: 'info', unit: '%' });
+  const state = validState();
+  state.resources.push({ id: 'cpu', type: 'cpu', available: 50, unit: '%', status: 'ok', capturedAt: '2026-05-11T00:00:00Z' });
+  const result = checkThresholds(policy, state);
+  assert(result.violations.length === 0, 'info resource below threshold is not a violation');
+  assert(result.warnings.length === 1, 'info resource below threshold produces warning');
+  assert(result.warnings[0].includes('cpu'), 'info warning mentions resource id');
+}
+
+// checkThresholds: resource with undefined threshold is skipped
+{
+  const policy = validPolicy();
+  policy.resources[0].threshold = undefined;
+  const result = checkThresholds(policy, validState());
+  assert(result.violations.length === 0, 'resource with undefined threshold is skipped');
+}
+
+// checkThresholds: zero available resources
+{
+  const state = validState();
+  state.resources[0].available = 0;
+  state.resources[1].available = 0;
+  state.resources[2].available = 0;
+  const result = checkThresholds(validPolicy(), state);
+  assert(result.violations.length >= 1, 'zero available critical resource triggers violation');
+  assert(result.warnings.length >= 1, 'zero available warning resource triggers warning');
+}
+
+// checkThresholds: multiple resources below threshold simultaneously
+{
+  const state = validState();
+  state.resources[0].available = 100; // disk critical
+  state.resources[1].available = 100; // memory warning
+  const result = checkThresholds(validPolicy(), state);
+  assert(result.violations.length === 1, 'one critical violation for disk');
+  assert(result.warnings.length === 1, 'one warning for memory');
+}
+
+// computeLaunchReadiness: non-critical resource missing does not block
+{
+  const policy = validPolicy();
+  policy.resources.push({ id: 'cpu', type: 'cpu', threshold: 80, severity: 'info', unit: '%' });
+  const readiness = computeLaunchReadiness(policy, validState());
+  assert(readiness.ready === true, 'missing non-critical resource does not block readiness');
+}
+
+// computeLaunchReadiness: blockOnMissingState=false with missing critical resource
+{
+  const policy = validPolicy();
+  policy.launchGateIntegration = { blockOnMissingState: false };
+  const state = validState();
+  state.resources = state.resources.filter((r) => r.id !== 'port-3000');
+  const readiness = computeLaunchReadiness(policy, state);
+  assert(readiness.ready === true, 'blockOnMissingState=false does not block on missing critical');
+}
+
+// computeLaunchReadiness: multiple critical resources below threshold
+{
+  const state = validState();
+  state.resources[0].available = 100; // disk critical
+  state.resources[2].available = 0;   // port critical
+  const readiness = computeLaunchReadiness(validPolicy(), state);
+  assert(readiness.ready === false, 'multiple critical shortfalls block readiness');
+  assert(readiness.reasons.length === 2, 'two reasons for two critical shortfalls');
+}
+
+// computeLaunchReadiness: mixed status summary counts
+{
+  const state = validState();
+  state.resources[0].status = 'ok';
+  state.resources[1].status = 'low';
+  state.resources[2].status = 'critical';
+  const readiness = computeLaunchReadiness(validPolicy(), state);
+  assert(readiness.summary.ok === 1, 'summary counts ok correctly');
+  assert(readiness.summary.low === 1, 'summary counts low correctly');
+  assert(readiness.summary.critical === 1, 'summary counts critical correctly');
+  assert(readiness.summary.unavailable === 0, 'summary counts unavailable correctly');
+}
+
+// computeLaunchReadiness: unavailable status counted in summary
+{
+  const state = validState();
+  state.resources[0].status = 'unavailable';
+  state.resources[1].status = 'unavailable';
+  state.resources[2].status = 'ok';
+  const readiness = computeLaunchReadiness(validPolicy(), state);
+  assert(readiness.summary.unavailable === 2, 'summary counts unavailable correctly');
+  assert(readiness.summary.ok === 1, 'summary counts ok correctly');
+}
+
+// computeLaunchReadiness: warning-level resource below threshold does not block
+{
+  const state = validState();
+  state.resources[1].available = 256; // memory warning below threshold
+  const readiness = computeLaunchReadiness(validPolicy(), state);
+  assert(readiness.ready === true, 'warning resource below threshold does not block readiness');
+}
+
+// computeLaunchReadiness: empty state resources array
+{
+  const policy = validPolicy();
+  const state = validState();
+  state.resources = [];
+  const readiness = computeLaunchReadiness(policy, state);
+  assert(readiness.ready === false, 'empty state resources blocks readiness');
+  assert(readiness.summary.totalResources === 0, 'summary reflects empty resources');
+  assert(readiness.summary.ok === 0, 'ok count is zero for empty resources');
+}
+
+// checkLocalResource (integration) ---
 
 {
   const result = checkLocalResource();
