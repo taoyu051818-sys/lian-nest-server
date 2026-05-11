@@ -19,8 +19,8 @@ export class SearchUsecase {
 
     const response = await this.searchProvider.search(term.trim(), { page });
 
-    if (response.status === BodyStatus.ERROR || !response.data) {
-      throw new BadRequestException('Search request failed');
+    if (response.status === BodyStatus.ERROR || response.status === BodyStatus.NOT_FOUND || !response.data) {
+      throw new BadRequestException(response.error || 'Search provider error');
     }
 
     const data = response.data;

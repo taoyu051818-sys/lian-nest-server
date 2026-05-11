@@ -134,6 +134,38 @@ describe('SearchUsecase', () => {
       await expect(usecase.search('test')).rejects.toThrow(BadRequestException);
     });
 
+    it('should surface provider error message in BadRequestException', async () => {
+      mockSearchProvider.search.mockResolvedValue({
+        status: BodyStatus.ERROR, statusCode: 500,
+        data: null, error: 'Upstream timeout',
+      });
+      await expect(usecase.search('test')).rejects.toThrow('Upstream timeout');
+    });
+
+    it('should throw BadRequestException for NOT_FOUND status', async () => {
+      mockSearchProvider.search.mockResolvedValue({
+        status: BodyStatus.NOT_FOUND, statusCode: 404,
+        data: null, error: 'Search endpoint not available',
+      });
+      await expect(usecase.search('test')).rejects.toThrow(BadRequestException);
+    });
+
+    it('should surface NOT_FOUND provider error message', async () => {
+      mockSearchProvider.search.mockResolvedValue({
+        status: BodyStatus.NOT_FOUND, statusCode: 404,
+        data: null, error: 'Search endpoint not available',
+      });
+      await expect(usecase.search('test')).rejects.toThrow('Search endpoint not available');
+    });
+
+    it('should use fallback message when provider error is null', async () => {
+      mockSearchProvider.search.mockResolvedValue({
+        status: BodyStatus.ERROR, statusCode: 500,
+        data: null, error: null,
+      });
+      await expect(usecase.search('test')).rejects.toThrow('Search provider error');
+    });
+
     // --- Response shape validation ---
 
     it('should return a response with only SearchResponse keys', async () => {

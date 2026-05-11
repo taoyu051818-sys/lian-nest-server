@@ -110,5 +110,19 @@ describe('SearchController', () => {
       );
       await expect(controller.search('test', 'abc')).rejects.toThrow(BadRequestException);
     });
+
+    it('should propagate BadRequestException for provider error', async () => {
+      jest.spyOn(usecase, 'search').mockRejectedValue(
+        new BadRequestException('Upstream timeout'),
+      );
+      await expect(controller.search('test')).rejects.toThrow(BadRequestException);
+    });
+
+    it('should propagate BadRequestException for provider NOT_FOUND', async () => {
+      jest.spyOn(usecase, 'search').mockRejectedValue(
+        new BadRequestException('Search endpoint not available'),
+      );
+      await expect(controller.search('test')).rejects.toThrow(BadRequestException);
+    });
   });
 });
