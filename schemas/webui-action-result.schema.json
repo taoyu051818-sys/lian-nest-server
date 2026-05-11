@@ -1,0 +1,147 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/webui-action-result.schema.json",
+  "title": "WebUIActionResult",
+  "description": "Schema for the result of a WebUI control-plane action. Captures the outcome, effects produced (for preview) or applied (for execute), and any validation errors or blockers. See docs/ai-native/webui-action-contract.md for policy and field-level documentation.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "requestId",
+    "mode",
+    "actionType",
+    "outcome",
+    "capturedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1."
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9._-]+$",
+      "description": "Matches the requestId from the originating WebUIActionRequest."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["preview", "execute"],
+      "description": "Mode that was actually run. Must match the request mode."
+    },
+    "actionType": {
+      "type": "string",
+      "enum": [
+        "retry-worker",
+        "cancel-worker",
+        "clear-queue-entry",
+        "adjust-provider-concurrency",
+        "disable-provider",
+        "enable-provider",
+        "pause-orchestration",
+        "resume-orchestration",
+        "override-gate",
+        "force-merge-pr",
+        "refresh-health",
+        "rebalance-workers"
+      ],
+      "description": "The action type that was evaluated."
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["success", "blocked", "error", "skipped"],
+      "description": "success = action completed. blocked = policy or gate prevented execution. error = unexpected failure. skipped = no-op (e.g. target already in desired state)."
+    },
+    "effects": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Effect"
+      },
+      "description": "Effects produced (preview) or applied (execute). Empty when outcome is blocked or error."
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Blocker"
+      },
+      "description": "Policy or gate blockers that prevented execution. Only populated when outcome is blocked."
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Error"
+      },
+      "description": "Unexpected errors encountered. Only populated when outcome is error."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when the result was captured."
+    },
+    "durationMs": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Wall-clock time for the action to complete. Null for preview mode."
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "Effect": {
+      "type": "object",
+      "required": ["target", "description"],
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What was affected (e.g. 'issue:645', 'provider:openai-1', 'queue:540')."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable description of the effect."
+        },
+        "before": {
+          "description": "State before the action. May be any JSON type. Omitted for preview mode."
+        },
+        "after": {
+          "description": "State after the action. May be any JSON type. Omitted for preview mode."
+        }
+      },
+      "additionalProperties": false
+    },
+    "Blocker": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Machine-readable blocker code (e.g. POLICY_DENY, GATE_BLOCKED, ALLOWLIST_MISS)."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable explanation of the blocker."
+        }
+      },
+      "additionalProperties": false
+    },
+    "Error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Machine-readable error code."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable error description. Must not contain secrets or tokens."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
