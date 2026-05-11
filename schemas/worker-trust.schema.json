@@ -1,0 +1,217 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/worker-trust.schema.json",
+  "title": "WorkerTrust",
+  "description": "Schema for .github/ai-state/worker-trust.json — the worker trust state projection consumed by the orchestrator, launch gate, state reconciler, and heartbeat monitor. Defines per-worker-class trust defaults, trustScore input factors, and scheduling rules. See docs/ai-native/worker-trust.md for trust semantics and docs/ai-native/worker-trust-schema.md for field-level documentation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "markerVersion",
+    "capturedAt",
+    "description",
+    "workerClasses",
+    "trustScore",
+    "scheduling"
+  ],
+  "properties": {
+    "markerVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version pinned to 1. Consumers must reject records with a different version."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this trust projection was captured or last updated."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable description of this trust projection."
+    },
+    "workerClasses": {
+      "type": "object",
+      "description": "Per-worker-class trust defaults. Each key is a worker class name.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/definitions/WorkerClassEntry"
+      }
+    },
+    "trustScore": {
+      "type": "object",
+      "description": "Trust score computation configuration: inputs, weights, and formula.",
+      "additionalProperties": false,
+      "required": ["inputs", "formula"],
+      "properties": {
+        "inputs": {
+          "type": "array",
+          "description": "Weighted inputs that compose the composite trust score. Each input is normalized to [0.0, 1.0] before weighting.",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/TrustScoreInput"
+          }
+        },
+        "formula": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable formula description, e.g. 'weightedSum(inputs) clamped to [0.0, 1.0]'."
+        },
+        "note": {
+          "type": ["string", "null"],
+          "description": "Optional note about formula usage or overrides."
+        }
+      }
+    },
+    "scheduling": {
+      "type": "object",
+      "description": "Scheduling rules that map trust scores to launch actions.",
+      "additionalProperties": false,
+      "required": ["minTrustToLaunch", "highTrustThreshold", "rules"],
+      "properties": {
+        "minTrustToLaunch": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Minimum trust score required to launch a worker. Below this, the worker is blocked."
+        },
+        "highTrustThreshold": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Trust score at or above which a worker gets standard launch (no extra monitoring)."
+        },
+        "rules": {
+          "type": "array",
+          "description": "Ordered scheduling rules mapping trust score ranges to actions.",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/SchedulingRule"
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "WorkerClassEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "defaultTrustScore",
+        "allowedHealthStates",
+        "riskTier",
+        "layer"
+      ],
+      "properties": {
+        "defaultTrustScore": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Baseline trust score for this worker class in [0.0, 1.0]."
+        },
+        "allowedHealthStates": {
+          "type": "array",
+          "description": "Health states in which this worker class is permitted to launch. Hard gate checked before trust score computation.",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "enum": ["green", "yellow", "red", "black"]
+          },
+          "uniqueItems": true
+        },
+        "riskTier": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Risk classification for this worker class."
+        },
+        "layer": {
+          "type": "string",
+          "enum": [
+            "contract-planning",
+            "runtime-foundation",
+            "health-diagnostic",
+            "feature-repository",
+            "review-audit",
+            "merge-release"
+          ],
+          "description": "Backend worker layer this class belongs to."
+        },
+        "note": {
+          "type": ["string", "null"],
+          "description": "Optional human-readable rationale for the trust defaults."
+        }
+      }
+    },
+    "TrustScoreInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "weight", "description"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique input name, e.g. 'mainHealthState', 'staleWorkerCount'."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["enum", "float", "integer"],
+          "description": "Data type of the input value."
+        },
+        "weight": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Weight of this input in the composite trust score. All weights should sum to 1.0."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What this input measures and how it affects trust."
+        },
+        "values": {
+          "type": "array",
+          "description": "Allowed enum values when type is 'enum'.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "range": {
+          "type": "array",
+          "description": "Valid range [min, max] when type is 'float'.",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "min": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Minimum value when type is 'integer'."
+        }
+      }
+    },
+    "SchedulingRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["condition", "action", "description"],
+      "properties": {
+        "condition": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable condition expression, e.g. 'trustScore < 0.3'."
+        },
+        "action": {
+          "type": "string",
+          "enum": ["block_launch", "launch_with_monitoring", "launch_standard"],
+          "description": "Action to take when the condition is met."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What happens when this rule fires."
+        }
+      }
+    }
+  }
+}
