@@ -1,6 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { NodebbClient, NODEBB_CLIENT } from '../nodebb-client';
-import { NodebbAuth, NodebbNormalizedResponse, NodebbUser } from '../types';
+import {
+  NodebbAuth,
+  NodebbNormalizedResponse,
+  NodebbPost,
+  NodebbUser,
+} from '../types';
 
 /** Minimal shape for a saved/bookmark entry returned by NodeBB. */
 export interface NodebbSavedEntry {
@@ -92,6 +97,21 @@ export class NodebbUsersProvider {
     auth?: NodebbAuth,
   ): Promise<NodebbNormalizedResponse<NodebbHistoryEntry[]>> {
     return this.client.get<NodebbHistoryEntry[]>(
+      `/api/v3/users/${uid}/posts`,
+      auth,
+    );
+  }
+
+  /**
+   * Fetch posts created by a user.
+   *
+   * Calls NodeBB user posts endpoint.
+   */
+  async getPosts(
+    uid: number,
+    auth?: NodebbAuth,
+  ): Promise<NodebbNormalizedResponse<NodebbPost[]>> {
+    return this.client.get<NodebbPost[]>(
       `/api/v3/users/${uid}/posts`,
       auth,
     );

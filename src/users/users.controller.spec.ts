@@ -12,6 +12,7 @@ describe('UsersController', () => {
     getBySlug: jest.fn(),
     getSaved: jest.fn(),
     getLiked: jest.fn(),
+    getPosts: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -44,6 +45,27 @@ describe('UsersController', () => {
       const result = await controller.getByUid('1');
       expect(spy).toHaveBeenCalledWith('1');
       expect(result.uid).toBe('1');
+    });
+  });
+
+  describe('getPosts', () => {
+    it('should delegate to usecase', async () => {
+      const spy = jest.spyOn(usecase, 'getPosts').mockResolvedValue({
+        posts: [
+          {
+            pid: 101,
+            tid: 10,
+            uid: 1,
+            content: 'hello',
+            timestamp: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+        source: 'nodebb',
+      });
+      const result = await controller.getPosts('1');
+      expect(spy).toHaveBeenCalledWith('1');
+      expect(result.posts).toHaveLength(1);
+      expect(result.source).toBe('nodebb');
     });
   });
 });

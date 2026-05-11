@@ -1,0 +1,42 @@
+{
+  "id": "user-posts-basic",
+  "endpoint": "GET /api/users/:uid/posts",
+  "description": "User posts by uid returns mapped post fields",
+  "request": {
+    "method": "GET",
+    "path": "/api/users/<USER_UID>/posts",
+    "params": { "uid": "<USER_UID>" }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "posts": "<ARRAY>",
+      "source": "<STRING>"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["posts", "source"],
+      "properties": {
+        "posts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["pid", "tid", "uid", "content", "timestamp"],
+            "properties": {
+              "pid": { "type": "integer", "minimum": 1 },
+              "tid": { "type": "integer", "minimum": 1 },
+              "uid": { "type": "integer", "minimum": 1 },
+              "content": { "type": "string" },
+              "timestamp": { "type": "string", "format": "date-time" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "notes": "USER_UID must reference a valid seeded user with posts during test runs."
+}
