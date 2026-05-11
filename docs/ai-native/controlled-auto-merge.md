@@ -38,6 +38,9 @@ Use this script when you have a batch of low-risk PRs that are all:
 # Execute with post-merge health gate
 .\scripts\ai\merge-clean-pr-batch.ps1 -PRs 42 -Repo owner/name -Execute -RunHealthGate
 
+# Execute with custom post-merge health command
+.\scripts\ai\merge-clean-pr-batch.ps1 -PRs 42 -Repo owner/name -Execute -RunHealthGate -PostHealthCommand "scripts/custom-check.js --strict"
+
 # Dry-run with guard checks
 .\scripts\ai\merge-clean-pr-batch.ps1 -PRs 42,45 -Repo owner/name -RunGuards
 
@@ -54,7 +57,8 @@ Use this script when you have a batch of low-risk PRs that are all:
 | `-Repo`          | Yes**    | Target repository in `OWNER/NAME` format                       |
 | `-DryRun`        | No       | Validate only, print plan (DEFAULT)                            |
 | `-Execute`       | No       | Perform real merges                                            |
-| `-RunHealthGate` | No       | Run `scripts/post-merge-health-gate.js` after successful batch |
+| `-RunHealthGate` | No       | Run post-merge health command after successful batch           |
+| `-PostHealthCommand` | No   | Custom health command for `-RunHealthGate` (default: `scripts/post-merge-health-gate.js`) |
 | `-RunGuards`     | No       | Run local guard checks before merge (fail-closed on violations) |
 
 \* Either `-PRs` or `-AllowlistFile` is required, not both.
@@ -131,6 +135,7 @@ the health state of main afterward.
 | `preCommit`  | string?  | Git HEAD commit SHA before merges (null in dry-run)  |
 | `postCommit` | string?  | Git HEAD commit SHA after merges (null in dry-run)   |
 | `healthGate` | string   | `pass`, `fail`, `not-found`, or `skipped`            |
+| `postHealthCommand` | string? | Health command path (null when `-RunHealthGate` not used) |
 
 ### PR Status Values
 
@@ -158,7 +163,8 @@ the health state of main afterward.
   ],
   "preCommit": "abc1234def5678",
   "postCommit": "9876fedcba4321",
-  "healthGate": "pass"
+  "healthGate": "pass",
+  "postHealthCommand": "scripts/post-merge-health-gate.js"
 }
 ```
 
@@ -174,7 +180,8 @@ the health state of main afterward.
   ],
   "preCommit": null,
   "postCommit": null,
-  "healthGate": "skipped"
+  "healthGate": "skipped",
+  "postHealthCommand": "scripts/post-merge-health-gate.js"
 }
 ```
 
@@ -383,6 +390,12 @@ This script complements the existing merge tooling:
 
 ```powershell
 .\scripts\ai\merge-clean-pr-batch.ps1 -PRs 42,45 -Repo owner/name -Execute -RunHealthGate
+```
+
+### Execute with custom health command
+
+```powershell
+.\scripts\ai\merge-clean-pr-batch.ps1 -PRs 42 -Repo owner/name -Execute -RunHealthGate -PostHealthCommand "scripts/custom-check.js --strict"
 ```
 
 ### Verify a single PR before manual merge
