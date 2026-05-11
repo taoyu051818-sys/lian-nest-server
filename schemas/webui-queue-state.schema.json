@@ -1,0 +1,149 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/webui-queue-state.schema.json",
+  "title": "WebUIQueueState",
+  "description": "Schema for the WebUI-visible queue state projection. Captures the lifecycle of each worker queue entry from dispatch to completion. See docs/ai-native/webui-queue-state-schema.md for field-level documentation.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "capturedAt",
+    "entries"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1. Increment when the shape changes."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this projection was last written."
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/QueueEntry"
+      },
+      "description": "Queue entries in any state. Empty array when no tasks are tracked."
+    },
+    "summary": {
+      "$ref": "#/definitions/Summary",
+      "description": "Aggregate counts by state. Optional convenience field for WebUI dashboards."
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "QueueEntry": {
+      "type": "object",
+      "required": [
+        "issueNumber",
+        "state",
+        "updatedAt"
+      ],
+      "properties": {
+        "issueNumber": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "GitHub issue number for this queue entry."
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "launching",
+            "running",
+            "pr-created",
+            "blocked",
+            "done"
+          ],
+          "description": "Lifecycle state. queued = waiting for dispatch, launching = launcher preparing the worker, running = worker is executing, pr-created = PR opened awaiting review/merge, blocked = waiting on a dependency or external action, done = merged or terminal."
+        },
+        "conflictGroup": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Conflict group identifier from the task contract."
+        },
+        "branch": {
+          "type": "string",
+          "description": "Git branch or worktree the worker is operating on."
+        },
+        "prNumber": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "GitHub PR number, if a PR has been opened. Null otherwise."
+        },
+        "blockedBy": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "description": "Issue or PR numbers blocking progress. Relevant when state is 'blocked'."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp of the last state transition for this entry."
+        },
+        "actorRole": {
+          "type": "string",
+          "description": "Worker role from the task contract."
+        },
+        "pmPhase": {
+          "type": "string",
+          "description": "Wave/phase identifier for grouping in the UI."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Optional human-readable reason for the current state (e.g. 'waiting for #420 to merge')."
+        }
+      },
+      "additionalProperties": false
+    },
+    "Summary": {
+      "type": "object",
+      "required": [
+        "queued",
+        "launching",
+        "running",
+        "prCreated",
+        "blocked",
+        "done"
+      ],
+      "properties": {
+        "queued": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of entries in 'queued' state."
+        },
+        "launching": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of entries in 'launching' state."
+        },
+        "running": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of entries in 'running' state."
+        },
+        "prCreated": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of entries in 'pr-created' state."
+        },
+        "blocked": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of entries in 'blocked' state."
+        },
+        "done": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of entries in 'done' state."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
