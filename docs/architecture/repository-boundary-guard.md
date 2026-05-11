@@ -263,3 +263,20 @@ Only files under `src/repositories/` may import these packages:
 `@prisma/client`, `prisma`, `ioredis`, `redis`, `pg`, `mysql2`, `better-sqlite3`, `fs`, `fs/promises`
 
 All other `src/` files must use repository interfaces via `REPOSITORY_TOKENS` injection.
+
+### Infrastructure module allowlist
+
+Infrastructure wrapper modules are permitted to import their own driver packages.
+This is a narrow exception — business modules remain forbidden from direct driver imports.
+
+| Directory | Allowed packages |
+|---|---|
+| `src/database/**` | `@prisma/client`, `prisma` |
+| `src/redis/**` | `ioredis`, `redis` |
+
+These modules (`PrismaService`, `RedisService`) own the driver connection lifecycle
+and expose it via NestJS providers. Repository implementations import from these
+services, not from the raw driver packages.
+
+**Forbidden:** Any business module (auth, feed, posts, messages, profile) importing
+`@prisma/client`, `ioredis`, `fs`, or other driver packages directly.
