@@ -1,0 +1,26 @@
+{
+  "id": "category-detail-negative-cid",
+  "endpoint": "GET /api/categories/:cid",
+  "description": "Requesting a category with a negative cid returns 404",
+  "request": {
+    "method": "GET",
+    "path": "/api/categories/-1",
+    "params": { "cid": "-1" }
+  },
+  "expected": {
+    "status": 404,
+    "contentType": "application/json",
+    "body": { "statusCode": 404, "error": "Not Found", "code": "NOT_FOUND" },
+    "bodySchema": {
+      "type": "object",
+      "required": ["statusCode", "error", "code"],
+      "properties": {
+        "statusCode": { "type": "integer", "const": 404 },
+        "error": { "type": "string" },
+        "code": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "notes": "Negative cid=-1 fails the cid < 1 check in CategoriesUsecase.getById."
+}

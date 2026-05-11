@@ -35,7 +35,7 @@ export class CategoriesUsecase {
 
   async getById(cidParam: string): Promise<CategoryItem> {
     const cid = Number(cidParam);
-    if (!Number.isFinite(cid) || cid < 1) {
+    if (!Number.isInteger(cid) || cid < 1) {
       throw new NotFoundException(`Category ${cidParam} not found`);
     }
 
