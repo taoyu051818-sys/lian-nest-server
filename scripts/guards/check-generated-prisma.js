@@ -26,6 +26,7 @@ const { execSync } = require('child_process');
 
 const GENERATED_PREFIX = 'src/generated/prisma/';
 const SCHEMA_PATH = 'prisma/schema.prisma';
+const MIGRATION_PREFIX = 'prisma/migrations/';
 
 // --- Exports for testing ---
 
@@ -61,7 +62,7 @@ function classifyChangedFiles(files) {
   const schema = [];
   for (const f of files) {
     if (f.startsWith(GENERATED_PREFIX)) generated.push(f);
-    else if (f === SCHEMA_PATH) schema.push(f);
+    else if (f === SCHEMA_PATH || f.startsWith(MIGRATION_PREFIX)) schema.push(f);
   }
   return { generated, schema };
 }
@@ -154,9 +155,9 @@ Exit codes:
   2  usage error
 
 Freshness rules:
-  Schema + generated changed   → pass (normal regeneration)
+  Schema/migration + generated → pass (normal regeneration)
   Only generated changed       → fail (needs --allow-generated)
-  Only schema changed          → warn (may need prisma generate)
+  Only schema/migration        → warn (may need prisma generate)
   Neither changed              → pass`);
 }
 
