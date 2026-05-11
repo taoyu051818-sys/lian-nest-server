@@ -10,6 +10,7 @@ export {
   NodebbUser,
   NodebbNotification,
   NodebbTag,
+  NodebbCategory,
   normalizeOk,
   normalizeError,
   toNodebbAuthMode,
@@ -42,3 +43,4 @@ export { NodebbPostsProvider } from './providers/nodebb-posts.provider';
 export { NodebbUsersProvider } from './providers/nodebb-users.provider';
 export { NodebbNotificationsProvider } from './providers/nodebb-notifications.provider';
 export { NodebbTagsProvider } from './providers/nodebb-tags.provider';
+export { NodebbCategoriesProvider } from './providers/nodebb-categories.provider';

@@ -146,3 +146,16 @@ export interface NodebbTag {
   score: number;
   color?: string;
 }
+
+export interface NodebbCategory {
+  cid: number;
+  name: string;
+  slug: string;
+  description: string;
+  icon: string;
+  color: string;
+  bgColor: string;
+  topic_count: number;
+  post_count: number;
+  disabled: number;
+}

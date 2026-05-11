@@ -8,6 +8,7 @@ import { NodebbPostsProvider } from './providers/nodebb-posts.provider';
 import { NodebbUsersProvider } from './providers/nodebb-users.provider';
 import { NodebbNotificationsProvider } from './providers/nodebb-notifications.provider';
 import { NodebbTagsProvider } from './providers/nodebb-tags.provider';
+import { NodebbCategoriesProvider } from './providers/nodebb-categories.provider';
 
 interface NodebbModuleAsyncOptions {
   useFactory: (...args: unknown[]) => NodebbModuleConfig;
@@ -173,6 +174,7 @@ export class NodebbModule {
         NodebbUsersProvider,
         NodebbNotificationsProvider,
         NodebbTagsProvider,
+        NodebbCategoriesProvider,
       ],
       exports: [
         NODEBB_CLIENT,
@@ -181,6 +183,7 @@ export class NodebbModule {
         NodebbUsersProvider,
         NodebbNotificationsProvider,
         NodebbTagsProvider,
+        NodebbCategoriesProvider,
       ],
     };
   }
@@ -204,6 +207,7 @@ export class NodebbModule {
         NodebbUsersProvider,
         NodebbNotificationsProvider,
         NodebbTagsProvider,
+        NodebbCategoriesProvider,
       ],
       exports: [
         NODEBB_CLIENT,
@@ -212,6 +216,7 @@ export class NodebbModule {
         NodebbUsersProvider,
         NodebbNotificationsProvider,
         NodebbTagsProvider,
+        NodebbCategoriesProvider,
       ],
     };
   }
