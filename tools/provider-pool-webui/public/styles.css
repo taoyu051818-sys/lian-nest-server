@@ -1943,6 +1943,21 @@ tr.row-disabled td {
   color: var(--status-exhausted);
 }
 
+/* --- Launch Plan Summary --- */
+
+.planning-launch-summary {
+  margin-bottom: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-left: 3px solid var(--accent-blue);
+  border-radius: var(--radius-md);
+}
+
+.planning-launch-summary h3 {
+  color: var(--accent-blue);
+}
+
 /* --- Planning Responsive --- */
 
 @media (max-width: 768px) {

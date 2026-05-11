@@ -1649,6 +1649,58 @@ function renderBatchPreview(launchPlan) {
   return container;
 }
 
+function renderLaunchPlanSummary(launchPlan) {
+  if (!launchPlan) return null;
+  const selected = launchPlan.selectedTasks || [];
+  const rejected = launchPlan.rejectedTasks || [];
+  const locks = launchPlan.locksAcquired || [];
+
+  if (selected.length === 0 && rejected.length === 0 && locks.length === 0) return null;
+
+  const container = el('div', { className: 'planning-section planning-launch-summary' });
+  container.append(el('h3', { textContent: 'Launch Plan Summary' }));
+
+  const grid = el('div', { className: 'planning-signals-grid' }, [
+    el('div', { className: 'planning-signal-card' }, [
+      el('span', { className: 'planning-signal-label', textContent: 'Selected' }),
+      el('span', { className: 'planning-signal-value status-available', textContent: String(selected.length) }),
+    ]),
+    el('div', { className: 'planning-signal-card' }, [
+      el('span', { className: 'planning-signal-label', textContent: 'Rejected' }),
+      el('span', { className: `planning-signal-value ${rejected.length > 0 ? 'status-exhausted' : ''}`, textContent: String(rejected.length) }),
+    ]),
+    el('div', { className: 'planning-signal-card' }, [
+      el('span', { className: 'planning-signal-label', textContent: 'Locks' }),
+      el('span', { className: 'planning-signal-value', textContent: String(locks.length) }),
+    ]),
+    el('div', { className: 'planning-signal-card' }, [
+      el('span', { className: 'planning-signal-label', textContent: 'Status' }),
+      el('span', {
+        className: `planning-signal-value ${launchPlan.allAllowed ? 'status-available' : 'status-exhausted'}`,
+        textContent: launchPlan.allAllowed ? 'CLEAR' : 'BLOCKED',
+      }),
+    ]),
+  ]);
+  container.append(grid);
+
+  // Main health indicator (compact)
+  if (launchPlan.mainHealth) {
+    const mh = launchPlan.mainHealth;
+    container.append(el('div', { className: 'planning-health-row' }, [
+      el('span', { className: 'planning-health-label', textContent: 'Health' }),
+      el('span', {
+        className: `badge ${healthStateColor(mh.state)}`,
+        textContent: (mh.state || '—').toUpperCase(),
+      }),
+      mh.reason
+        ? el('span', { className: 'planning-health-reason', textContent: mh.reason })
+        : null,
+    ].filter(Boolean)));
+  }
+
+  return container;
+}
+
 function renderPlanningConsole(planningData) {
   const container = el('div', { className: 'console-section' });
   container.append(el('h2', { textContent: 'Planning Console' }));
@@ -1672,6 +1724,10 @@ function renderPlanningConsole(planningData) {
       textContent: `Last captured: ${formatTimestamp(planningData.capturedAt)}`,
     }));
   }
+
+  // Launch plan summary (compact selected/rejected overview)
+  const summaryEl = renderLaunchPlanSummary(planningData.launchPlan);
+  if (summaryEl) container.append(summaryEl);
 
   // Meta signals
   const signalsEl = renderMetaSignals(planningData.metaSignals);
