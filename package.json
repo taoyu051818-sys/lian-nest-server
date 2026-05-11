@@ -34,7 +34,17 @@
     "ops:resource-sample": "pwsh -NoProfile -File scripts/ai/sample-local-resource.ps1",
     "ops:resource-sample:test": "node scripts/ai/test-resource-pressure-sampler.js",
     "ops:state-reconcile": "pwsh -NoProfile -File scripts/ai/state-reconciler.ps1",
-    "ops:merge-queue": "node scripts/merge-queue-assistant.js"
+    "ops:merge-queue": "node scripts/merge-queue-assistant.js",
+    "ops:webui:smoke": "node tools/provider-pool-webui/server.test.js",
+    "ops:webui:console-issue": "pwsh -NoProfile -File scripts/ai/webui-issue-control.ps1",
+    "ops:webui:console-launch": "pwsh -NoProfile -File scripts/ai/webui-launch-control.ps1",
+    "ops:webui:console-merge": "pwsh -NoProfile -File scripts/ai/webui-merge-control.ps1",
+    "ops:webui:dashboard-state": "node scripts/ai/emit-control-plane-dashboard-state.js",
+    "ops:webui:control-workers": "pwsh -NoProfile -File scripts/ai/control-workers.ps1",
+    "ops:webui:worker-metrics": "pwsh -NoProfile -File scripts/ai/sample-worker-metrics.ps1",
+    "ops:plan-next-batch": "pwsh -NoProfile -File scripts/ai/plan-next-batch.ps1",
+    "ops:plan:check-duplicates": "node scripts/ai/check-duplicate-route-tasks.js",
+    "ops:plan:write-issues": "pwsh -NoProfile -File scripts/ai/write-planned-issues.ps1"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",

@@ -1,0 +1,408 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/webui-planning-console-state.schema.json",
+  "title": "WebUIPlanningConsoleState",
+  "description": "Schema for the WebUI Planning Console state projection. Aggregates gap ledger entries, plan proposals, the latest batch plan, meta signals, and main health into a single read-model for the planning console. See docs/ai-native/webui-planning-console-state-schema.md for field-level documentation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "capturedAt",
+    "gaps",
+    "proposals",
+    "batchPlan",
+    "metaSignals",
+    "mainHealth",
+    "summary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version pinned to 1. Consumers must reject records with a different version."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this projection was last written."
+    },
+    "gaps": {
+      "type": "array",
+      "description": "Active gap entries from the gap ledger. Empty when no gaps are open.",
+      "items": {
+        "$ref": "#/definitions/GapEntry"
+      }
+    },
+    "proposals": {
+      "type": "array",
+      "description": "Plan proposals (candidate tasks) from the planning loop. Empty when no candidates are ready.",
+      "items": {
+        "$ref": "#/definitions/ProposalEntry"
+      }
+    },
+    "batchPlan": {
+      "$ref": "#/definitions/BatchPlanSnapshot",
+      "description": "Snapshot of the latest compiled launch plan. Null when no plan has been compiled yet."
+    },
+    "metaSignals": {
+      "$ref": "#/definitions/MetaSignalsSnapshot",
+      "description": "Snapshot of meta signals used for risk-aware prioritization. Null when no signals are available."
+    },
+    "mainHealth": {
+      "$ref": "#/definitions/MainHealthSnapshot",
+      "description": "Current main branch health state. Null when health has not been evaluated."
+    },
+    "summary": {
+      "$ref": "#/definitions/ConsoleSummary",
+      "description": "Aggregate counts and readiness indicators for the planning console dashboard."
+    }
+  },
+  "definitions": {
+    "GapEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gapType",
+        "severity",
+        "description",
+        "recordedAt"
+      ],
+      "properties": {
+        "gapType": {
+          "type": "string",
+          "enum": [
+            "worker-failed",
+            "worker-stale",
+            "health-gate-fail",
+            "launch-blocked",
+            "plan-drift",
+            "stale-row"
+          ],
+          "description": "Category of gap event."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"],
+          "description": "Severity of the gap. low for stale rows and plan drift, medium for launch blocks, high for worker failures and stale workers, critical for health gate failures."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable description of the gap."
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the gap was recorded."
+        },
+        "issue": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "GitHub issue number related to the gap. Null when not issue-specific."
+        },
+        "pr": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "GitHub PR number related to the gap. Null when not PR-specific."
+        },
+        "conflictGroup": {
+          "type": ["string", "null"],
+          "description": "Conflict group associated with the gap. Null when not group-specific."
+        }
+      }
+    },
+    "ProposalEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "issueNumber",
+        "title",
+        "taskType",
+        "risk",
+        "conflictGroup",
+        "readiness",
+        "actorRole"
+      ],
+      "properties": {
+        "issueNumber": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "GitHub issue number for this proposal."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Issue title for WebUI display."
+        },
+        "taskType": {
+          "type": "string",
+          "enum": ["execution", "research", "review"],
+          "description": "Task type from the worker contract."
+        },
+        "risk": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Task risk level."
+        },
+        "conflictGroup": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Conflict group identifier for parallelism control."
+        },
+        "actorRole": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Worker role assignment from the task contract."
+        },
+        "readiness": {
+          "type": "string",
+          "enum": ["ready", "blocked", "done"],
+          "description": "Readiness state derived from migration matrix slice status. ready = can launch, blocked = dependency not met, done = slice complete."
+        },
+        "readinessNote": {
+          "type": ["string", "null"],
+          "description": "Human-readable explanation of the readiness state."
+        },
+        "allowedFiles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "File glob patterns the worker may edit."
+        },
+        "forbiddenFiles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "File glob patterns the worker must not edit."
+        },
+        "validationCommands": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Commands to run before PR."
+        },
+        "sliceRef": {
+          "type": ["string", "null"],
+          "description": "Migration matrix slice identifier. Null when no slice is referenced."
+        },
+        "sliceStatus": {
+          "type": ["string", "null"],
+          "enum": [
+            "NOT_STARTED",
+            "CONTRACTED",
+            "IMPLEMENTED",
+            "PARITY_TESTED",
+            "LEGACY_DISABLED",
+            null
+          ],
+          "description": "Current status of the referenced slice. Null when no slice is referenced."
+        }
+      }
+    },
+    "BatchPlanSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "planVersion",
+        "capturedAt",
+        "selectedCount",
+        "rejectedCount",
+        "allAllowed"
+      ],
+      "properties": {
+        "planVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Version of the launch plan schema."
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the launch plan was compiled."
+        },
+        "selectedCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tasks selected for dispatch."
+        },
+        "rejectedCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tasks rejected by the launch gate."
+        },
+        "allAllowed": {
+          "type": "boolean",
+          "description": "True if all tasks in the batch were selected (none rejected)."
+        },
+        "mainHealthState": {
+          "type": ["string", "null"],
+          "enum": ["green", "yellow", "red", "black", null],
+          "description": "Main health state at plan compilation time."
+        },
+        "selectedIssues": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "description": "Issue numbers of selected tasks."
+        },
+        "rejectedIssues": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "description": "Issue numbers of rejected tasks."
+        },
+        "locksHeld": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Shared lock names acquired by selected tasks."
+        }
+      }
+    },
+    "MetaSignalsSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "failureScore",
+        "frictionScore",
+        "riskScore",
+        "trust",
+        "topPain"
+      ],
+      "properties": {
+        "failureScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Aggregated failure severity (0-100)."
+        },
+        "frictionScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Friction from stale workers and no-output episodes (0-100)."
+        },
+        "riskScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Unresolved high-risk slices (0-100)."
+        },
+        "trust": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Inverse of failure+friction (100 = full trust)."
+        },
+        "topPain": {
+          "type": "string",
+          "description": "Category with the highest recent failure count. \"none\" when no failures are recorded."
+        },
+        "cost": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Elapsed worker-minutes in the batch window."
+        }
+      }
+    },
+    "MainHealthSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "capturedAt"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["green", "yellow", "red", "black"],
+          "description": "Main branch health state. green = all checks pass, yellow = non-critical failure, red = critical failure, black = unrecoverable."
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the health state was last evaluated."
+        },
+        "checks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Health checks that were evaluated."
+        },
+        "failedChecks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Subset of checks that failed."
+        },
+        "allowedWorkerClasses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["all", "fix-only", "docs"]
+          },
+          "description": "Worker classes permitted to launch in this state."
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "description": "Human-readable explanation for the health state."
+        }
+      }
+    },
+    "ConsoleSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "totalGaps",
+        "criticalGaps",
+        "readyProposals",
+        "blockedProposals",
+        "selectedTasks",
+        "rejectedTasks",
+        "healthState",
+        "trust"
+      ],
+      "properties": {
+        "totalGaps": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of active gap entries."
+        },
+        "criticalGaps": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of gaps with severity critical or high."
+        },
+        "readyProposals": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of proposals with readiness=ready."
+        },
+        "blockedProposals": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of proposals with readiness=blocked."
+        },
+        "selectedTasks": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tasks selected in the latest batch plan."
+        },
+        "rejectedTasks": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tasks rejected in the latest batch plan."
+        },
+        "healthState": {
+          "type": ["string", "null"],
+          "enum": ["green", "yellow", "red", "black", null],
+          "description": "Current main branch health state for quick dashboard reference."
+        },
+        "trust": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Current trust score from meta signals (100 = full trust)."
+        }
+      }
+    }
+  }
+}

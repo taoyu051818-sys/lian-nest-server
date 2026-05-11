@@ -1,16 +1,18 @@
 #!/usr/bin/env node
-"use strict";
 
 /**
- * Tests for WebUI action modules.
+ * action-modules.test.js
  *
- * Validates the worker-control action module's structure, validation,
- * and behavior using temporary fixture files.
+ * Tests for WebUI action modules (merge-prs).
+ * No external test framework — uses a simple assert helper.
+ * Does NOT perform real merges; validates module shape and
+ * payload validation only.
+ *
+ * Run: node tools/provider-pool-webui/action-modules.test.js
  */
 
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
+const path = require("path");
+const fs = require("fs");
 
 let passed = 0;
 let failed = 0;
@@ -25,254 +27,269 @@ function assert(condition, name) {
   }
 }
 
-// --- Setup -------------------------------------------------------------------
+// --- Module loading ---------------------------------------------------------
 
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "action-modules-test-"));
-const statePath = path.join(tmpDir, "provider-pool.json");
+console.log("\nModule loading\n");
 
-// Create test state fixture
-const testState = {
-  global: {
-    capturedAt: "2026-05-12T00:00:00.000Z",
-    totalActiveWorkers: 3,
-    globalMaxWorkers: 10,
-    availableProviders: 2,
-    exhaustedProviders: 0,
-    disabledProviders: 0,
-  },
-  providers: [
-    {
-      id: "provider-1",
-      status: "available",
-      currentConcurrency: 2,
-      maxConcurrency: 5,
-      consecutiveFailures: 0,
-    },
-    {
-      id: "provider-2",
-      status: "available",
-      currentConcurrency: 1,
-      maxConcurrency: 5,
-      consecutiveFailures: 0,
-    },
-  ],
-};
+const ACTIONS_DIR = path.resolve(__dirname, "actions");
 
-fs.writeFileSync(statePath, JSON.stringify(testState, null, 2));
+assert(fs.existsSync(ACTIONS_DIR), "actions/ directory exists");
 
-// --- Load module -------------------------------------------------------------
+const mergePrsPath = path.join(ACTIONS_DIR, "merge-prs.js");
+assert(fs.existsSync(mergePrsPath), "actions/merge-prs.js exists");
 
-const mod = require(path.join(__dirname, "actions", "worker-control.js"));
+const mergePrs = require(mergePrsPath);
 
-// --- Module structure tests --------------------------------------------------
+// --- Module shape -----------------------------------------------------------
 
-console.log("\n--- worker-control: module structure ---");
+console.log("\nModule shape\n");
 
-assert(typeof mod.id === "string", "id is a string");
-assert(mod.id === "worker.control", "id is 'worker.control'");
-assert(typeof mod.label === "string", "label is a string");
-assert(mod.label === "Worker Control", "label is 'Worker Control'");
-assert(typeof mod.description === "string", "description is a string");
-assert(mod.dangerous === true, "dangerous is true");
-assert(typeof mod.preview === "function", "preview is a function");
-assert(typeof mod.execute === "function", "execute is a function");
+assert(typeof mergePrs.id === "string", "module exports id as string");
+assert(mergePrs.id === "merge-prs", "module id is 'merge-prs'");
+assert(typeof mergePrs.label === "string", "module exports label as string");
+assert(mergePrs.label === "Merge PRs", "label is 'Merge PRs'");
+assert(
+  typeof mergePrs.description === "string",
+  "module exports description as string"
+);
+assert(
+  mergePrs.description.length > 0,
+  "description is non-empty"
+);
+assert(
+  mergePrs.dangerous === true,
+  "module is marked dangerous (requires confirm:true)"
+);
+assert(
+  typeof mergePrs.preview === "function",
+  "module exports preview function"
+);
+assert(
+  typeof mergePrs.execute === "function",
+  "module exports execute function"
+);
 
-// --- Preview validation tests ------------------------------------------------
+// --- Payload validation: preview --------------------------------------------
 
-console.log("\n--- worker-control: preview validation ---");
+console.log("\nPayload validation (preview)\n");
 
-// Missing payload
-var noPayload = mod.preview(null);
-assert(noPayload.ok === false, "preview with null payload fails");
-assert(noPayload.error === "payload is required", "null payload error message");
+{
+  let threw = false;
+  try {
+    mergePrs.preview(null);
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("Payload must be an object"),
+      "preview(null) throws 'Payload must be an object'"
+    );
+  }
+  assert(threw, "preview(null) throws");
+}
 
-// Missing action
-var noAction = mod.preview({});
-assert(noAction.ok === false, "preview without action fails");
-assert(noAction.error === "action is required", "missing action error message");
+{
+  let threw = false;
+  try {
+    mergePrs.preview({});
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("prNumbers"),
+      "preview({}) throws about prNumbers"
+    );
+  }
+  assert(threw, "preview({}) throws");
+}
 
-// Unknown action
-var unknown = mod.preview({ action: "unknown" });
-assert(unknown.ok === false, "preview with unknown action fails");
-assert(unknown.error === "Unknown action: unknown", "unknown action error message");
+{
+  let threw = false;
+  try {
+    mergePrs.preview({ prNumbers: [] });
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("non-empty"),
+      "preview with empty prNumbers throws about non-empty"
+    );
+  }
+  assert(threw, "preview with empty prNumbers throws");
+}
 
-// --- List action tests -------------------------------------------------------
+{
+  let threw = false;
+  try {
+    mergePrs.preview({ prNumbers: ["abc"] });
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("positive integer"),
+      "preview with string PR throws about positive integer"
+    );
+  }
+  assert(threw, "preview with string PR throws");
+}
 
-console.log("\n--- worker-control: list action ---");
+{
+  let threw = false;
+  try {
+    mergePrs.preview({ prNumbers: [-1] });
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("positive integer"),
+      "preview with negative PR throws about positive integer"
+    );
+  }
+  assert(threw, "preview with negative PR throws");
+}
 
-// Preview list
-var listPreview = mod.preview({ action: "list", _statePath: statePath });
-assert(listPreview.ok === true, "list preview returns ok");
-assert(Array.isArray(listPreview.workers), "list preview returns workers array");
-assert(listPreview.workers.length === 3, "list preview returns 3 workers");
-assert(listPreview.total === 3, "list preview total is 3");
+{
+  let threw = false;
+  try {
+    mergePrs.preview({ prNumbers: [1.5] });
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("positive integer"),
+      "preview with float PR throws about positive integer"
+    );
+  }
+  assert(threw, "preview with float PR throws");
+}
 
-// Validate worker structure
-var firstWorker = listPreview.workers[0];
-assert(firstWorker.workerId === "provider-1-slot-0", "first worker ID is correct");
-assert(firstWorker.providerId === "provider-1", "first worker providerId is correct");
-assert(firstWorker.status === "running", "first worker status is 'running'");
-assert(firstWorker.startedAt === "2026-05-12T00:00:00.000Z", "first worker startedAt is correct");
+// --- Payload validation: execute --------------------------------------------
 
-// Execute list (should behave same as preview)
-var listExec = mod.execute({ action: "list", _statePath: statePath });
-assert(listExec.ok === true, "execute list returns ok");
-assert(listExec.workers.length === 3, "execute list returns 3 workers");
+console.log("\nPayload validation (execute)\n");
 
-// List with missing state file
-var listNoState = mod.preview({ action: "list", _statePath: path.join(tmpDir, "nonexistent.json") });
-assert(listNoState.ok === false, "list with missing state file fails");
-assert(listNoState.error === "Cannot load worker state", "missing state error message");
+{
+  let threw = false;
+  try {
+    mergePrs.execute(null);
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("Payload must be an object"),
+      "execute(null) throws 'Payload must be an object'"
+    );
+  }
+  assert(threw, "execute(null) throws");
+}
 
-// --- Stop preview tests ------------------------------------------------------
+{
+  let threw = false;
+  try {
+    mergePrs.execute({});
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("prNumbers"),
+      "execute({}) throws about prNumbers"
+    );
+  }
+  assert(threw, "execute({}) throws");
+}
 
-console.log("\n--- worker-control: stop preview ---");
+{
+  let threw = false;
+  try {
+    mergePrs.execute({ prNumbers: [42] });
+  } catch (e) {
+    threw = true;
+    // Should throw about missing repo (no payload.repo and no GH_REPO env)
+    assert(
+      e.message.includes("Repository") || e.message.includes("repo"),
+      "execute with valid PRs but no repo throws about repository"
+    );
+  }
+  assert(threw, "execute with valid PRs but no repo throws");
+}
 
-// Missing workerIds
-var stopNoIds = mod.preview({ action: "stop", _statePath: statePath });
-assert(stopNoIds.ok === false, "stop preview without workerIds fails");
-assert(stopNoIds.error === "workerIds array is required for stop action", "missing workerIds error");
+// --- Repo validation --------------------------------------------------------
 
-// Empty workerIds
-var stopEmptyIds = mod.preview({ action: "stop", workerIds: [], _statePath: statePath });
-assert(stopEmptyIds.ok === false, "stop preview with empty workerIds fails");
+console.log("\nRepo validation\n");
 
-// Non-array workerIds
-var stopBadIds = mod.preview({ action: "stop", workerIds: "not-an-array", _statePath: statePath });
-assert(stopBadIds.ok === false, "stop preview with non-array workerIds fails");
+{
+  let threw = false;
+  try {
+    mergePrs.preview({ prNumbers: [42], repo: "not-a-valid-repo" });
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("OWNER/NAME"),
+      "invalid repo format throws about OWNER/NAME"
+    );
+  }
+  assert(threw, "invalid repo format throws");
+}
 
-// Valid single worker
-var stopOne = mod.preview({ action: "stop", workerIds: ["provider-1-slot-0"], _statePath: statePath });
-assert(stopOne.ok === true, "stop preview with valid worker returns ok");
-assert(stopOne.preview === true, "stop preview has preview=true flag");
-assert(stopOne.workers.length === 1, "stop preview returns 1 worker");
-assert(stopOne.total === 1, "stop preview total is 1");
-assert(stopOne.workers[0].workerId === "provider-1-slot-0", "stop preview returns correct worker");
+{
+  let threw = false;
+  try {
+    mergePrs.preview({ prNumbers: [42], repo: "" });
+  } catch (e) {
+    threw = true;
+    assert(
+      e.message.includes("Repository not specified"),
+      "empty repo throws about not specified"
+    );
+  }
+  assert(threw, "empty repo throws");
+}
 
-// Valid multiple workers
-var stopMulti = mod.preview({
-  action: "stop",
-  workerIds: ["provider-1-slot-0", "provider-1-slot-1", "provider-2-slot-0"],
-  _statePath: statePath,
-});
-assert(stopMulti.ok === true, "stop preview with multiple workers returns ok");
-assert(stopMulti.workers.length === 3, "stop preview returns 3 workers");
-assert(stopMulti.message === "Would stop 3 worker(s)", "stop preview message is correct");
+// --- Module integration with server loading ---------------------------------
 
-// Non-existent worker
-var stopNotFound = mod.preview({ action: "stop", workerIds: ["nonexistent-worker"], _statePath: statePath });
-assert(stopNotFound.ok === false, "stop preview with non-existent worker fails");
-assert(stopNotFound.error.includes("Workers not found"), "error mentions workers not found");
-assert(stopNotFound.error.includes("nonexistent-worker"), "error includes the missing worker ID");
+console.log("\nServer integration\n");
 
-// Mix of valid and invalid
-var stopMix = mod.preview({
-  action: "stop",
-  workerIds: ["provider-1-slot-0", "nonexistent"],
-  _statePath: statePath,
-});
-assert(stopMix.ok === false, "stop preview with mix of valid/invalid fails");
-assert(stopMix.error.includes("nonexistent"), "error mentions the invalid worker");
+// Simulate how server.js loads modules
+const serverPath = path.resolve(__dirname, "server.js");
+assert(fs.existsSync(serverPath), "server.js exists for integration reference");
 
-// --- Stop execute tests ------------------------------------------------------
+// Verify the module would be accepted by loadActionModules validation
+assert(
+  typeof mergePrs.id === "string" && typeof mergePrs.label === "string",
+  "module passes server loadActionModules shape check"
+);
 
-console.log("\n--- worker-control: stop execute ---");
+// Verify dangerous flag is coerced correctly (server does !!mod.dangerous)
+assert(
+  !!mergePrs.dangerous === true,
+  "module dangerous flag coerces to true"
+);
 
-// Missing workerIds
-var execNoIds = mod.execute({ action: "stop", _statePath: statePath });
-assert(execNoIds.ok === false, "stop execute without workerIds fails");
+// --- No secrets in module ---------------------------------------------------
 
-// Missing reason
-var execNoReason = mod.execute({ action: "stop", workerIds: ["provider-1-slot-0"], _statePath: statePath });
-assert(execNoReason.ok === false, "stop execute without reason fails");
-assert(execNoReason.error === "reason is required for stop action", "missing reason error");
+console.log("\nNo secrets in module\n");
 
-// Empty reason
-var execEmptyReason = mod.execute({
-  action: "stop",
-  workerIds: ["provider-1-slot-0"],
-  reason: "",
-  _statePath: statePath,
-});
-assert(execEmptyReason.ok === false, "stop execute with empty reason fails");
+const moduleSource = fs.readFileSync(mergePrsPath, "utf-8");
+assert(
+  !/sk-ant-/.test(moduleSource),
+  "module source contains no API key patterns"
+);
+assert(
+  !/ghp_/.test(moduleSource),
+  "module source contains no GitHub token patterns"
+);
+assert(
+  !/process\.env\.(?!GH_REPO)/.test(moduleSource),
+  "module only reads GH_REPO from env (no secret env vars)"
+);
 
-// Whitespace-only reason
-var execWhitespaceReason = mod.execute({
-  action: "stop",
-  workerIds: ["provider-1-slot-0"],
-  reason: "   ",
-  _statePath: statePath,
-});
-assert(execWhitespaceReason.ok === false, "stop execute with whitespace-only reason fails");
+// --- No raw stdout/stderr in module ----------------------------------------
 
-// Non-existent worker
-var execNotFound = mod.execute({
-  action: "stop",
-  workerIds: ["nonexistent"],
-  reason: "test",
-  _statePath: statePath,
-});
-assert(execNotFound.ok === false, "stop execute with non-existent worker fails");
+console.log("\nNo raw stdout/stderr exposure\n");
 
-// Valid single stop
-var execStopOne = mod.execute({
-  action: "stop",
-  workerIds: ["provider-1-slot-0"],
-  reason: "Scaling down for maintenance",
-  _statePath: statePath,
-});
-assert(execStopOne.ok === true, "stop execute with valid payload returns ok");
-assert(execStopOne.stopped === 1, "stop execute stopped 1 worker");
-assert(execStopOne.workers.length === 1, "stop execute returns 1 worker ID");
-assert(execStopOne.workers[0] === "provider-1-slot-0", "stop execute returns correct worker ID");
-assert(execStopOne.reason === "Scaling down for maintenance", "stop execute returns reason");
-assert(typeof execStopOne.timestamp === "string", "stop execute returns timestamp");
+// The module should never return raw stderr to the caller
+assert(
+  !moduleSource.includes("err.stderr"),
+  "module does not expose raw stderr"
+);
+// The module sanitizes stdout through extractManifest only
+assert(
+  moduleSource.includes("extractManifest"),
+  "module uses extractManifest to sanitize output"
+);
 
-// Verify state was updated
-var stateAfterOne = JSON.parse(fs.readFileSync(statePath, "utf-8"));
-assert(stateAfterOne.providers[0].currentConcurrency === 1, "provider-1 concurrency decreased to 1");
-assert(stateAfterOne.providers[1].currentConcurrency === 1, "provider-2 concurrency unchanged");
-assert(stateAfterOne.global.totalActiveWorkers === 2, "global active workers decreased to 2");
+// --- Summary ----------------------------------------------------------------
 
-// Valid multi-stop
-var execStopMulti = mod.execute({
-  action: "stop",
-  workerIds: ["provider-1-slot-0", "provider-2-slot-0"],
-  reason: "End of day shutdown",
-  _statePath: statePath,
-});
-assert(execStopMulti.ok === true, "multi-stop execute returns ok");
-assert(execStopMulti.stopped === 2, "multi-stop stopped 2 workers");
-assert(execStopMulti.workers.length === 2, "multi-stop returns 2 worker IDs");
-
-// Verify state after multi-stop
-var stateAfterMulti = JSON.parse(fs.readFileSync(statePath, "utf-8"));
-assert(stateAfterMulti.providers[0].currentConcurrency === 0, "provider-1 concurrency is 0");
-assert(stateAfterMulti.providers[1].currentConcurrency === 0, "provider-2 concurrency is 0");
-assert(stateAfterMulti.global.totalActiveWorkers === 0, "global active workers is 0");
-
-// --- Execute validation tests ------------------------------------------------
-
-console.log("\n--- worker-control: execute validation ---");
-
-// Missing payload
-var execNoPayload = mod.execute(null);
-assert(execNoPayload.ok === false, "execute with null payload fails");
-
-// Missing action
-var execNoAction = mod.execute({});
-assert(execNoAction.ok === false, "execute without action fails");
-
-// Unknown action
-var execUnknown = mod.execute({ action: "unknown", _statePath: statePath });
-assert(execUnknown.ok === false, "execute with unknown action fails");
-assert(execUnknown.error === "Unknown action: unknown", "unknown action error");
-
-// --- Cleanup -----------------------------------------------------------------
-
-fs.rmSync(tmpDir, { recursive: true, force: true });
-
-// --- Summary -----------------------------------------------------------------
-
-console.log("\n" + passed + " passed, " + failed + " failed");
+console.log("\n" + passed + " passed, " + failed + " failed\n");
 process.exit(failed > 0 ? 1 : 0);
