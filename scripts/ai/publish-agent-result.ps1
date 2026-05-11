@@ -124,8 +124,8 @@ foreach ($content in $allContent) {
 # Marker constants
 # ---------------------------------------------------------------------------
 
-$OPEN_MARKER  = "<!-- ai-result:$MarkerId:begin -->"
-$CLOSE_MARKER = "<!-- ai-result:$MarkerId:end -->"
+$OPEN_MARKER  = "<!-- ai-result:${MarkerId}:begin -->"
+$CLOSE_MARKER = "<!-- ai-result:${MarkerId}:end -->"
 
 # ---------------------------------------------------------------------------
 # Build comment body
@@ -194,10 +194,41 @@ if ($commentBody.Length -gt $MAX_COMMENT_CHARS) {
 # ---------------------------------------------------------------------------
 
 if ($DryRun) {
+    $dryTargetNum = if ($TargetIssue) { $TargetIssue } else { $TargetPR }
+    $dryTargetType = if ($TargetIssue) { "issue" } else { "pr" }
+
+    # Probe for existing marker to show idempotency status
+    $dryExistingId = $null
+    $dryExistingCount = 0
+    try {
+        $dryCommentsJson = gh api "repos/$Repo/issues/$dryTargetNum/comments" --paginate 2>&1
+        $dryComments = $dryCommentsJson | ConvertFrom-Json
+        foreach ($c in $dryComments) {
+            if ($c.body -match [regex]::Escape($OPEN_MARKER)) {
+                $dryExistingId = $c.id
+                $dryExistingCount++
+            }
+        }
+    } catch {
+        Write-Verbose "Dry-run: could not query existing comments: $_"
+    }
+
     Write-Output "=== DRY RUN ==="
-    Write-Output "Target: $(if ($TargetIssue) { "issue #$TargetIssue" } else { "PR #$TargetPR" })"
+    Write-Output "Target: $dryTargetType #$dryTargetNum"
     Write-Output "Repo: $Repo"
+    Write-Output "MarkerId: $MarkerId"
     Write-Output "Comment size: $($commentBody.Length) chars (limit: $MAX_COMMENT_CHARS)"
+
+    # Idempotency status
+    if ($dryExistingId) {
+        Write-Output "Idempotency: UPDATE existing comment $dryExistingId (marker '$MarkerId' found)"
+    } else {
+        Write-Output "Idempotency: CREATE new comment (no existing marker '$MarkerId' found)"
+    }
+    if ($dryExistingCount -gt 1) {
+        Write-Warning "Multiple comments ($dryExistingCount) contain marker '$MarkerId'. Only the first will be updated."
+    }
+
     if ($StatusLabel -and $TargetIssue) {
         Write-Output "Label transition: remove agent:* labels, add '$StatusLabel' on issue #$TargetIssue"
     } elseif ($StatusLabel -and $TargetPR) {
@@ -263,7 +294,7 @@ if ($StatusLabel) {
         $agentLabels = @("agent:queued", "agent:running", "agent:blocked", "agent:done")
         $labelsToRemove = $agentLabels | Where-Object { $_ -ne $StatusLabel }
 
-        Write-Output "Normalizing labels on issue #$TargetIssue: removing stale agent:* labels, adding '$StatusLabel'..."
+        Write-Output "Normalizing labels on issue #${TargetIssue}: removing stale agent:* labels, adding '$StatusLabel'..."
 
         foreach ($label in $labelsToRemove) {
             try {
@@ -278,7 +309,7 @@ if ($StatusLabel) {
             gh api "repos/$Repo/issues/$TargetIssue/labels" -X POST -f name="$StatusLabel" | Out-Null
             Write-Output "Applied label '$StatusLabel' to issue #$TargetIssue."
         } catch {
-            Write-Warning "Failed to apply label '$StatusLabel' to issue #$TargetIssue: $_"
+            Write-Warning "Failed to apply label '$StatusLabel' to issue #${TargetIssue}: $_"
         }
     }
 }
