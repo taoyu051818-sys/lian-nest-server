@@ -56,6 +56,8 @@ console.log('\n--help flag');
   assert(res.stdout.includes('--full'), 'help mentions --full');
   assert(res.stdout.includes('EXIT CODES'), 'help shows exit codes');
   assert(res.stdout.includes('FAILURE CATEGORIES'), 'help shows failure categories');
+  assert(res.stdout.includes('database foundation'), 'help mentions database foundation category');
+  assert(res.stdout.includes('dependency/generate'), 'help mentions dependency/generate category');
 }
 
 // Invalid args
@@ -86,6 +88,42 @@ console.log('\ndefault mode (no args)');
 {
   const res = run([]);
   assert(res.stdout.includes('Post-merge health gate [quick]'), 'default is quick mode');
+}
+
+// --- Prisma client error classification (unit tests) ---
+console.log('\nPrisma client error classification');
+{
+  const { categorize, refineCategory } = require(SCRIPT);
+
+  // Label-based categorization still works
+  assert(categorize('npm run check') === 'conflict refresh', 'tsc label → conflict refresh');
+  assert(categorize('npm run build') === 'runtime compile', 'build label → runtime compile');
+  assert(categorize('npm run test:boundary') === 'boundary guard', 'boundary label → boundary guard');
+
+  // Prisma error patterns re-classify to dependency/generate
+  const prismaOutputs = [
+    'error TS2305: Module "@prisma/client" has no exported member PrismaClient',
+    "Cannot find module '@prisma/client' from 'src/database'",
+    "Cannot find module 'prisma/config' from 'node_modules/@prisma/client'",
+    "Property '$connect' does not exist on type 'PrismaClient'",
+    "Property '$disconnect' does not exist on type 'typeof PrismaClient'",
+  ];
+
+  for (const output of prismaOutputs) {
+    const result = refineCategory('runtime compile', output);
+    assert(result === 'dependency/generate',
+      `Prisma pattern re-classified: "${output.substring(0, 60)}..." → dependency/generate`);
+  }
+
+  // Non-Prisma errors are not re-classified
+  assert(refineCategory('runtime compile', 'error TS2322: Type string is not assignable') === 'runtime compile',
+    'non-Prisma TS error stays runtime compile');
+  assert(refineCategory('conflict refresh', 'src/app.ts(10,5): error TS1005') === 'conflict refresh',
+    'non-Prisma conflict stays conflict refresh');
+
+  // Empty/undefined output returns original category
+  assert(refineCategory('test env', '') === 'test env', 'empty output returns original');
+  assert(refineCategory('test env', undefined) === 'test env', 'undefined output returns original');
 }
 
 // --- Summary ---

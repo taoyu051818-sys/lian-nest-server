@@ -28,6 +28,7 @@ const CATEGORIES = {
   'dependency/generate': [
     'npm install', 'npm ci', 'prisma generate', 'prisma validate',
   ],
+  'database foundation': [],
   'boundary guard': [
     'check-repository-boundary', 'test:boundary',
   ],
@@ -42,6 +43,17 @@ const CATEGORIES = {
   ],
 };
 
+// Prisma client error patterns that indicate missing generated client or
+// incomplete database foundation. Matched against combined stdout+stderr.
+const PRISMA_CLIENT_ERROR_PATTERNS = [
+  /has no exported member ['"]?PrismaClient/i,
+  /Cannot find module ['"]@prisma\/client['"]/i,
+  /Cannot find module ['"]prisma\/config['"]/i,
+  /Property '\$connect' does not exist/i,
+  /Property '\$disconnect' does not exist/i,
+  /is not assignable to type ['"]PrismaClient['"]/i,
+];
+
 function categorize(label) {
   const lower = label.toLowerCase();
   for (const [category, keywords] of Object.entries(CATEGORIES)) {
@@ -50,6 +62,19 @@ function categorize(label) {
     }
   }
   return 'runtime compile';
+}
+
+/**
+ * Re-classify a failure based on its combined output when the error matches
+ * known Prisma generated-client patterns. Returns the refined category or
+ * the original category unchanged.
+ */
+function refineCategory(originalCategory, output) {
+  if (!output) return originalCategory;
+  if (PRISMA_CLIENT_ERROR_PATTERNS.some(rx => rx.test(output))) {
+    return 'dependency/generate';
+  }
+  return originalCategory;
 }
 
 // --- Check definitions ---
@@ -130,7 +155,8 @@ function printSummary(results) {
 
   const byCategory = {};
   for (const f of failures) {
-    const cat = categorize(f.label);
+    let cat = categorize(f.label);
+    cat = refineCategory(cat, f.output);
     if (!byCategory[cat]) byCategory[cat] = [];
     byCategory[cat].push(f.label);
   }
@@ -147,7 +173,10 @@ function printSummary(results) {
   for (const cat of cats) {
     switch (cat) {
       case 'dependency/generate':
-        console.log('  - Run npm install && npx prisma generate');
+        console.log('  - npm install');
+        console.log('  - npx prisma generate');
+        console.log('  - npx prisma validate');
+        console.log('  - If PrismaClient is still unresolved, issue or fix a database baseline migration');
         break;
       case 'boundary guard':
         console.log('  - Fix repository boundary violations in src/repositories/');
@@ -194,7 +223,9 @@ EXIT CODES
   2   Invalid arguments
 
 FAILURE CATEGORIES
-  dependency/generate  — prisma generate, npm install issues
+  dependency/generate  — missing dependencies, stale Prisma generated client,
+                         unresolved @prisma/client or prisma/config modules
+  database foundation  — Prisma schema/migration issues, missing baseline
   boundary guard       — repository boundary violations
   test env             — test failures, missing test config
   conflict refresh     — TypeScript/type conflicts after merge
@@ -244,4 +275,10 @@ function main() {
   process.exit(allPassed ? 0 : 1);
 }
 
-main();
+// --- Exports for testing ---
+module.exports = { categorize, refineCategory, PRISMA_CLIENT_ERROR_PATTERNS };
+
+// Only run main when invoked directly, not when required for testing
+if (require.main === module) {
+  main();
+}
