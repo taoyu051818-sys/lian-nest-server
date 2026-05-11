@@ -339,10 +339,22 @@ When the merge queue assistant processes a PR, it should comment:
 3. Human approves PR -> reviewDecision = APPROVED
 4. Merge queue assistant (dry-run) -> lists eligible PRs
 5. Operator runs merge commands (or --execute)
-6. Post-merge health gate runs on main
-7. If health gate PASS -> launch next wave (see next-wave-policy.md)
-8. If health gate FAIL -> fix issue, re-run gate
+6. Merge batch manifest written to .ai/merge-batch-manifests/
+7. Post-merge health gate runs on main
+8. If health gate PASS -> launch next wave (see next-wave-policy.md)
+9. If health gate FAIL -> fix issue, re-run gate
 ```
+
+### Merge Batch Manifest
+
+Every run of `merge-clean-pr-batch.ps1` writes a JSON manifest to
+`.ai/merge-batch-manifests/merge-batch-<timestamp>.json`. The manifest
+records the PR allowlist, per-PR merge outcomes, pre/post commit SHAs,
+and the post-health gate result. Use this file for post-merge audit and
+wave-to-wave traceability.
+
+See [controlled-auto-merge.md](controlled-auto-merge.md#merge-batch-manifest)
+for the full manifest schema and field descriptions.
 
 ---
 

@@ -347,6 +347,40 @@ function Invoke-PRMerge {
 }
 
 # ---------------------------------------------------------------------------
+# Manifest persistence
+# ---------------------------------------------------------------------------
+
+function Write-MergeManifest {
+    param(
+        [string]$PreCommit,
+        [string]$PostCommit,
+        [array]$Outcomes,
+        [string]$HealthResult
+    )
+
+    $manifestDir = Join-Path (Get-Location) '.ai' 'merge-batch-manifests'
+    if (-not (Test-Path $manifestDir)) {
+        New-Item -ItemType Directory -Path $manifestDir -Force | Out-Null
+    }
+
+    $timestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ssZ')
+    $manifest = @{
+        timestamp   = (Get-Date).ToUniversalTime().ToString('o')
+        repository  = $Repo
+        mode        = if ($isExecute) { 'execute' } else { 'dry-run' }
+        prs         = $Outcomes
+        preCommit   = if ($PreCommit) { $PreCommit } else { $null }
+        postCommit  = if ($PostCommit) { $PostCommit } else { $null }
+        healthGate  = $HealthResult
+    }
+
+    $manifestPath = Join-Path $manifestDir "merge-batch-$timestamp.json"
+    $manifest | ConvertTo-Json -Depth 5 | Set-Content $manifestPath -Encoding UTF8
+    Write-Host ""
+    Write-Host "Merge batch manifest written to: $manifestPath"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -620,6 +654,10 @@ function Main {
         if ($RunGuards.IsPresent) {
             Write-Host "Guards were checked. Add -RunGuards in execute mode to enforce."
         }
+        $dryRunOutcomes = $eligible | ForEach-Object {
+            @{ number = $_.number; title = $_.title; status = 'eligible' }
+        }
+        Write-MergeManifest -PreCommit $null -PostCommit $null -Outcomes $dryRunOutcomes -HealthResult 'skipped'
         exit 0
     }
 
@@ -628,6 +666,8 @@ function Main {
     Write-Host "Merging $($eligible.Count) PR(s) into $Repo ..."
     Write-Host ""
 
+    $preMergeCommit = (git rev-parse HEAD 2>$null)
+    $mergeOutcomes = @()
     $merged = @()
     foreach ($pr in $eligible) {
         Write-Host ">> Merging #$($pr.number) — $($pr.title)"
@@ -638,21 +678,26 @@ function Main {
             $output = Invoke-PRMerge -PRNumber $pr.number -Repository $Repo
             Write-Host "   OK: $(if ($output) { $output } else { 'merged' })"
             $merged += $pr
+            $mergeOutcomes += @{ number = $pr.number; title = $pr.title; status = 'merged' }
         }
         catch {
             $errMsg = $_.Exception.Message
             Write-Host "   FAILED: $errMsg"
+            $mergeOutcomes += @{ number = $pr.number; title = $pr.title; status = "failed: $errMsg" }
             Write-Host ""
             Write-Host "Stopping — merge batch aborted after failure on PR #$($pr.number)."
             Write-Host "Merged so far: $($merged.Count) of $($eligible.Count)"
+            Write-MergeManifest -PreCommit $preMergeCommit -Outcomes $mergeOutcomes -HealthResult 'skipped'
             exit 1
         }
         Write-Host ""
     }
 
+    $postMergeCommit = (git rev-parse HEAD 2>$null)
     Write-Host "All $($eligible.Count) PR(s) merged successfully."
 
-    # Optional health gate
+    # Health gate
+    $healthResult = 'skipped'
     if ($RunHealthGate.IsPresent) {
         Write-Host ""
         Write-Banner "Post-Merge Health Gate"
@@ -665,15 +710,21 @@ function Main {
                 Write-Host ""
                 Write-Host "WARNING: Post-merge health gate FAILED (exit code $exitCode)."
                 Write-Host "Do not launch the next wave until main is healthy."
+                $healthResult = 'fail'
+                Write-MergeManifest -PreCommit $preMergeCommit -PostCommit $postMergeCommit -Outcomes $mergeOutcomes -HealthResult $healthResult
                 exit $exitCode
             }
             Write-Host "Health gate PASSED."
+            $healthResult = 'pass'
         }
         else {
             Write-Host "Health gate script not found at: $healthGatePath"
             Write-Host "Run manually: node scripts/post-merge-health-gate.js --quick"
+            $healthResult = 'not-found'
         }
     }
+
+    Write-MergeManifest -PreCommit $preMergeCommit -PostCommit $postMergeCommit -Outcomes $mergeOutcomes -HealthResult $healthResult
 }
 
 Main

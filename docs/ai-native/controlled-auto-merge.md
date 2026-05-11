@@ -111,6 +111,80 @@ When `-Execute` is passed:
 | Fail-fast on merge error          | First failure stops the batch              |
 | Guard failures block merge        | `-RunGuards` enforces fail-closed          |
 | Guards skipped without inputs     | Missing manifest/body skips, not errors    |
+| Manifest persisted every run      | `.ai/merge-batch-manifests/` written always |
+
+## Merge Batch Manifest
+
+Every run (dry-run and execute) writes a JSON manifest to
+`.ai/merge-batch-manifests/merge-batch-<timestamp>.json`. The manifest
+provides traceability for which PRs were processed, what happened, and
+the health state of main afterward.
+
+### Manifest Fields
+
+| Field        | Type     | Description                                          |
+| ------------ | -------- | ---------------------------------------------------- |
+| `timestamp`  | string   | ISO 8601 UTC timestamp of the run                    |
+| `repository` | string   | Target repository (`OWNER/NAME`)                     |
+| `mode`       | string   | `dry-run` or `execute`                               |
+| `prs`        | array    | Per-PR entries: `{number, title, status}`            |
+| `preCommit`  | string?  | Git HEAD commit SHA before merges (null in dry-run)  |
+| `postCommit` | string?  | Git HEAD commit SHA after merges (null in dry-run)   |
+| `healthGate` | string   | `pass`, `fail`, `not-found`, or `skipped`            |
+
+### PR Status Values
+
+- `eligible` — PR passed all checks (dry-run only)
+- `merged` — PR was successfully squash-merged
+- `failed: <reason>` — PR merge failed with error detail
+
+### Health Gate Values
+
+- `pass` — health gate ran and passed
+- `fail` — health gate ran and failed (non-zero exit)
+- `not-found` — health gate script not present on disk
+- `skipped` — `-RunHealthGate` was not specified
+
+### Example Manifest (Execute)
+
+```json
+{
+  "timestamp": "2026-05-11T17:30:00.0000000Z",
+  "repository": "owner/name",
+  "mode": "execute",
+  "prs": [
+    { "number": 42, "title": "feat: add TagsModule", "status": "merged" },
+    { "number": 45, "title": "docs: update SOP", "status": "merged" }
+  ],
+  "preCommit": "abc1234def5678",
+  "postCommit": "9876fedcba4321",
+  "healthGate": "pass"
+}
+```
+
+### Example Manifest (Dry-Run)
+
+```json
+{
+  "timestamp": "2026-05-11T17:25:00.0000000Z",
+  "repository": "owner/name",
+  "mode": "dry-run",
+  "prs": [
+    { "number": 42, "title": "feat: add TagsModule", "status": "eligible" }
+  ],
+  "preCommit": null,
+  "postCommit": null,
+  "healthGate": "skipped"
+}
+```
+
+### Using Manifests for Audit
+
+After a batch, review the manifest to confirm:
+1. Only allowlisted PRs appear in `prs`.
+2. All entries show `merged` (no `failed`).
+3. `preCommit` and `postCommit` bracket the merge window.
+4. `healthGate` is `pass` (if `-RunHealthGate` was used).
 
 ## Guard Integration
 
