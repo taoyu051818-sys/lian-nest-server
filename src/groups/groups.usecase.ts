@@ -11,7 +11,12 @@ export class GroupsUsecase {
   constructor(private readonly groupsProvider: NodebbGroupsProvider) {}
 
   async list(): Promise<GroupsResponse> {
-    const response = await this.groupsProvider.list();
+    let response;
+    try {
+      response = await this.groupsProvider.list();
+    } catch {
+      return { groups: [], source: 'fallback' };
+    }
 
     if (response.status !== BodyStatus.OK || !response.data) {
       return { groups: [], source: 'fallback' };

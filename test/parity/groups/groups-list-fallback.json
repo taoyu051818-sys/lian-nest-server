@@ -1,0 +1,46 @@
+{
+  "id": "groups-list-fallback",
+  "endpoint": "GET /api/groups",
+  "description": "Groups list falls back to empty when upstream returns an error or is unreachable",
+  "request": {
+    "method": "GET",
+    "path": "/api/groups"
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "groups": [],
+      "source": "fallback"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["groups", "source"],
+      "properties": {
+        "groups": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/GroupItem" }
+        },
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "GroupItem": {
+          "type": "object",
+          "required": ["name", "slug", "description", "memberCount", "hidden", "deleted", "createtime"],
+          "properties": {
+            "name": { "type": "string" },
+            "slug": { "type": "string" },
+            "description": { "type": "string" },
+            "memberCount": { "type": "integer", "minimum": 0 },
+            "hidden": { "type": "boolean" },
+            "deleted": { "type": "boolean" },
+            "createtime": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "notes": "Returned when NodeBB is unreachable, returns an error status, or the provider throws. Response status remains 200 with source='fallback' to avoid breaking callers."
+}
