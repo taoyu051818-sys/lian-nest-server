@@ -184,6 +184,17 @@ const dangerousIds = [
   assert(loaded.find((entry) => entry.mod.id === "compile-tasks").mod.dangerous === false, "compile-tasks is safe");
   assert(loaded.find((entry) => entry.mod.id === "plan.next.batch").mod.dangerous === false, "plan.next.batch is safe");
 
+  console.log("\nLoader guard — .test.js files excluded\n");
+  const allDirFiles = fs.readdirSync(actionsDir).filter((name) => name.endsWith(".js"));
+  const testFiles = allDirFiles.filter((name) => name.endsWith(".test.js"));
+  assert(testFiles.length > 0, "actions directory contains .test.js files to guard against");
+  const loadedFiles = loaded.map((entry) => entry.file);
+  for (const tf of testFiles) {
+    assert(!loadedFiles.includes(tf), "loadModules excludes " + tf);
+  }
+  assert(!loadedFiles.some((f) => f.endsWith(".test.js")), "no loaded file ends with .test.js");
+  assert(!ids.some((id) => id.endsWith(".test")), "no loaded module id ends with .test");
+
   console.log("\nSource hygiene\n");
   for (const { file, fullPath } of loaded) {
     const source = fs.readFileSync(fullPath, "utf-8");
