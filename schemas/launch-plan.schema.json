@@ -1,0 +1,299 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/taoyu051818-sys/lian-nest-server/schemas/launch-plan.schema.json",
+  "title": "Launch Plan",
+  "description": "Compiled launch plan for the batch scheduler. Captures selected tasks, rejected tasks, acquired locks, budget reservations, main health snapshot, and scheduler decision reasons.",
+  "type": "object",
+  "required": [
+    "planVersion",
+    "capturedAt",
+    "mainHealth",
+    "selectedTasks",
+    "rejectedTasks",
+    "locksAcquired",
+    "budgetReservations",
+    "allAllowed"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "planVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Currently 1."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the launch plan was compiled."
+    },
+    "mainHealth": {
+      "$ref": "#/$defs/mainHealthSnapshot"
+    },
+    "selectedTasks": {
+      "type": "array",
+      "description": "Tasks that passed the launch gate and are cleared for dispatch.",
+      "items": {
+        "$ref": "#/$defs/plannedTask"
+      }
+    },
+    "rejectedTasks": {
+      "type": "array",
+      "description": "Tasks blocked by the launch gate. Each entry includes the rejection reason.",
+      "items": {
+        "$ref": "#/$defs/rejectedTask"
+      }
+    },
+    "locksAcquired": {
+      "type": "array",
+      "description": "Shared locks claimed by selected tasks. Conflicting locks are listed in rejectedTasks.",
+      "items": {
+        "$ref": "#/$defs/lockEntry"
+      }
+    },
+    "budgetReservations": {
+      "$ref": "#/$defs/budgetSummary"
+    },
+    "allAllowed": {
+      "type": "boolean",
+      "description": "True if all tasks in the batch were selected (none rejected)."
+    }
+  },
+  "$defs": {
+    "mainHealthSnapshot": {
+      "type": "object",
+      "description": "Snapshot of main branch health at plan compilation time.",
+      "required": ["state", "capturedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["green", "yellow", "red", "black"],
+          "description": "Main branch health state."
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the health state was last evaluated."
+        },
+        "checks": {
+          "type": "array",
+          "description": "Health checks that were evaluated.",
+          "items": { "type": "string" }
+        },
+        "failedChecks": {
+          "type": "array",
+          "description": "Checks that failed (subset of checks).",
+          "items": { "type": "string" }
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "description": "Human-readable explanation for the health state."
+        }
+      }
+    },
+    "plannedTask": {
+      "type": "object",
+      "description": "A task selected for dispatch with scheduling metadata.",
+      "required": [
+        "targetIssue",
+        "conflictGroup",
+        "risk",
+        "taskType",
+        "workerType",
+        "decision"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "targetIssue": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "GitHub issue number."
+        },
+        "targetPR": {
+          "type": ["integer", "null"],
+          "description": "Existing PR number, if any."
+        },
+        "conflictGroup": {
+          "type": "string",
+          "description": "Logical conflict group for parallelism control."
+        },
+        "risk": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Task risk level."
+        },
+        "taskType": {
+          "type": "string",
+          "enum": ["execution", "research", "review"],
+          "description": "Task type from the worker contract."
+        },
+        "workerType": {
+          "type": "string",
+          "enum": [
+            "runtime-feature",
+            "foundation-fix",
+            "docs",
+            "health-repair",
+            "test-only",
+            "research",
+            "refactor"
+          ],
+          "description": "Classified worker type used for launch permission lookup."
+        },
+        "sharedLocks": {
+          "type": "array",
+          "description": "Shared locks claimed by this task.",
+          "items": { "type": "string" }
+        },
+        "allowedFiles": {
+          "type": "array",
+          "description": "File glob patterns the worker may edit.",
+          "items": { "type": "string" }
+        },
+        "decision": {
+          "$ref": "#/$defs/decision"
+        }
+      }
+    },
+    "rejectedTask": {
+      "type": "object",
+      "description": "A task blocked by the launch gate.",
+      "required": [
+        "targetIssue",
+        "conflictGroup",
+        "risk",
+        "taskType",
+        "workerType",
+        "decision"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "targetIssue": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "GitHub issue number."
+        },
+        "targetPR": {
+          "type": ["integer", "null"],
+          "description": "Existing PR number, if any."
+        },
+        "conflictGroup": {
+          "type": "string",
+          "description": "Logical conflict group."
+        },
+        "risk": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Task risk level."
+        },
+        "taskType": {
+          "type": "string",
+          "enum": ["execution", "research", "review"],
+          "description": "Task type from the worker contract."
+        },
+        "workerType": {
+          "type": "string",
+          "enum": [
+            "runtime-feature",
+            "foundation-fix",
+            "docs",
+            "health-repair",
+            "test-only",
+            "research",
+            "refactor"
+          ],
+          "description": "Classified worker type."
+        },
+        "sharedLocks": {
+          "type": "array",
+          "description": "Shared locks this task attempted to claim.",
+          "items": { "type": "string" }
+        },
+        "decision": {
+          "$ref": "#/$defs/decision"
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "description": "Scheduler decision for a task.",
+      "required": ["allowed", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "type": "boolean",
+          "description": "Whether the task is allowed to launch."
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "description": "Human-readable explanation for the decision. Null when allowed is true and no special note is needed."
+        },
+        "rule": {
+          "type": ["string", "null"],
+          "description": "Machine-readable rule identifier that triggered the decision (e.g. 'health-state-blocked', 'conflict-group-duplicate', 'shared-lock-overlap').",
+          "enum": [
+            "health-state-blocked",
+            "conflict-group-duplicate",
+            "shared-lock-overlap",
+            "running-worker-conflict",
+            null
+          ]
+        }
+      }
+    },
+    "lockEntry": {
+      "type": "object",
+      "description": "A shared lock acquired by a selected task.",
+      "required": ["lockName", "holderIssue"],
+      "additionalProperties": false,
+      "properties": {
+        "lockName": {
+          "type": "string",
+          "description": "Shared lock identifier (e.g. 'app-module')."
+        },
+        "holderIssue": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Issue number of the task holding this lock."
+        },
+        "conflictGroup": {
+          "type": ["string", "null"],
+          "description": "Conflict group of the holder task."
+        }
+      }
+    },
+    "budgetSummary": {
+      "type": "object",
+      "description": "Aggregate budget reservations for the batch.",
+      "required": ["totalMaxFiles", "totalMaxLinesChanged", "taskCount"],
+      "additionalProperties": false,
+      "properties": {
+        "totalMaxFiles": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sum of maxFiles across all selected tasks."
+        },
+        "totalMaxLinesChanged": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sum of maxLinesChanged across all selected tasks."
+        },
+        "taskCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of selected tasks contributing to the budget."
+        },
+        "softTimeMinutesMax": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Maximum softTimeMinutes across selected tasks."
+        },
+        "hardTimeMinutesMax": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Maximum hardTimeMinutes across selected tasks."
+        }
+      }
+    }
+  }
+}
