@@ -74,4 +74,5 @@ silently swallowed, and the audit still passes.
 ## See also
 
 - [SOP](../../docs/ai-native/SOP.md) - Full development SOP
+- [Merge Closure SOP](../../docs/ai-native/merge-closure-sop.md) - Controlled merge and health gate
 - [Next-Wave Policy](./next-wave-policy.md) - Continuation options

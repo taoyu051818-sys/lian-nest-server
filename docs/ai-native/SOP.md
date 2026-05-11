@@ -39,6 +39,8 @@ issue (OPEN) -> triage -> worker launch -> PR opened -> review gate -> merge dec
 7. **Merge decision**: repo-owner merges, requests changes, or blocks.
 
 See [issue-lifecycle.md](issue-lifecycle.md) for labels and transitions.
+See [merge-closure-sop.md](merge-closure-sop.md) for the controlled merge
+closure procedure (steps 7 onward: merge queue, health gate, next wave).
 
 ## Worker Task Contract
 
