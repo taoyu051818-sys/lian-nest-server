@@ -107,6 +107,91 @@ polling.
 
 ---
 
+## WebUI Dashboard Display
+
+The control-plane dashboard surfaces resource pressure as color-coded
+badges per resource. The dashboard state emitter
+(`scripts/ai/emit-control-plane-dashboard-state.js`) reads the
+`local-resource.json` state file and maps each resource's pressure zone
+to a UI indicator.
+
+### Badge Mapping
+
+| Zone | Badge Color | Label | Icon Behavior |
+|------|------------|-------|---------------|
+| **Green** | Green | "Healthy" | Static |
+| **Yellow** | Amber/Yellow | "Elevated" | Slow pulse |
+| **Red** | Red | "Critical" | Fast pulse |
+
+### Dashboard Layout
+
+The resource pressure panel displays:
+
+```
+┌─────────────────────────────────────────────┐
+│  Machine Health                  [overall]  │
+│                                             │
+│  CPU     [green badge]  45%                 │
+│  Memory  [amber badge]  78%                 │
+│  Disk    [green badge]  55%                 │
+│                                             │
+│  Launch Gate: ⚠ Yellow — workers blocked    │
+└─────────────────────────────────────────────┘
+```
+
+The **overall badge** uses worst-case derivation: red if any resource
+is red, yellow if any is yellow, green otherwise. The launch gate
+status line summarizes the operational impact.
+
+### Integration with Action Readiness
+
+Resource pressure feeds into the dashboard `actionReadiness` section.
+When the main state is red or yellow, the `launch-worker` action is
+blocked with reason `"resource pressure elevated"` or
+`"resource pressure critical"`. See
+[control-plane-dashboard-state-actions.md](control-plane-dashboard-state-actions.md)
+for the full action readiness model.
+
+---
+
+## Concurrent Worker Degradation
+
+When resource pressure enters the yellow zone, already-running workers
+continue but may experience degraded performance. The orchestrator does
+**not** kill active workers on zone transitions.
+
+### Behavior by Zone
+
+| Zone | Active Workers | New Dispatch | Expected Impact |
+|------|---------------|--------------|-----------------|
+| **Green** | Continue | Allowed | Full throughput |
+| **Yellow** | Continue | Blocked | Throughput reduced; workers may stall on resource contention |
+| **Red** | Continue | Blocked | High risk of OOM kill or disk-full failures; workers may abort |
+
+### Worker-Level Effects
+
+| Resource | Yellow Impact | Red Impact |
+|----------|--------------|------------|
+| CPU | Increased task latency; context switching overhead | Severe stalls; timeouts likely |
+| Memory | Swap usage increases; GC pressure | OOM kill by OS; worker process terminated |
+| Disk | Slower I/O; build cache evictions | Write failures; log loss; build abort |
+
+### Recovery
+
+When pressure drops back to green (resources freed, workers complete),
+the launch gate automatically re-enables dispatch. No manual
+intervention is required. The sampler runs once at gate check time, so
+recovery is detected on the next launch attempt.
+
+Operators can accelerate recovery by:
+
+1. Waiting for in-flight workers to complete naturally.
+2. Cancelling non-critical running tasks to free resources.
+3. Clearing disk space (build artifacts, old logs) if disk is the
+   binding constraint.
+
+---
+
 ## Relationship to Absolute Thresholds
 
 The pressure zones (this document) and the absolute thresholds
