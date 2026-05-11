@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-05-11T14:25:40Z",
+  "hostname": "CI-RUNNER-01",
+  "cpu": {
+    "logicalCores": 8,
+    "overallPercent": 92.4
+  },
+  "memory": {
+    "totalGB": 32,
+    "usedGB": 18,
+    "availableGB": 14,
+    "pressurePct": 56.3
+  },
+  "disk": {
+    "volume": "C:",
+    "totalGB": 500,
+    "usedGB": 320,
+    "freeGB": 180,
+    "usedPct": 64
+  },
+  "topProcesses": [
+    {
+      "pid": 1234,
+      "name": "node",
+      "cpuSeconds": 845.2,
+      "memMB": 512
+    },
+    {
+      "pid": 5678,
+      "name": "tsc",
+      "cpuSeconds": 620.1,
+      "memMB": 1024
+    }
+  ]
+}
