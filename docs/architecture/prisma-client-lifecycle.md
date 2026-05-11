@@ -180,9 +180,30 @@ Ensure `prisma/schema.prisma` contains the model definition before generating.
 
 **Note:** `prisma generate` does **not** require `DATABASE_URL`. It reads the schema file and emits types. The environment variable is only needed at runtime (when `PrismaService` instantiates the `PrismaPg` adapter). If generation fails with a database connection error, the issue is elsewhere (e.g., a `prisma migrate` step, not `prisma generate`).
 
+## Generated Client Ownership
+
+The Prisma client generated output is a **generated source artifact**. The full policy is defined in [Generated Code Policy](../ai-native/generated-code-policy.md).
+
+### Key Rules
+
+- **Never hand-edit** `src/generated/prisma/**`. All changes must flow through `prisma/schema.prisma` followed by `npx prisma generate`.
+- **No worker role** has direct write permission to generated Prisma files. Schema changes are the source of truth.
+- **Diff review** for generated files must trace back to a corresponding schema change. If the schema did not change, the generated diff is suspect.
+
+### Ownership Summary
+
+| Concern | Owner |
+|---|---|
+| `prisma/schema.prisma` | `backend-programmer` (implementation), `backend-architect` (review) |
+| `src/generated/prisma/**` | `prisma generate` CLI (no human/worker owner) |
+| Migration files (`prisma/migrations/`) | `database-admin` |
+
 ## References
 
 - [Database Strategy](./database-strategy.md) -- PostgreSQL ownership boundaries
 - [ORM Recommendation](./orm-recommendation.md) -- Why Prisma was chosen
+- [Generated Code Policy](../ai-native/generated-code-policy.md) -- Ownership and review rules for generated Prisma client
 - [Issue #68](https://github.com/taoyu051818-sys/lian-nest-server/issues/68) -- Fix Prisma 7 generated client import (blocks full typecheck)
 - [Issue #70](https://github.com/taoyu051818-sys/lian-nest-server/issues/70) -- This document
+- [Issue #85](https://github.com/taoyu051818-sys/lian-nest-server/issues/85) -- Prisma 7 generator migration (introduces `src/generated/prisma/`)
+- [Issue #100](https://github.com/taoyu051818-sys/lian-nest-server/issues/100) -- Generated Prisma client ownership policy
