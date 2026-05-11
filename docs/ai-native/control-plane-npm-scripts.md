@@ -9,7 +9,7 @@ Catalog of `npm run ops:*` scripts that expose the final control-loop layer for 
 | npm script | Entry point | Mode | Description |
 |---|---|---|---|
 | `ops:self-cycle` | `scripts/ai/run-self-cycle.ps1` | dry-run | Full self-cycle orchestrator: issue discovery, state reconciliation, health gate, launch gate, batch launch |
-| `ops:webui` | *(not yet implemented)* | — | Provider pool dashboard placeholder; see [provider-pool-webui-architecture.md](provider-pool-webui-architecture.md) |
+| `ops:webui` | `tools/provider-pool-webui/server.js` | read-only | Local-only provider pool dashboard; `--help` for usage, `--port <n>` to override default port |
 | `ops:resource-sample` | `scripts/ai/sample-local-resource.ps1` | read-only | Local CPU, memory, disk, and process sampling for health checks |
 | `ops:resource-sample:test` | `scripts/ai/test-resource-pressure-sampler.js` | read-only | Fixture tests for green/yellow/red resource pressure classification |
 | `ops:state-reconcile` | `scripts/ai/state-reconciler.ps1` | dry-run | Detects label/PR/worker state drift without mutating |
@@ -24,6 +24,7 @@ All write-capable automation defaults to **dry-run**:
 - `ops:self-cycle` — prints every step but launches no workers. Pass `-Execute` to dispatch.
 - `ops:state-reconcile` — reports drift but applies no label changes. Pass `-Apply` to suggest transitions (still no auto-mutation).
 - `ops:merge-queue` — lists eligible PRs and prints merge commands. Pass `--execute` to actually merge.
+- `ops:webui` — read-only dashboard; no mutation endpoints. Binds to 127.0.0.1 only.
 - `ops:resource-sample` — read-only by design; no mutation possible.
 - `ops:resource-sample:test` — fixture-based; no external side effects.
 
@@ -71,6 +72,19 @@ npm run ops:resource-sample:test
 ```bash
 npm run ops:state-reconcile -- -Repo "owner/repo"
 npm run ops:state-reconcile -- -FixturePath ./state-snapshot.json
+```
+
+### Provider pool WebUI
+
+```bash
+# Start the dashboard (default port 4179)
+npm run ops:webui
+
+# Custom port
+npm run ops:webui -- --port 4000
+
+# Show help
+npm run ops:webui -- --help
 ```
 
 ### Merge queue (dry-run)

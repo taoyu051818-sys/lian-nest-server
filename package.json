@@ -30,7 +30,7 @@
     "prisma:validate": "prisma validate",
     "prisma:migrate": "prisma migrate dev",
     "ops:self-cycle": "pwsh -NoProfile -File scripts/ai/run-self-cycle.ps1",
-    "ops:webui": "node -e \"console.error('Provider WebUI not yet implemented. See docs/ai-native/provider-pool-webui-architecture.md'); process.exit(1);\"",
+    "ops:webui": "node tools/provider-pool-webui/server.js",
     "ops:resource-sample": "pwsh -NoProfile -File scripts/ai/sample-local-resource.ps1",
     "ops:resource-sample:test": "node scripts/ai/test-resource-pressure-sampler.js",
     "ops:state-reconcile": "pwsh -NoProfile -File scripts/ai/state-reconciler.ps1",
