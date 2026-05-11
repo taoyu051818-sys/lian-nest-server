@@ -1,0 +1,27 @@
+{
+  "description": "Planner output: compiled task JSON that should pass launch gate when health is green",
+  "expectedGateResult": "pass",
+  "task": {
+    "taskType": "execution",
+    "risk": "low",
+    "conflictGroup": "self-cycle-fixture",
+    "targetIssue": 9999,
+    "targetPR": null,
+    "issues": [9999],
+    "expectedPR": true,
+    "allowedFiles": [
+      "tests/fixtures/self-cycle/**"
+    ],
+    "forbiddenFiles": [
+      "src/**",
+      "prisma/**"
+    ],
+    "validationCommands": [
+      "npm run check"
+    ],
+    "rolePacket": {
+      "actorRole": "automation-cycle-worker",
+      "description": "Dry-run fixture proving planner to launch gate path"
+    }
+  }
+}
