@@ -224,6 +224,72 @@ Run individually with `node <path>`. The smoke test is available as
 
 ---
 
+## Ops Addendum
+
+### Startup
+
+```bash
+# Default (port 4179, localhost-only)
+npm run ops:webui
+
+# Custom port
+node tools/provider-pool-webui/server.js --port 5200
+
+# Show CLI help
+node tools/provider-pool-webui/server.js --help
+```
+
+The server reads policy and state from `.github/ai-policy/` and
+`.github/ai-state/` at request time — no restart needed after state updates.
+
+### Local-Only Binding
+
+The server binds to `127.0.0.1` exclusively. It is not reachable from other
+machines or containers. If you need to verify:
+
+```bash
+# Should succeed from localhost
+curl -s http://127.0.0.1:4179/api/health
+
+# Should fail from external interface
+curl -s http://<external-ip>:4179/api/health
+```
+
+### Health & Readiness Checks
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Server health | `curl -s http://127.0.0.1:4179/api/health` | `{"status":"ok"}` |
+| Smoke test | `npm run ops:webui:smoke` | Exit 0 |
+| State endpoint | `curl -s http://127.0.0.1:4179/api/state` | Valid JSON with providers |
+| Dashboard loads | `curl -s http://127.0.0.1:4179/` | HTML response |
+
+### npm Scripts Reference
+
+| Script | Purpose |
+|--------|---------|
+| `ops:webui` | Start the WebUI server |
+| `ops:webui:smoke` | Run server smoke tests |
+| `ops:webui:console-issue` | Issue control console (PowerShell) |
+| `ops:webui:console-launch` | Launch control console (PowerShell) |
+| `ops:webui:console-merge` | Merge control console (PowerShell) |
+| `ops:webui:dashboard-state` | Emit dashboard state snapshot |
+| `ops:webui:control-workers` | Worker list/stop control |
+| `ops:webui:worker-metrics` | Sample worker metrics |
+
+### Failure Triage
+
+| Symptom | Likely Cause | Fix |
+|---------|--------------|-----|
+| `EADDRINUSE` on startup | Port already in use | Use `--port` to pick another port, or stop the existing process |
+| `api/state` returns empty providers | Missing or empty `provider-pool.json` | Verify `.github/ai-state/provider-pool.json` exists and is valid JSON |
+| Dashboard shows no data | Policy or state files unreadable | Check file permissions on `.github/ai-policy/` and `.github/ai-state/` |
+| Actions return `403` | Confirmation phrase mismatch | Check the confirmation table above and re-submit with the exact phrase |
+| Smoke test fails | Server dependencies or port conflict | Run `npm install`, ensure port 4179 is free, then re-run |
+| `api/health` returns non-200 | Server crashed or misconfigured | Check terminal output for errors; restart with `npm run ops:webui` |
+
+---
+
 ## References
 
 - [Provider Pool Architecture](../../docs/ai-native/provider-pool.md) — full design doc
