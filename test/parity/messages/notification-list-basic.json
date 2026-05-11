@@ -1,0 +1,47 @@
+{
+  "id": "notification-list-basic",
+  "endpoint": "GET /api/notifications",
+  "description": "Authenticated user with notifications receives newest-first list",
+  "request": {
+    "method": "GET",
+    "path": "/api/notifications",
+    "query": { "page": 1, "perPage": 20 }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "notifications": "<ARRAY>",
+      "totalCount": "<NON_NEG_INT>"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["notifications", "totalCount"],
+      "properties": {
+        "notifications": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/NotificationDto" }
+        },
+        "totalCount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "$defs": {
+      "NotificationDto": {
+        "type": "object",
+        "required": ["nid", "type", "bodyShort", "bodyLong", "fromUid", "datetime", "read"],
+        "properties": {
+          "nid": { "type": "integer", "minimum": 1 },
+          "type": { "type": "string" },
+          "bodyShort": { "type": "string" },
+          "bodyLong": { "type": "string" },
+          "fromUid": { "type": "integer", "minimum": 1 },
+          "datetime": { "type": "string", "format": "date-time" },
+          "read": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "notes": "Notifications are NodeBB-owned. Nest proxies reads from NodeBB API. Requires authenticated user linked to a NodeBB UID."
+}

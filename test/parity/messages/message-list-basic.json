@@ -1,0 +1,50 @@
+{
+  "id": "message-list-basic",
+  "endpoint": "GET /api/messages",
+  "description": "Authenticated user with messages receives paginated thread list",
+  "request": {
+    "method": "GET",
+    "path": "/api/messages",
+    "query": { "page": 1, "perPage": 20 }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "messages": "<ARRAY>",
+      "totalCount": "<NON_NEG_INT>",
+      "page": 1,
+      "perPage": 20
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["messages", "totalCount", "page", "perPage"],
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/MessageDto" }
+        },
+        "totalCount": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "minimum": 1 },
+        "perPage": { "type": "integer", "minimum": 1, "maximum": 50 }
+      },
+      "additionalProperties": false
+    },
+    "$defs": {
+      "MessageDto": {
+        "type": "object",
+        "required": ["messageId", "fromUid", "toUid", "content", "timestamp", "read"],
+        "properties": {
+          "messageId": { "type": "string" },
+          "fromUid": { "type": "integer", "minimum": 1 },
+          "toUid": { "type": "integer", "minimum": 1 },
+          "content": { "type": "string" },
+          "timestamp": { "type": "string", "format": "date-time" },
+          "read": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "notes": "Requires seeded messages for the authenticated test user. Only threads where fromUid or toUid matches JWT sub are returned."
+}
