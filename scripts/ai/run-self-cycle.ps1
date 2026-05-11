@@ -93,7 +93,9 @@ param(
 
     [switch]$Execute,
 
-    [switch]$SkipReconcile
+    [switch]$SkipReconcile,
+
+    [switch]$PlanFirst
 )
 
 Set-StrictMode -Version Latest
@@ -109,6 +111,7 @@ $HEALTH_WRITER = Join-Path $SCRIPT_DIR "write-main-health-state.ps1"
 $LAUNCH_GATE = Join-Path $SCRIPT_DIR "check-launch-gate.ps1"
 $BATCH_LAUNCH = Join-Path $SCRIPT_DIR "batch-launch.ps1"
 $COMPILER = Join-Path $SCRIPT_DIR "compile-issue-to-task-json.ps1"
+$PLANNER  = Join-Path $SCRIPT_DIR "plan-next-batch.ps1"
 
 $CYCLE_MARKER_BEGIN = "<!-- ai-self-cycle:report:begin -->"
 $CYCLE_MARKER_END   = "<!-- ai-self-cycle:report:end -->"
@@ -222,6 +225,99 @@ if ($DryRunFixture) {
     Write-Ok "Fixture loaded — dry-run through launch gate"
     Add-StepResult -Name "fixture-load" -Status "pass" -Detail "Loaded from $DryRunFixture"
     Write-Host ""
+}
+
+# ---------------------------------------------------------------------------
+# PlanFirst: run plan-next-batch.ps1 and stop for human review
+# ---------------------------------------------------------------------------
+
+if ($PlanFirst) {
+    $planModeLabel = "PLAN-FIRST"
+    Write-Host ""
+    Write-Host "==========================================================" -ForegroundColor Cyan
+    Write-Host "  Self-Cycle Runner [$planModeLabel]" -ForegroundColor Cyan
+    Write-Host "==========================================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    if (-not $IssueLabel) {
+        Write-Fail "-PlanFirst requires -IssueLabel to discover candidate issues."
+    }
+    if (-not $Repo) {
+        Write-Fail "-PlanFirst requires -Repo or GH_REPO env var."
+    }
+
+    Write-SectionHeader "STEP 0 — Plan Next Batch (dry-run proposal)"
+
+    Write-Step "Running plan-next-batch.ps1 -Json..."
+    Write-Step "  Label: $IssueLabel"
+    Write-Step "  Repo:  $Repo"
+
+    try {
+        $planJson = & pwsh -NoProfile -File $PLANNER -IssueLabel $IssueLabel -Repo $Repo -Json 2>&1
+        $planExit = $LASTEXITCODE
+
+        if ($planExit -ne 0) {
+            Write-Fail "plan-next-batch.ps1 exited with code $planExit"
+            exit 2
+        }
+
+        $plan = $planJson | ConvertFrom-Json
+    } catch {
+        Write-Fail "plan-next-batch.ps1 failed: $_"
+        exit 2
+    }
+
+    # Save proposal to temp file for downstream use
+    $proposalFile = Join-Path ([System.IO.Path]::GetTempPath()) "self-cycle-proposal.json"
+    $planJson | Set-Content $proposalFile -Encoding UTF8
+
+    Write-Ok "Proposal captured: $($plan.proposed) candidate(s) from $($plan.totalOpen) open issue(s)"
+    Add-StepResult -Name "plan-proposal" -Status "pass" `
+                   -Detail "$($plan.proposed) candidate(s) proposed"
+
+    # Display proposal summary
+    Write-Host ""
+    Write-Host "  Proposed Batch:" -ForegroundColor White
+    foreach ($c in $plan.candidates) {
+        $riskColor = switch ($c.risk) {
+            "low"    { "Green" }
+            "medium" { "Yellow" }
+            "high"   { "Red" }
+        }
+        $readyColor = switch ($c.readiness) {
+            "ready"   { "Green" }
+            "blocked" { "Red" }
+            default   { "White" }
+        }
+        Write-Host "    #$($c.issueNumber)" -NoNewline -ForegroundColor White
+        Write-Host "  " -NoNewline
+        Write-Host "[$($c.risk)]" -NoNewline -ForegroundColor $riskColor
+        Write-Host "  " -NoNewline
+        Write-Host "$($c.conflictGroup)" -NoNewline -ForegroundColor DarkCyan
+        Write-Host "  " -NoNewline
+        Write-Host "$($c.readiness)" -ForegroundColor $readyColor
+        Write-Host "      $($c.title)" -ForegroundColor Gray
+    }
+
+    if ($plan.conflictWarnings -and $plan.conflictWarnings.Count -gt 0) {
+        Write-Host ""
+        Write-Host "  Conflict Warnings:" -ForegroundColor Yellow
+        foreach ($w in $plan.conflictWarnings) {
+            Write-Host "    - $w" -ForegroundColor Yellow
+        }
+    }
+
+    Write-Host ""
+    Write-Ok "Full proposal saved to: $proposalFile"
+
+    Write-HumanStop -Reason "Plan-first dry-run complete. Review proposed batch above." `
+                    -NextAction "Re-run with -IssueLabel '$IssueLabel' -Repo $Repo -Execute to compile and launch, or adjust issues and re-plan."
+
+    $cycleResult.finalStatus = "plan-proposed"
+    $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
+    Write-Host ""
+    Write-Host "Cycle result: $($cycleResult.finalStatus)" -ForegroundColor Green
+    exit 0
 }
 
 # ---------------------------------------------------------------------------
