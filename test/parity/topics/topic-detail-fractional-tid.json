@@ -1,0 +1,26 @@
+{
+  "id": "topic-detail-fractional-tid",
+  "endpoint": "GET /api/topic/:tid",
+  "description": "Requesting a topic with a fractional tid returns 404",
+  "request": {
+    "method": "GET",
+    "path": "/api/topic/1.5",
+    "params": { "tid": "1.5" }
+  },
+  "expected": {
+    "status": 404,
+    "contentType": "application/json",
+    "body": { "statusCode": 404, "error": "Not Found", "code": "NOT_FOUND" },
+    "bodySchema": {
+      "type": "object",
+      "required": ["statusCode", "error", "code"],
+      "properties": {
+        "statusCode": { "type": "integer", "const": 404 },
+        "error": { "type": "string" },
+        "code": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "notes": "Fractional tid=1.5 fails Number.isInteger check in TopicsUsecase.getByTid."
+}

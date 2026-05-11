@@ -1,0 +1,26 @@
+{
+  "id": "topic-detail-invalid-tid",
+  "endpoint": "GET /api/topic/:tid",
+  "description": "Requesting a topic with a non-numeric tid returns 404",
+  "request": {
+    "method": "GET",
+    "path": "/api/topic/abc",
+    "params": { "tid": "abc" }
+  },
+  "expected": {
+    "status": 404,
+    "contentType": "application/json",
+    "body": { "statusCode": 404, "error": "Not Found", "code": "NOT_FOUND" },
+    "bodySchema": {
+      "type": "object",
+      "required": ["statusCode", "error", "code"],
+      "properties": {
+        "statusCode": { "type": "integer", "const": 404 },
+        "error": { "type": "string" },
+        "code": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "notes": "Non-numeric tid string 'abc' fails Number.isInteger check in TopicsUsecase.getByTid."
+}
