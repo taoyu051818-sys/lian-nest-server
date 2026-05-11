@@ -93,6 +93,14 @@ is a deliberate constraint from the SOP. After a wave completes:
   batch of issues.
 - The runner resumes reading from the queue.
 
+**Autopilot plan mode** (`-AutopilotPlan`) provides the planning phase of this
+loop. It chains discovery, compilation, and gate checks into a single non-stop
+dry-run pass, producing a comprehensive plan showing what would happen if
+`-Execute` were passed. The human reviews the plan and decides whether to
+execute. This preserves the human-owned "next-wave decision" boundary.
+
+See [self-cycle-autopilot-plan-mode.md](self-cycle-autopilot-plan-mode.md).
+
 ---
 
 ## Boundaries
@@ -150,6 +158,7 @@ via `run-self-cycle.ps1`.
 | Batch planning | **Done** | `plan-next-batch.ps1` |
 | Controlled merge | **Done** | `merge-clean-pr-batch.ps1` |
 | Worktree cleanup | **Done** | `worktree-janitor.ps1` |
+| Autopilot plan mode | **Done** | `run-self-cycle.ps1 -AutopilotPlan` |
 | Health gate auto-trigger after merge | **Pending** | Requires CI wiring |
 | Recovery worker auto-dispatch on red | **Pending** | Policy defined, trigger not wired |
 | Fallback mode with logging | **Pending** | Manual fallback procedure documented in [codex-retirement-runbook.md](codex-retirement-runbook.md#safe-fallback) |
@@ -165,3 +174,4 @@ via `run-self-cycle.ps1`.
 - [main-health-policy.md](main-health-policy.md) — Health states and worker permissions.
 - [worker-heartbeat.md](worker-heartbeat.md) — Worker monitoring.
 - [worker-task-contract.md](worker-task-contract.md) — Task JSON schema.
+- [self-cycle-autopilot-plan-mode.md](self-cycle-autopilot-plan-mode.md) — Non-stop dry-run planning.

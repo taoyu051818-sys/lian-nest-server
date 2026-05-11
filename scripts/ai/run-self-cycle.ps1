@@ -2,6 +2,7 @@
 .SYNOPSIS
     Dry-run self-cycle runner that chains issue discovery, state reconciliation,
     health gate, launch gate, and batch launch into a single orchestrated loop.
+    Supports autopilot plan mode for non-stop dry-run planning.
 
 .DESCRIPTION
     Top-level orchestrator for the self-hosted AI cycle. Runs the following
@@ -22,6 +23,11 @@
     Either -TaskFile or -IssueLabel must be provided. When -IssueLabel is used,
     the runner discovers open issues with that label, compiles them into a task
     JSON file, and feeds the result into the standard pipeline.
+
+    AUTOPILOT PLAN MODE (-AutopilotPlan): Chains all dry-run steps without
+    stopping for human review between steps. Always dry-run (never launches
+    workers). Produces a comprehensive plan showing what would happen if
+    -Execute were passed. Useful for unattended batch planning and CI pipelines.
 
 .PARAMETER TaskFile
     Path to a task JSON file (single object or array). Mutually exclusive
@@ -60,6 +66,14 @@
     blocks with exit code 1. A warning is emitted at 80% capacity.
     Valid range: 1-100. Default: 10.
 
+.PARAMETER AutopilotPlan
+    Autopilot plan mode. Chains all dry-run steps (discovery, reconciliation,
+    health check, provider pool preflight, launch gate) without stopping for
+    human review between steps. Always dry-run — never launches workers.
+    Produces a comprehensive plan at the end showing what would happen if
+    -Execute were passed. Useful for unattended batch planning and CI
+    pipelines. Requires -IssueLabel and -Repo.
+
 .EXAMPLE
     # Full dry-run cycle with explicit task file
     ./scripts/ai/run-self-cycle.ps1 -TaskFile ./tasks/issue-148.json
@@ -79,6 +93,10 @@
 .EXAMPLE
     # Validate fixture through launch gate (no live GitHub needed)
     ./scripts/ai/run-self-cycle.ps1 -DryRunFixture ./tests/fixtures/self-cycle
+
+.EXAMPLE
+    # Autopilot plan mode — non-stop dry-run planning through all steps
+    ./scripts/ai/run-self-cycle.ps1 -AutopilotPlan -IssueLabel "agent:codex-action-needed" -Repo owner/name
 #>
 
 #Requires -Version 7.0
@@ -104,6 +122,8 @@ param(
 
     [switch]$PlanFirst,
 
+    [switch]$AutopilotPlan,
+
     [ValidateRange(1, 100)]
     [int]$MaxTasks = 10
 )
@@ -125,6 +145,23 @@ $PLANNER  = Join-Path $SCRIPT_DIR "plan-next-batch.ps1"
 
 $CYCLE_MARKER_BEGIN = "<!-- ai-self-cycle:report:begin -->"
 $CYCLE_MARKER_END   = "<!-- ai-self-cycle:report:end -->"
+
+# ---------------------------------------------------------------------------
+# AutopilotPlan validation
+# ---------------------------------------------------------------------------
+
+if ($AutopilotPlan) {
+    if (-not $IssueLabel) {
+        Write-Host "[fail]  -AutopilotPlan requires -IssueLabel to discover candidate issues." -ForegroundColor Red
+        exit 2
+    }
+    if (-not $Repo) {
+        Write-Host "[fail]  -AutopilotPlan requires -Repo or GH_REPO env var." -ForegroundColor Red
+        exit 2
+    }
+    # Autopilot plan mode is always dry-run
+    $Execute = $false
+}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -163,7 +200,7 @@ function Write-SectionHeader {
 $cycleResult = [ordered]@{
     cycleVersion    = 1
     startedAt       = ([DateTime]::UtcNow).ToString("o")
-    mode            = if ($DryRunFixture) { "fixture-dry-run" } elseif ($Execute) { "execute" } else { "dry-run" }
+    mode            = if ($DryRunFixture) { "fixture-dry-run" } elseif ($AutopilotPlan) { "autopilot-plan" } elseif ($Execute) { "execute" } else { "dry-run" }
     taskFile        = $TaskFile
     steps           = @()
     humanStops      = @()
@@ -320,21 +357,28 @@ if ($PlanFirst) {
     Write-Host ""
     Write-Ok "Full proposal saved to: $proposalFile"
 
-    Write-HumanStop -Reason "Plan-first dry-run complete. Review proposed batch above." `
-                    -NextAction "Re-run with -IssueLabel '$IssueLabel' -Repo $Repo -Execute to compile and launch, or adjust issues and re-plan."
+    if (-not $AutopilotPlan) {
+        Write-HumanStop -Reason "Plan-first dry-run complete. Review proposed batch above." `
+                        -NextAction "Re-run with -IssueLabel '$IssueLabel' -Repo $Repo -Execute to compile and launch, or adjust issues and re-plan."
 
-    $cycleResult.finalStatus = "plan-proposed"
-    $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
-    Write-Host ""
-    Write-Host "Cycle result: $($cycleResult.finalStatus)" -ForegroundColor Green
-    exit 0
+        $cycleResult.finalStatus = "plan-proposed"
+        $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
+        Write-Host ""
+        Write-Host "Cycle result: $($cycleResult.finalStatus)" -ForegroundColor Green
+        exit 0
+    } else {
+        Write-Step "Autopilot plan mode — continuing through full pipeline (no human stop)"
+        Add-StepResult -Name "plan-proposal" -Status "autopilot-continue" `
+                       -Detail "Plan-first proposal captured, continuing autopilot pipeline"
+        Write-Host ""
+    }
 }
 
 # ---------------------------------------------------------------------------
 # Validate inputs
 # ---------------------------------------------------------------------------
 
-$modeLabel = if ($DryRunFixture) { "FIXTURE-DRY-RUN" } elseif ($Execute) { "EXECUTE" } else { "DRY-RUN" }
+$modeLabel = if ($DryRunFixture) { "FIXTURE-DRY-RUN" } elseif ($AutopilotPlan) { "AUTOPILOT-PLAN" } elseif ($Execute) { "EXECUTE" } else { "DRY-RUN" }
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "  Self-Cycle Runner [$modeLabel]" -ForegroundColor Cyan
@@ -517,8 +561,13 @@ if ($IssueLabel) {
                    -Detail "Compiled $($compiledTasks.Count) task(s) to temp file (max $MaxTasks)"
 
     # Dry-run: print compiled tasks, save to file, and stop for human review.
+    # Autopilot plan mode: print compiled tasks but continue through pipeline.
     # Execute mode: continue through the full pipeline.
-    if (-not $Execute) {
+    if ($AutopilotPlan) {
+        Write-Step "AUTOPILOT-PLAN: Compiled $($compiledTasks.Count) task(s), continuing through pipeline"
+        Add-StepResult -Name "autopilot-discovery" -Status "pass" `
+                       -Detail "$($compiledTasks.Count) task(s) compiled, pipeline continues"
+    } elseif (-not $Execute) {
         Write-Step "DRY-RUN: Compiled task contracts saved to $TaskFile"
         Write-Host ""
         $compiledTasks | ConvertTo-Json -Depth 10 | Write-Host
@@ -643,17 +692,23 @@ if (Test-Path $HealthFile) {
 
 # Human stop for red/black states
 if ($mainHealthState -eq "red" -or $mainHealthState -eq "black") {
-    Write-HumanStop -Reason "Main health is $mainHealthState. Automated launches are blocked." `
-                    -NextAction "Fix main health before running the self-cycle. Check post-merge-health-gate."
-    Add-StepResult -Name "health-gate" -Status "blocked" `
-                   -Detail "Main is $mainHealthState" -HumanStop $true
+    if ($AutopilotPlan) {
+        Write-Warn "AUTOPILOT-PLAN: Main health is $mainHealthState — pipeline would be blocked."
+        Add-StepResult -Name "health-gate" -Status "blocked" `
+                       -Detail "Main is $mainHealthState (autopilot: recorded, not exited)"
+    } else {
+        Write-HumanStop -Reason "Main health is $mainHealthState. Automated launches are blocked." `
+                        -NextAction "Fix main health before running the self-cycle. Check post-merge-health-gate."
+        Add-StepResult -Name "health-gate" -Status "blocked" `
+                       -Detail "Main is $mainHealthState" -HumanStop $true
 
-    # Exit early — no point checking launch gate
-    $cycleResult.finalStatus = "blocked-by-health"
-    $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
-    Write-Host ""
-    Write-Host "Cycle result: $($cycleResult.finalStatus)" -ForegroundColor Red
-    exit 1
+        # Exit early — no point checking launch gate
+        $cycleResult.finalStatus = "blocked-by-health"
+        $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
+        Write-Host ""
+        Write-Host "Cycle result: $($cycleResult.finalStatus)" -ForegroundColor Red
+        exit 1
+    }
 }
 
 # ===========================================================================
@@ -739,19 +794,31 @@ if (-not (Test-Path $PROVIDER_STATE)) {
 
         # Block if all providers exhausted/disabled and policy says block
         if ($blockAllExhausted -and $availableCount -eq 0 -and $atCapacityCount -eq 0) {
-            Write-HumanStop -Reason "All providers exhausted or disabled ($exhaustedCount exhausted, $disabledCount disabled). No capacity for new workers." `
-                            -NextAction "Wait for cooldown to expire, fix disabled providers, or add a new provider to the pool."
-            Add-StepResult -Name "provider-pool-preflight" -Status "blocked" `
-                           -Detail "All $totalProviders provider(s) unavailable ($exhaustedCount exhausted, $disabledCount disabled)" -HumanStop $true
-            $providerPreflightPassed = $false
+            if ($AutopilotPlan) {
+                Write-Warn "AUTOPILOT-PLAN: All providers exhausted or disabled — pipeline would be blocked."
+                Add-StepResult -Name "provider-pool-preflight" -Status "blocked" `
+                               -Detail "All $totalProviders provider(s) unavailable ($exhaustedCount exhausted, $disabledCount disabled) (autopilot: recorded, not exited)"
+            } else {
+                Write-HumanStop -Reason "All providers exhausted or disabled ($exhaustedCount exhausted, $disabledCount disabled). No capacity for new workers." `
+                                -NextAction "Wait for cooldown to expire, fix disabled providers, or add a new provider to the pool."
+                Add-StepResult -Name "provider-pool-preflight" -Status "blocked" `
+                               -Detail "All $totalProviders provider(s) unavailable ($exhaustedCount exhausted, $disabledCount disabled)" -HumanStop $true
+                $providerPreflightPassed = $false
+            }
         }
         # Block if all providers at capacity and policy says block
         elseif ($blockAtCapacity -and $availableCount -eq 0 -and $atCapacityCount -gt 0 -and $exhaustedCount -eq 0 -and $disabledCount -eq 0) {
-            Write-HumanStop -Reason "All available providers at max concurrency ($atCapacityCount at-capacity). No room for additional workers." `
-                            -NextAction "Wait for active workers to finish or increase provider concurrency limits."
-            Add-StepResult -Name "provider-pool-preflight" -Status "blocked" `
-                           -Detail "All $totalProviders provider(s) at capacity" -HumanStop $true
-            $providerPreflightPassed = $false
+            if ($AutopilotPlan) {
+                Write-Warn "AUTOPILOT-PLAN: All available providers at max concurrency — pipeline would be blocked."
+                Add-StepResult -Name "provider-pool-preflight" -Status "blocked" `
+                               -Detail "All $totalProviders provider(s) at capacity (autopilot: recorded, not exited)"
+            } else {
+                Write-HumanStop -Reason "All available providers at max concurrency ($atCapacityCount at-capacity). No room for additional workers." `
+                                -NextAction "Wait for active workers to finish or increase provider concurrency limits."
+                Add-StepResult -Name "provider-pool-preflight" -Status "blocked" `
+                               -Detail "All $totalProviders provider(s) at capacity" -HumanStop $true
+                $providerPreflightPassed = $false
+            }
         }
         else {
             Write-Ok "Provider pool preflight PASSED — $availableCount provider(s) available"
@@ -764,7 +831,7 @@ if (-not (Test-Path $PROVIDER_STATE)) {
     }
 }
 
-if (-not $providerPreflightPassed) {
+if (-not $providerPreflightPassed -and -not $AutopilotPlan) {
     $cycleResult.finalStatus = "blocked-by-provider-pool"
     $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
     Write-Host ""
@@ -791,16 +858,22 @@ try {
         Add-StepResult -Name "launch-gate" -Status "pass"
     } else {
         Write-Fail "Launch gate FAILED — one or more tasks blocked"
-        Write-HumanStop -Reason "Launch gate blocked task(s). See report above." `
-                        -NextAction "Review blocked tasks, fix conflicts or wait for main health to improve."
-        Add-StepResult -Name "launch-gate" -Status "blocked" `
-                       -Detail "Gate check failed" -HumanStop $true
+        if ($AutopilotPlan) {
+            Write-Warn "AUTOPILOT-PLAN: Launch gate would block task(s). See report above."
+            Add-StepResult -Name "launch-gate" -Status "blocked" `
+                           -Detail "Gate check failed (autopilot: recorded, not exited)"
+        } else {
+            Write-HumanStop -Reason "Launch gate blocked task(s). See report above." `
+                            -NextAction "Review blocked tasks, fix conflicts or wait for main health to improve."
+            Add-StepResult -Name "launch-gate" -Status "blocked" `
+                           -Detail "Gate check failed" -HumanStop $true
 
-        $cycleResult.finalStatus = "blocked-by-gate"
-        $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
-        Write-Host ""
-        Write-Host "Cycle result: $($cycleResult.finalStatus)" -ForegroundColor Red
-        exit 1
+            $cycleResult.finalStatus = "blocked-by-gate"
+            $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
+            Write-Host ""
+            Write-Host "Cycle result: $($cycleResult.finalStatus)" -ForegroundColor Red
+            exit 1
+        }
     }
 } catch {
     Write-Fail "Launch gate errored: $_"
@@ -816,7 +889,27 @@ try {
 
 Write-SectionHeader "STEP 4 — Batch Launch"
 
-if ($Execute) {
+if ($AutopilotPlan) {
+    Write-Step "AUTOPILOT-PLAN mode — generating launch plan (dry-run)"
+
+    try {
+        & pwsh -NoProfile -File $BATCH_LAUNCH -TaskFile $TaskFile -DryRun
+        $launchExit = $LASTEXITCODE
+
+        if ($launchExit -eq 0) {
+            Write-Ok "Autopilot plan: launch plan generated"
+            Add-StepResult -Name "batch-launch" -Status "autopilot-plan-pass" `
+                           -Detail "Launch plan generated (dry-run). To execute: re-run with -TaskFile $TaskFile -Execute"
+        } else {
+            Write-Warn "Batch launch dry-run exited with code $launchExit"
+            Add-StepResult -Name "batch-launch" -Status "warning" `
+                           -Detail "Exit code $launchExit"
+        }
+    } catch {
+        Write-Fail "Batch launch failed: $_"
+        Add-StepResult -Name "batch-launch" -Status "error" -Detail "$_"
+    }
+} elseif ($Execute) {
     Write-Step "EXECUTE mode — launching worker via batch-launch.ps1"
     Write-HumanStop -Reason "About to launch worker in execute mode." `
                     -NextAction "Confirm launch by re-running with -Execute, or review the dry-run output first."
@@ -861,7 +954,15 @@ $blockedSteps = @($cycleResult.steps | Where-Object { $_.humanStop })
 $failedSteps  = @($cycleResult.steps | Where-Object { $_.status -in @("error", "blocked") })
 $warnSteps    = @($cycleResult.steps | Where-Object { $_.status -eq "warning" })
 
-if ($failedSteps.Count -gt 0) {
+if ($AutopilotPlan) {
+    if ($failedSteps.Count -gt 0) {
+        $cycleResult.finalStatus = "autopilot-plan-blocked"
+    } elseif ($warnSteps.Count -gt 0) {
+        $cycleResult.finalStatus = "autopilot-plan-warnings"
+    } else {
+        $cycleResult.finalStatus = "autopilot-plan-ready"
+    }
+} elseif ($failedSteps.Count -gt 0) {
     $cycleResult.finalStatus = "blocked"
 } elseif ($blockedSteps.Count -gt 0) {
     $cycleResult.finalStatus = "human-stop"
@@ -877,16 +978,18 @@ Write-Host "  Step               | Status" -ForegroundColor White
 Write-Host "  -------------------|--------" -ForegroundColor Gray
 foreach ($s in $cycleResult.steps) {
     $statusColor = switch ($s.status) {
-        "pass"            { "Green" }
-        "dry-run-pass"    { "Green" }
-        "read"            { "Green" }
-        "default"         { "Yellow" }
-        "warning"         { "Yellow" }
-        "skipped"         { "DarkGray" }
-        "blocked"         { "Red" }
-        "error"           { "Red" }
-        "human-gate"      { "Magenta" }
-        default           { "White" }
+        "pass"              { "Green" }
+        "dry-run-pass"      { "Green" }
+        "autopilot-plan-pass" { "Green" }
+        "autopilot-continue" { "Cyan" }
+        "read"              { "Green" }
+        "default"           { "Yellow" }
+        "warning"           { "Yellow" }
+        "skipped"           { "DarkGray" }
+        "blocked"           { "Red" }
+        "error"             { "Red" }
+        "human-gate"        { "Magenta" }
+        default             { "White" }
     }
     $namePadded = $s.name.PadRight(19)
     Write-Host "  $namePadded| " -NoNewline -ForegroundColor White
@@ -905,6 +1008,9 @@ $finalColor = switch ($cycleResult.finalStatus) {
     "blocked-by-max-tasks"     { "Red" }
     "blocked-by-provider-pool" { "Red" }
     "discovery-complete"       { "Green" }
+    "autopilot-plan-ready"     { "Green" }
+    "autopilot-plan-warnings"  { "Yellow" }
+    "autopilot-plan-blocked"   { "Red" }
     default                    { "White" }
 }
 Write-Host $cycleResult.finalStatus -ForegroundColor $finalColor
@@ -939,6 +1045,15 @@ switch ($cycleResult.finalStatus) {
     "discovery-complete" {
         Write-Host "Next: Review compiled task contracts. Re-run with -TaskFile <file> -Execute to proceed through the pipeline." -ForegroundColor Green
     }
+    "autopilot-plan-ready" {
+        Write-Host "Next: All steps passed. Re-run with -TaskFile $TaskFile -Execute to launch workers." -ForegroundColor Green
+    }
+    "autopilot-plan-warnings" {
+        Write-Host "Next: Review warnings above. Re-run with -TaskFile $TaskFile -Execute to launch workers." -ForegroundColor Yellow
+    }
+    "autopilot-plan-blocked" {
+        Write-Host "Next: Fix blocked steps above before launching. Re-run autopilot plan after fixes." -ForegroundColor Red
+    }
 }
 
 # Build markdown report for optional posting
@@ -963,4 +1078,49 @@ $cycleMarkdown = $mdLines -join "`n"
 
 Write-Host ""
 Write-Host "Cycle complete." -ForegroundColor Cyan
+
+# ---------------------------------------------------------------------------
+# Autopilot Plan Summary: show what would happen if -Execute were passed
+# ---------------------------------------------------------------------------
+
+if ($AutopilotPlan) {
+    Write-Host ""
+    Write-Host "==========================================================" -ForegroundColor Cyan
+    Write-Host "  AUTOPILOT PLAN SUMMARY" -ForegroundColor Cyan
+    Write-Host "==========================================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    $allPassed = ($cycleResult.finalStatus -eq "autopilot-plan-ready")
+    $hasBlocked = @($cycleResult.steps | Where-Object { $_.status -eq "blocked" }).Count -gt 0
+
+    if ($allPassed) {
+        Write-Host "  Status: ALL CHECKS PASSED" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "  If you run with -Execute, the following would happen:" -ForegroundColor White
+        Write-Host "    1. Task contracts would be compiled from discovered issues" -ForegroundColor Gray
+        Write-Host "    2. State reconciliation would run" -ForegroundColor Gray
+        Write-Host "    3. Health gate would be checked" -ForegroundColor Gray
+        Write-Host "    4. Provider pool preflight would run" -ForegroundColor Gray
+        Write-Host "    5. Launch gate would validate tasks" -ForegroundColor Gray
+        Write-Host "    6. Workers would be dispatched via batch-launch.ps1" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  To execute:" -ForegroundColor White
+        Write-Host "    ./scripts/ai/run-self-cycle.ps1 -TaskFile $TaskFile -Execute" -ForegroundColor Yellow
+    } elseif ($hasBlocked) {
+        Write-Host "  Status: BLOCKED — fix issues before executing" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "  Blocked steps prevent worker launch. Review the step table above." -ForegroundColor White
+        Write-Host "  Re-run autopilot plan after fixes to verify all checks pass." -ForegroundColor White
+    } else {
+        Write-Host "  Status: COMPLETED WITH WARNINGS" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  Review warnings above. If acceptable, run with -Execute:" -ForegroundColor White
+        Write-Host "    ./scripts/ai/run-self-cycle.ps1 -TaskFile $TaskFile -Execute" -ForegroundColor Yellow
+    }
+
+    Write-Host ""
+    Write-Host "==========================================================" -ForegroundColor Cyan
+    Write-Host ""
+}
+
 exit 0
