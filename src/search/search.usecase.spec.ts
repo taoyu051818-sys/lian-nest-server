@@ -133,5 +133,85 @@ describe('SearchUsecase', () => {
       });
       await expect(usecase.search('test')).rejects.toThrow(BadRequestException);
     });
+
+    // --- Response shape validation ---
+
+    it('should return a response with only SearchResponse keys', async () => {
+      mockSearchProvider.search.mockResolvedValue({
+        status: BodyStatus.OK, statusCode: 200,
+        data: mockNodebbResponse, error: null,
+      });
+      const result = await usecase.search('test');
+      expect(Object.keys(result).sort()).toEqual(['items', 'page', 'pages', 'source', 'term', 'total']);
+    });
+
+    it('should return items with only SearchResultItem keys', async () => {
+      mockSearchProvider.search.mockResolvedValue({
+        status: BodyStatus.OK, statusCode: 200,
+        data: mockNodebbResponse, error: null,
+      });
+      const result = await usecase.search('test');
+      for (const item of result.items) {
+        expect(Object.keys(item).sort()).toEqual(['id', 'snippet', 'timestamp', 'title']);
+      }
+    });
+
+    it('should default page to 1 and pages to 1 when pagination is null', async () => {
+      mockSearchProvider.search.mockResolvedValue({
+        status: BodyStatus.OK, statusCode: 200,
+        data: { matches: [], matchCount: 0, pagination: null },
+        error: null,
+      });
+      const result = await usecase.search('test');
+      expect(result.page).toBe(1);
+      expect(result.pages).toBe(1);
+    });
+
+    it('should default pages to 1 when pagination is undefined', async () => {
+      mockSearchProvider.search.mockResolvedValue({
+        status: BodyStatus.OK, statusCode: 200,
+        data: { matches: [], matchCount: 0, pagination: undefined },
+        error: null,
+      });
+      const result = await usecase.search('test');
+      expect(result.page).toBe(1);
+      expect(result.pages).toBe(1);
+    });
+
+    it('should return source as "nodebb"', async () => {
+      mockSearchProvider.search.mockResolvedValue({
+        status: BodyStatus.OK, statusCode: 200,
+        data: mockNodebbResponse, error: null,
+      });
+      const result = await usecase.search('test');
+      expect(result.source).toBe('nodebb');
+    });
+
+    // --- Page coercion edge cases ---
+
+    it('should throw BadRequestException for floating-point page', async () => {
+      await expect(usecase.search('test', '1.5')).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException for NaN page', async () => {
+      await expect(usecase.search('test', 'NaN')).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException for Infinity page', async () => {
+      await expect(usecase.search('test', 'Infinity')).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException for empty string page', async () => {
+      await expect(usecase.search('test', '')).rejects.toThrow(BadRequestException);
+    });
+
+    it('should use page 1 when page is undefined', async () => {
+      mockSearchProvider.search.mockResolvedValue({
+        status: BodyStatus.OK, statusCode: 200,
+        data: mockNodebbResponse, error: null,
+      });
+      await usecase.search('test');
+      expect(mockSearchProvider.search).toHaveBeenCalledWith('test', { page: 1 });
+    });
   });
 });

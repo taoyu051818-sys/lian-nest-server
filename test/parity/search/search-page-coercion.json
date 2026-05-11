@@ -1,0 +1,81 @@
+{
+  "id": "search-page-coercion",
+  "endpoint": "GET /api/search",
+  "description": "Search with invalid or edge-case page values returns 400 Bad Request",
+  "cases": [
+    {
+      "label": "zero page",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=test&page=0",
+        "query": { "term": "test", "page": "0" }
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "negative page",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=test&page=-1",
+        "query": { "term": "test", "page": "-1" }
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "non-numeric page",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=test&page=abc",
+        "query": { "term": "test", "page": "abc" }
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "floating-point page",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=test&page=1.5",
+        "query": { "term": "test", "page": "1.5" }
+      },
+      "expected": {
+        "status": 400,
+        "contentType": "application/json"
+      }
+    },
+    {
+      "label": "valid page 1",
+      "request": {
+        "method": "GET",
+        "path": "/api/search?term=test&page=1",
+        "query": { "term": "test", "page": "1" }
+      },
+      "expected": {
+        "status": 200,
+        "contentType": "application/json",
+        "bodySchema": {
+          "type": "object",
+          "required": ["term", "items", "total", "page", "pages", "source"],
+          "properties": {
+            "term": { "type": "string" },
+            "items": { "type": "array" },
+            "total": { "type": "integer", "minimum": 0 },
+            "page": { "type": "integer", "minimum": 1 },
+            "pages": { "type": "integer", "minimum": 0 },
+            "source": { "type": "string", "enum": ["nodebb", "fallback"] }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "notes": "Invalid page values (0, negative, non-numeric, float) must be rejected with 400. The page query param is a string that must be coerced to a positive integer."
+}
