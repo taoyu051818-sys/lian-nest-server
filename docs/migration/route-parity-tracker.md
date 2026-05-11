@@ -20,7 +20,7 @@ Tracks which legacy route families have been migrated to Nest controllers.
 | MESSAGING    | IN_PROGRESS  | MessagesModule / MessagesController | #180, #263 | 2 of 4 endpoints implemented (list, markRead) |
 | NOTIFICATIONS| IN_PROGRESS  | NotificationsController (under MessagesModule) | #127, #152 | 3 of 4 endpoints implemented (list, unread-count, mark-read) |
 | TAGS         | IN_PROGRESS  | TagsModule / TagsController | #208, #250 | 2 of 2 endpoints implemented (list, tag topics) |
-| SEARCH       | UNMIGRATED   |                          |       |       |
+| SEARCH       | IN_PROGRESS  | SearchModule / SearchController | #304 | 1 of 1 endpoints implemented (search) |
 | GROUPS       | UNMIGRATED   |                          |       |       |
 | FEED         | IN_PROGRESS  | FeedModule / FeedController | #143 | 1 of 2 endpoints implemented (list); not in legacy inventory |
 | PROFILE      | IN_PROGRESS  | ProfileModule / ProfileController | #126, #231 | 3 of 4 endpoints implemented (public, saved, liked); not in legacy inventory |
@@ -106,6 +106,12 @@ When a family moves to IN_PROGRESS or MIGRATED, add per-route detail below.
 | GET    | /api/tags                    | IMPLEMENTED  | TagsController.list (#208)  |
 | GET    | /api/tags/:tag/topics        | IMPLEMENTED  | TagsController.listTopics (#250) |
 
+### SEARCH
+
+| Method | Path                         | Status       | Controller / Handler        |
+|--------|------------------------------|--------------|-----------------------------|
+| GET    | /api/search                  | IMPLEMENTED  | SearchController.search (#304) |
+
 ### FEED (not in legacy inventory)
 
 | Method | Path                         | Status       | Controller / Handler        |
@@ -126,8 +132,8 @@ When a family moves to IN_PROGRESS or MIGRATED, add per-route detail below.
 
 - **Total families:** 12
 - **MIGRATED:** 0
-- **IN_PROGRESS:** 11
-- **UNMIGRATED:** 1
+- **IN_PROGRESS:** 12
+- **UNMIGRATED:** 0
 
 ## How to Update
 
