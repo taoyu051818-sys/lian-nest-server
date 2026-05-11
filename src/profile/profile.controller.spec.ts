@@ -10,6 +10,7 @@ describe('ProfileController', () => {
   const mockUsersProvider = {
     getByUid: jest.fn(),
     getBySlug: jest.fn(),
+    getSaved: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -48,14 +49,52 @@ describe('ProfileController', () => {
   });
 
   describe('getSaved', () => {
-    it('should delegate to usecase', async () => {
+    it('should delegate to usecase with query params', async () => {
+      const mockResponse = {
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 10,
+        source: 'fallback' as const,
+      };
       const spy = jest
         .spyOn(usecase, 'getSaved')
-        .mockRejectedValue(new Error('not implemented'));
-      await expect(controller.getSaved('1')).rejects.toThrow(
-        'not implemented',
-      );
-      expect(spy).toHaveBeenCalledWith('1');
+        .mockResolvedValue(mockResponse);
+      const result = await controller.getSaved('1', {});
+      expect(spy).toHaveBeenCalledWith('1', {});
+      expect(result).toEqual(mockResponse);
+    });
+
+    it('should forward page and pageSize from query', async () => {
+      const mockResponse = {
+        items: [],
+        total: 0,
+        page: 2,
+        pageSize: 5,
+        source: 'fallback' as const,
+      };
+      const spy = jest
+        .spyOn(usecase, 'getSaved')
+        .mockResolvedValue(mockResponse);
+      const result = await controller.getSaved('1', { page: 2, pageSize: 5 });
+      expect(spy).toHaveBeenCalledWith('1', { page: 2, pageSize: 5 });
+      expect(result).toEqual(mockResponse);
+    });
+
+    it('should forward string page and pageSize from @Query()', async () => {
+      const mockResponse = {
+        items: [],
+        total: 0,
+        page: 2,
+        pageSize: 5,
+        source: 'fallback' as const,
+      };
+      const spy = jest
+        .spyOn(usecase, 'getSaved')
+        .mockResolvedValue(mockResponse);
+      const result = await controller.getSaved('1', { page: '2', pageSize: '5' });
+      expect(spy).toHaveBeenCalledWith('1', { page: '2', pageSize: '5' });
+      expect(result).toEqual(mockResponse);
     });
   });
 

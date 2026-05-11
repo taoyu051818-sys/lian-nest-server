@@ -40,4 +40,11 @@ export interface ProfileCollection<T> {
   total: number;
   page: number;
   pageSize: number;
+  source: 'nodebb' | 'fallback';
+}
+
+/** Query parameters for collection pagination */
+export interface CollectionQuery {
+  page?: string | number;
+  pageSize?: string | number;
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ProfileUsecase } from './profile.usecase';
 import {
   PublicProfile,
@@ -6,6 +6,7 @@ import {
   LikedItem,
   HistoryItem,
   ProfileCollection,
+  CollectionQuery,
 } from './types';
 
 @Controller('api/profile')
@@ -20,8 +21,9 @@ export class ProfileController {
   @Get(':uid/saved')
   async getSaved(
     @Param('uid') uid: string,
+    @Query() query: CollectionQuery,
   ): Promise<ProfileCollection<SavedItem>> {
-    return this.profileUsecase.getSaved(uid);
+    return this.profileUsecase.getSaved(uid, query);
   }
 
   @Get(':uid/liked')

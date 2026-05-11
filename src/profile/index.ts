@@ -7,4 +7,5 @@ export {
   LikedItem,
   HistoryItem,
   ProfileCollection,
+  CollectionQuery,
 } from './types';
