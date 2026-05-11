@@ -1,0 +1,15 @@
+{
+  "id": "user-posts-invalid-uid",
+  "endpoint": "GET /api/users/:uid/posts",
+  "description": "User posts rejects invalid uid strings with 404",
+  "request": {
+    "method": "GET",
+    "path": "/api/users/abc/posts",
+    "params": { "uid": "abc" }
+  },
+  "expected": {
+    "status": 404,
+    "contentType": "application/json"
+  },
+  "notes": "Regression: non-numeric uid must return 404, not 500 or silent data corruption."
+}

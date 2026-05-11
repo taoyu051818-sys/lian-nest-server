@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
 import { UsersController } from './users.controller';
 import { UsersUsecase } from './users.usecase';
 import { NodebbUsersProvider } from '../nodebb/providers/nodebb-users.provider';
@@ -66,6 +67,38 @@ describe('UsersController', () => {
       expect(spy).toHaveBeenCalledWith('1');
       expect(result.posts).toHaveLength(1);
       expect(result.source).toBe('nodebb');
+    });
+  });
+
+  describe('uid parsing regression', () => {
+    it('should propagate NotFoundException for non-numeric uid on detail', async () => {
+      jest.spyOn(usecase, 'getByUid').mockRejectedValue(new NotFoundException('Invalid uid: abc'));
+      await expect(controller.getByUid('abc')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should propagate NotFoundException for zero uid on detail', async () => {
+      jest.spyOn(usecase, 'getByUid').mockRejectedValue(new NotFoundException('Invalid uid: 0'));
+      await expect(controller.getByUid('0')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should propagate NotFoundException for negative uid on detail', async () => {
+      jest.spyOn(usecase, 'getByUid').mockRejectedValue(new NotFoundException('Invalid uid: -1'));
+      await expect(controller.getByUid('-1')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should propagate NotFoundException for non-numeric uid on posts', async () => {
+      jest.spyOn(usecase, 'getPosts').mockRejectedValue(new NotFoundException('Invalid uid: abc'));
+      await expect(controller.getPosts('abc')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should propagate NotFoundException for zero uid on posts', async () => {
+      jest.spyOn(usecase, 'getPosts').mockRejectedValue(new NotFoundException('Invalid uid: 0'));
+      await expect(controller.getPosts('0')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should propagate NotFoundException for negative uid on posts', async () => {
+      jest.spyOn(usecase, 'getPosts').mockRejectedValue(new NotFoundException('Invalid uid: -1'));
+      await expect(controller.getPosts('-1')).rejects.toThrow(NotFoundException);
     });
   });
 });
