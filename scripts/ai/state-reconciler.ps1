@@ -12,6 +12,8 @@
     - Done label but PR closed without merge (done-with-closed-pr)
     - Multiple agent labels on one issue (multiple-agent-labels)
     Dry-run by default; pass -Apply to suggest label transitions (still no auto-mutation).
+    Pass -DryRun to explicitly confirm no mutation (conflicts with -Apply).
+    Pass -Help to display usage and drift rule reference.
     Evidence precedence: worker evidence > PR state > issue labels.
 .EXAMPLE
     ./scripts/ai/state-reconciler.ps1 -Repo "o/r"
@@ -38,11 +40,67 @@ param(
     [switch]$Apply,
 
     [Parameter(Mandatory = $false)]
-    [string]$FixtureDir
+    [string]$FixtureDir,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$DryRun,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$Help
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# ---------------------------------------------------------------------------
+# Help
+# ---------------------------------------------------------------------------
+
+if ($Help) {
+    @"
+
+STATE RECONCILER - Dry-run drift detector for agent workflow lifecycle
+
+USAGE
+    ./scripts/ai/state-reconciler.ps1 -Repo "owner/name" [options]
+    ./scripts/ai/state-reconciler.ps1 -FixturePath ./snapshot.json
+    ./scripts/ai/state-reconciler.ps1 -FixtureDir ./tests/fixtures/state-reconciler/
+
+OPTIONS
+    -Repo <string>          GitHub owner/repo to scan
+    -IssueNumbers <int[]>   Limit scan to specific issue numbers
+    -FixturePath <string>   Load issues from a single JSON fixture (offline)
+    -FixtureDir <string>    Validate all fixtures in a directory (CI regression)
+    -StaleHours <int>       Hours before running/queued is considered stale (default: 72)
+    -Apply                  Print suggested gh issue edit commands (no auto-mutation)
+    -DryRun                 Confirm dry-run mode; conflicts with -Apply
+    -Help                   Show this help message
+
+DRIFT RULES
+    stale-running           agent:running with no open PR for >StaleHours
+    done-without-merge      agent:done but no merged PR, issue open
+    merged-pr-open-issue    Merged PR exists, issue still open
+    stale-queued            agent:queued for >StaleHours without pickup
+    blocked-with-open-pr    agent:blocked with an open PR
+    merged-pr-stale-label   Merged PR but label not agent:done
+    done-with-closed-pr     agent:done but PR closed without merge
+    multiple-agent-labels   More than one agent:* label on same issue
+
+DRY-RUN CONTRACT
+    This script never calls gh issue edit or gh pr edit.
+    -Apply only prints suggested commands for manual review.
+    Use -DryRun to explicitly confirm no mutation will occur
+    (conflicts with -Apply, which prints suggestion commands).
+
+"@ | Write-Output
+    exit 0
+}
+
+# DryRun and Apply are mutually exclusive
+if ($DryRun -and $Apply) {
+    Write-Error "-DryRun and -Apply cannot be used together. -DryRun enforces no mutation; -Apply prints suggestion commands."
+    exit 1
+}
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -424,6 +482,10 @@ if (-not $FixturePath -and -not $Repo -and -not $FixtureDir) {
 
 Write-Output "State Reconciler (dry-run by default)"
 Write-Output "======================================"
+if ($DryRun) {
+    Write-Output "Mode: DRY-RUN (explicit -DryRun flag; no mutation will occur)"
+    Write-Output ""
+}
 Write-Output ""
 
 # Fixture directory validation mode

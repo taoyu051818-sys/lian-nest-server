@@ -1,0 +1,15 @@
+{
+  "description": "agent:done but no merged PR exists and issue is still open",
+  "expectedRules": ["done-without-merge"],
+  "expectedCount": 1,
+  "issues": [
+    {
+      "number": 207,
+      "title": "Done without merge evidence",
+      "state": "OPEN",
+      "labels": [{"name": "agent:done"}],
+      "updatedAt": "2026-05-10T12:00:00Z",
+      "linkedPRs": []
+    }
+  ]
+}

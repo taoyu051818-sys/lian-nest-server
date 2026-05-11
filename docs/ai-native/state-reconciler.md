@@ -126,6 +126,19 @@ Bundled fixtures live in `tests/fixtures/state-reconciler/` and cover:
 | `05-clean-no-drift.json` | Done label with merged PR (issue should close) | `merged-pr-open-issue` |
 | `06-blocked-with-open-pr.json` | Blocked with open PR | `blocked-with-open-pr` |
 | `07-stale-queued.json` | Queued for >72h | `stale-queued` |
+| `08-done-without-merge.json` | Done label, no merged PR, issue open | `done-without-merge` |
+| `09-no-drift-closed-issue.json` | Closed issue with merged PR and done label | *(none -- clean)* |
+| `10-queued-fresh.json` | Recently queued, within stale threshold | *(none -- clean)* |
+
+### Explicit dry-run confirmation
+
+```powershell
+./scripts/ai/state-reconciler.ps1 -Repo "owner/name" -DryRun
+```
+
+The script is always dry-run by default. The `-DryRun` flag makes this
+contract explicit for CI pipelines that need to verify no mutation occurs.
+`-DryRun` and `-Apply` are mutually exclusive.
 
 ### Show suggested label commands
 
@@ -135,6 +148,15 @@ Bundled fixtures live in `tests/fixtures/state-reconciler/` and cover:
 
 This prints `gh issue edit` commands for manual review. No labels are
 changed automatically.
+
+### Show help
+
+```powershell
+./scripts/ai/state-reconciler.ps1 -Help
+```
+
+Displays usage, available options, drift rule reference, and the dry-run
+contract.
 
 ## Output
 
@@ -158,6 +180,9 @@ The reconciler produces:
   `gh pr edit`. All suggested changes are printed for manual review.
 - **Read-only by default.** The `-Apply` flag only prints commands;
   it does not execute them.
+- **Explicit dry-run flag.** `-DryRun` makes the no-mutation contract
+  explicit for CI. Conflicts with `-Apply` (which prints suggestion
+  commands).
 - **Fixture support.** CI can run the reconciler against a JSON snapshot
   without GitHub API access. The `-FixtureDir` mode validates expected
   drift rules, providing regression coverage for rule changes.

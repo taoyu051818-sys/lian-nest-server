@@ -1,0 +1,22 @@
+{
+  "description": "Closed issue with merged PR and agent:done label -- ideal end state, no drift expected",
+  "expectedRules": [],
+  "expectedCount": 0,
+  "issues": [
+    {
+      "number": 208,
+      "title": "Properly closed issue",
+      "state": "CLOSED",
+      "labels": [{"name": "agent:done"}],
+      "updatedAt": "2026-05-10T12:00:00Z",
+      "linkedPRs": [
+        {
+          "number": 254,
+          "title": "Merged and closed",
+          "state": "MERGED",
+          "mergedAt": "2026-05-10T11:00:00Z"
+        }
+      ]
+    }
+  ]
+}
