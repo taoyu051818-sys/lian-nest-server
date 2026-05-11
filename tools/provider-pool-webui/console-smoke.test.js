@@ -389,6 +389,14 @@ function assertNoSecrets(json, label) {
       assertNoSecrets(data, "actions");
     }
 
+    // Planning endpoint
+    {
+      const res = await request(base + "/api/planning");
+      assert(res.status === 200, "planning: returns 200");
+      const data = JSON.parse(res.body);
+      assertNoSecrets(data, "planning");
+    }
+
     // Audit endpoint
     {
       const res = await request(base + "/api/audit");
@@ -449,6 +457,7 @@ function assertNoSecrets(json, label) {
         "/api/queue",
         "/api/actions",
         "/api/audit",
+        "/api/planning",
       ];
       let allReachable = true;
       for (const ep of endpoints) {
