@@ -16,3 +16,10 @@ This repository is the AI-native development home for the new LIAN backend. The 
 ### Agent Prompts
 
 Role prompts for AI workers and reviewers live in [ops/agent-prompts/](ops/agent-prompts/).
+
+## Architecture
+
+- [Database Strategy](docs/architecture/database-strategy.md) — PostgreSQL, Redis, and NodeBB ownership boundaries
+- [ORM Recommendation](docs/architecture/orm-recommendation.md) — Prisma vs Drizzle vs TypeORM evaluation
+- [Schema Slices](docs/architecture/schema-slices.md) — Initial Prisma schema for users, sessions, posts, recommendations, AI records, and audit
+- [Implementation Sequence](docs/architecture/implementation-sequence.md) — Phased rollout plan after bootstrap
