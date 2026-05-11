@@ -51,6 +51,10 @@ export class ConfigService {
     return this.env.NODE_ENV === 'development';
   }
 
+  get redisUrl(): string {
+    return this.env.REDIS_URL;
+  }
+
   get nodebbConfig(): NodebbEnvConfig {
     return {
       url: this.env.NODEBB_URL,
