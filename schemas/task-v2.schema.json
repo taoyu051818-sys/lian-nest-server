@@ -1,0 +1,353 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian.dev/schemas/ai-worker-task-v2.json",
+  "title": "AI Worker Task Contract v2",
+  "description": "Next-generation control-plane schema for AI batch launcher task definitions. Extends v1 with fact-to-task protocol fields (dependsOnFacts, producesFacts), flattened top-level role/attention/review fields, writeSet/sharedLocks for granular file control, telemetry, and rollbackPlan. Aligned with docs/ai-native/task-schema-v2.md.",
+  "type": "object",
+  "required": [
+    "taskType",
+    "risk",
+    "conflictGroup",
+    "targetIssue",
+    "allowedFiles",
+    "forbiddenFiles",
+    "validation",
+    "actorRole",
+    "workerClass"
+  ],
+  "properties": {
+    "taskType": {
+      "type": "string",
+      "enum": ["execution", "research", "review"],
+      "description": "execution = write code/docs, research = read-only, review = evaluate existing work"
+    },
+    "workerClass": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Task classification for routing and scheduling (e.g. 'schema-task-v2', 'backend-runtime', 'docs-worker'). Used by the launcher to select worker templates and conflict resolution strategies."
+    },
+    "risk": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "low = docs/config, medium = cross-module, high = auth/data/public API"
+    },
+    "conflictGroup": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Tasks in the same group must not run concurrently on overlapping files"
+    },
+    "targetIssue": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Primary GitHub issue number"
+    },
+    "targetPR": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "Target PR number if updating an existing PR, null for new work"
+    },
+    "issues": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1 },
+      "description": "Additional related issue numbers"
+    },
+    "expectedPR": {
+      "type": "boolean",
+      "description": "Whether this task should produce a PR"
+    },
+    "allowedFiles": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "description": "Glob patterns the worker MAY edit"
+    },
+    "forbiddenFiles": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Glob patterns the worker MUST NOT edit, even if inside allowedFiles"
+    },
+    "writeSet": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Exact file paths or narrow globs the worker is expected to write. Subset of allowedFiles. Used by the launcher to detect scope creep — if the worker touches files outside writeSet but inside allowedFiles, the launcher logs a warning."
+    },
+    "sharedLocks": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "File paths or globs that this task reads but does not write. The launcher grants shared (read) locks; other tasks in the same conflictGroup may also hold shared locks on these files, but no task may hold an exclusive (write) lock while shared locks are active."
+    },
+    "validation": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "description": "Shell commands the worker must run before opening a PR. Replaces v1 validationCommands."
+    },
+    "actorRole": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Role name matching ops/agent-prompts/*.md. Promoted from v1 rolePacket.actorRole for top-level visibility."
+    },
+    "roleDescription": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One-line summary of what this worker does. Promoted from v1 rolePacket.description."
+    },
+    "rolePacket": {
+      "type": "object",
+      "required": ["actorRole", "description"],
+      "properties": {
+        "actorRole": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Role name matching ops/agent-prompts/*.md (v1 compatibility)"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One-line summary (v1 compatibility)"
+        }
+      },
+      "additionalProperties": false,
+      "description": "v1 compatibility wrapper. If present, launcher merges into top-level actorRole/roleDescription."
+    },
+    "attentionFocus": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Key constraints or priorities the worker must keep in mind. Promoted from v1 attentionAreas.focus."
+    },
+    "knownBlindspots": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Patterns or mistakes to actively avoid. Promoted from v1 attentionAreas.knownBlindspots."
+    },
+    "attentionAreas": {
+      "type": "object",
+      "properties": {
+        "focus": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "knownBlindspots": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false,
+      "description": "v1 compatibility wrapper. If present, launcher merges into top-level attentionFocus/knownBlindspots."
+    },
+    "dependsOnFacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["factId", "description"],
+        "properties": {
+          "factId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Unique identifier for the fact (e.g. 'fact:prisma-schema:User', 'fact:api:GET /users')"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable description of what the fact asserts"
+          },
+          "source": {
+            "type": "string",
+            "description": "Where this fact was produced (issue number, PR, doc path)"
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Facts that must be established before this task can run. The launcher validates these facts exist in the fact registry before scheduling the task."
+    },
+    "producesFacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["factId", "description"],
+        "properties": {
+          "factId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Unique identifier for the fact this task will produce"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable description of what the fact will assert"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["definite", "likely", "conditional"],
+            "description": "How certain the task is that it will produce this fact. definite = guaranteed output, likely = expected but not certain, conditional = depends on runtime findings."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Facts this task commits to producing. Downstream tasks can declare these in their dependsOnFacts. The launcher tracks fact production for dependency resolution."
+    },
+    "requiredReviewRoles": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Roles that must review before merge. Promoted from v1 reviewAndAcceptance.requiredReviewRoles."
+    },
+    "acceptanceOwner": {
+      "type": "string",
+      "description": "Who has final merge authority. Promoted from v1 reviewAndAcceptance.acceptanceOwner."
+    },
+    "reviewAndAcceptance": {
+      "type": "object",
+      "properties": {
+        "requiredReviewRoles": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "acceptanceOwner": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "v1 compatibility wrapper. If present, launcher merges into top-level requiredReviewRoles/acceptanceOwner."
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "maxFiles": { "type": "integer", "minimum": 1 },
+        "maxLinesChanged": { "type": "integer", "minimum": 1 },
+        "softTimeMinutes": { "type": "integer", "minimum": 1 },
+        "hardTimeMinutes": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false,
+      "description": "Resource limits. Replaces v1 budgets (singular naming)."
+    },
+    "budgets": {
+      "type": "object",
+      "properties": {
+        "maxFiles": { "type": "integer", "minimum": 1 },
+        "maxLinesChanged": { "type": "integer", "minimum": 1 },
+        "softTimeMinutes": { "type": "integer", "minimum": 1 },
+        "hardTimeMinutes": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false,
+      "description": "v1 compatibility alias. If present, launcher copies to budget."
+    },
+    "complexityAssessment": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["low", "low-medium", "medium", "high"]
+        },
+        "drivers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "splitRecommendation": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "stragglerPolicy": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["open_pr_or_comment_blocker"]
+        },
+        "publishPartial": { "type": "boolean" },
+        "maxExtensionMinutes": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "telemetry": {
+      "type": "object",
+      "properties": {
+        "emitHeartbeat": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether the worker should emit periodic heartbeat events during execution"
+        },
+        "heartbeatIntervalSeconds": {
+          "type": "integer",
+          "minimum": 10,
+          "default": 120,
+          "description": "Seconds between heartbeat emissions"
+        },
+        "logLevel": {
+          "type": "string",
+          "enum": ["silent", "normal", "verbose"],
+          "default": "normal",
+          "description": "Telemetry verbosity for this task"
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Freeform tags for telemetry filtering (e.g. wave name, feature area)"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Observability settings. The launcher configures the worker process to emit telemetry according to these settings."
+    },
+    "rollbackPlan": {
+      "type": "object",
+      "required": ["strategy"],
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": ["git-revert", "manual-fixforward", "auto-revert-if-ci-fails"],
+          "description": "git-revert = revert the merge commit, manual-fixforward = open a follow-up issue, auto-revert-if-ci-fails = revert automatically if post-merge CI fails"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional rollback guidance for the human reviewer"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Defines how to undo this task's changes if they cause problems post-merge."
+    },
+    "pmPhase": {
+      "type": "string",
+      "description": "Wave phase identifier for sequencing"
+    },
+    "sourceIssue": {
+      "type": "string",
+      "format": "uri",
+      "description": "GitHub issue URL — the semantic source of truth for this task."
+    },
+    "knowledgeRefs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "File paths or URLs the worker should read for semantic context."
+    },
+    "promptHandoff": {
+      "type": "string",
+      "description": "Concise description of what to build and why. Derived from the issue title or body."
+    },
+    "sourceOfTruthDocs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Authoritative spec files for this task. Every code change must trace back to a documented contract."
+    },
+    "blockedBy": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1 },
+      "description": "Issue numbers or task IDs that must merge before this task can start."
+    },
+    "mainHealthPolicy": {
+      "type": "string",
+      "enum": ["gate-all", "gate-docs-only", "gate-none"],
+      "description": "Health checks required before opening a PR."
+    },
+    "generatedCodePolicy": {
+      "type": "string",
+      "enum": ["forbid", "allow-with-regenerate-note", "source-artifact"],
+      "description": "How the worker should handle generated artifacts."
+    },
+    "llmExtracted": {
+      "type": "boolean",
+      "description": "True when the task JSON was produced by LLM extraction."
+    }
+  },
+  "additionalProperties": false
+}
