@@ -111,10 +111,13 @@ function report(families) {
 
 const MATRIX_STATUSES = ['NOT_STARTED', 'CONTRACTED', 'IMPLEMENTED', 'PARITY_TESTED', 'LEGACY_DISABLED'];
 
+const MATRIX_DIR = path.join(__dirname, '..', 'docs', 'migration');
+
 /**
  * Parse the route-parity-matrix.md file and return:
  *   - rows: counted statuses from all family endpoint tables
  *   - summary: declared counts from the Progress Summary section
+ *   - fixtureRefs: array of { endpoint, fixtureFile } for rows with non-empty fixture links
  */
 function parseMatrix(filePath) {
   if (!fs.existsSync(filePath)) {
@@ -129,6 +132,7 @@ function parseMatrix(filePath) {
   for (const s of MATRIX_STATUSES) rows[s] = 0;
 
   const summary = {};
+  const fixtureRefs = [];
   let inFamilyTable = false;
   let inSummarySection = false;
   let summaryHeaderSeen = false;
@@ -167,7 +171,7 @@ function parseMatrix(filePath) {
       continue;
     }
 
-    // Count statuses from family endpoint tables
+    // Count statuses from family endpoint tables and collect fixture refs
     if (inFamilyTable && trimmed.startsWith('|')) {
       const cells = trimmed
         .split('|')
@@ -178,6 +182,18 @@ function parseMatrix(filePath) {
         const status = cells[3].replace(/`/g, '').trim();
         if (rows[status] !== undefined) {
           rows[status]++;
+        }
+
+        // Collect fixture references (column index 5 = fixture)
+        if (cells.length >= 6) {
+          const fixtureRaw = cells[5].replace(/`/g, '').trim();
+          if (fixtureRaw && fixtureRaw !== '—' && fixtureRaw !== '-') {
+            // Extract filename from markdown link [label](path) or plain text
+            const linkMatch = fixtureRaw.match(/\[([^\]]+)\]\(([^)]+)\)/);
+            const fixtureFile = linkMatch ? linkMatch[1] : fixtureRaw;
+            const endpoint = cells[0].replace(/`/g, '').trim();
+            fixtureRefs.push({ endpoint, fixtureFile });
+          }
         }
       }
     }
@@ -203,7 +219,7 @@ function parseMatrix(filePath) {
     }
   }
 
-  return { rows, summary };
+  return { rows, summary, fixtureRefs };
 }
 
 /**
@@ -251,12 +267,95 @@ function validateMatrix(filePath) {
   return true;
 }
 
+/**
+ * Validate that every fixture file referenced in the matrix actually exists.
+ * Returns true if all referenced fixtures exist, false otherwise.
+ */
+function validateFixtures(filePath) {
+  console.log('Fixture File Existence Guard');
+  console.log('='.repeat(50));
+  console.log();
+
+  const { fixtureRefs } = parseMatrix(filePath);
+
+  if (fixtureRefs.length === 0) {
+    console.log('No fixture references found in matrix. Skipping check.');
+    console.log();
+    return true;
+  }
+
+  // Resolve fixture paths relative to docs/migration/
+  // Matrix fixture column may contain relative paths from docs/migration/ or just filenames
+  const parityDir = path.join(__dirname, '..', 'test', 'parity');
+  let ok = true;
+
+  console.log(`Checking ${fixtureRefs.length} fixture reference(s):`);
+  console.log();
+
+  for (const ref of fixtureRefs) {
+    // Try to resolve: first as direct relative to repo root, then search test/parity/**
+    let resolved = path.resolve(MATRIX_DIR, ref.fixtureFile);
+    let exists = fs.existsSync(resolved);
+
+    if (!exists) {
+      // Try searching in test/parity/ by filename only
+      const basename = path.basename(ref.fixtureFile);
+      const searchDir = parityDir;
+      if (fs.existsSync(searchDir)) {
+        const found = findFixtureInDir(searchDir, basename);
+        if (found) {
+          resolved = found;
+          exists = true;
+        }
+      }
+    }
+
+    const marker = exists ? 'OK' : 'MISSING';
+    if (!exists) ok = false;
+    console.log(`  ${marker.padEnd(8)} ${ref.endpoint.padEnd(32)} ${ref.fixtureFile}`);
+    if (!exists) {
+      console.log(`         Expected at: ${resolved}`);
+    }
+  }
+
+  console.log();
+
+  if (!ok) {
+    console.error('FAIL: One or more fixture files referenced in the matrix are missing.');
+    console.error('Either create the missing fixture files or remove stale references from');
+    console.error('docs/migration/route-parity-matrix.md fixture column.');
+    return false;
+  }
+
+  console.log('OK: All fixture references in the matrix point to existing files.');
+  return true;
+}
+
+/**
+ * Recursively search for a file by name under a directory.
+ */
+function findFixtureInDir(dir, filename) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isFile() && entry.name === filename) {
+      return full;
+    }
+    if (entry.isDirectory()) {
+      const found = findFixtureInDir(full, filename);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 const families = parseTracker(TRACKER_PATH);
 report(families);
 
 const matrixOk = validateMatrix(MATRIX_PATH);
-if (!matrixOk) {
+const fixturesOk = validateFixtures(MATRIX_PATH);
+if (!matrixOk || !fixturesOk) {
   process.exit(1);
 }
