@@ -610,21 +610,70 @@ function showPreview(action, contextData, allData, parentCard) {
   parentCard.append(panel);
 }
 
+const RISK_DESCRIPTIONS = {
+  'provider.retry': 'Re-enabling this provider will allow new task assignments to be routed to it. If the underlying issue (quota, auth, rate limit) is not resolved, tasks may fail again.',
+  'provider.clearCooldown': 'Clearing the cooldown removes the safety timer. If the provider is still rate-limited or quota-exhausted, immediate re-assignment may trigger another failure.',
+  'provider.disable': 'Disabling this provider will immediately stop new task assignments. In-flight workers will drain but no new work will start until a human re-enables it.',
+  'queue.retryBlocked': 'Retrying blocked tasks will re-queue them for dispatch. If the original blocker (exhaustion, conflict) is still active, these tasks will fail again.',
+  'queue.clearStale': 'Stale entries will be permanently removed from the queue. This cannot be undone — tasks must be re-created from their source issues if needed.',
+  'global.refreshState': 'Forces an immediate re-read of provider pool and worker state files. No data is mutated, but cached state will be replaced.',
+  'global.exportAudit': 'Exports the current session audit log as a JSON download. Read-only operation with no side effects.',
+};
+
+function confirmationWarningBanner(action) {
+  const riskLevel = action.riskLevel;
+  const description = RISK_DESCRIPTIONS[action.id] || action.description;
+  const warningClass = riskLevel === 'high' ? 'confirm-warning--high'
+    : riskLevel === 'medium' ? 'confirm-warning--medium'
+    : 'confirm-warning--low';
+
+  return el('div', { className: `confirm-warning ${warningClass}` }, [
+    el('div', { className: 'confirm-warning__header' }, [
+      el('span', { className: 'confirm-warning__icon', textContent: riskLevel === 'high' ? '⚠' : '▶' }),
+      el('span', { className: 'confirm-warning__title', textContent: `${action.label} — ${riskLevel.toUpperCase()} RISK` }),
+    ]),
+    el('p', { className: 'confirm-warning__body', textContent: description }),
+    riskLevel === 'high' || action.humanRequired
+      ? el('p', { className: 'confirm-warning__notice', textContent: 'This action cannot be auto-executed and requires explicit human confirmation.' })
+      : null,
+  ].filter(Boolean));
+}
+
 function showExecuteConfirm(action, contextData, allData, parentPanel) {
   const existing = parentPanel.querySelector('.execute-confirm');
   if (existing) existing.remove();
 
   const confirm = el('div', { className: 'execute-confirm' });
 
+  // Risk-specific warning banner
+  confirm.append(confirmationWarningBanner(action));
+
   if (action.riskLevel === 'high' || action.humanRequired) {
-    confirm.append(el('div', { className: 'execute-confirm__blocker', textContent: 'This action requires human approval and cannot be auto-executed' }));
-    parentPanel.append(confirm);
-    return;
+    confirm.append(el('div', { className: 'execute-confirm__blocker', textContent: 'This action requires human approval and cannot be auto-executed. Review the preview above, then type the confirmation phrase below.' }));
+  }
+
+  // Reason input for medium and high risk actions
+  const needsReason = action.riskLevel === 'medium' || action.riskLevel === 'high';
+  let reasonInput;
+  if (needsReason) {
+    const reasonWrap = el('div', { className: 'execute-confirm__reason-wrap' });
+    reasonWrap.append(el('label', {
+      className: 'execute-confirm__reason-label',
+      textContent: `Reason for "${action.label}" (required):`,
+    }));
+    reasonInput = el('input', {
+      className: 'execute-confirm__input execute-confirm__reason-input',
+      type: 'text',
+      placeholder: 'Describe why this action is needed…',
+      autocomplete: 'off',
+    });
+    reasonWrap.append(reasonInput);
+    confirm.append(reasonWrap);
   }
 
   confirm.append(el('p', {
     className: 'execute-confirm__prompt',
-    textContent: `Type "${action.confirmPhrase}" to confirm execution:`,
+    textContent: `Type "${action.confirmPhrase}" to confirm execution of "${action.label}":`,
   }));
 
   const input = el('input', {
@@ -649,24 +698,29 @@ function showExecuteConfirm(action, contextData, allData, parentPanel) {
     disabled: 'true',
   });
 
-  input.addEventListener('input', () => {
-    const match = input.value.trim() === action.confirmPhrase;
-    goBtn.disabled = !match;
-    goBtn.className = `action-btn action-btn--execute ${match ? '' : 'action-btn--disabled'}`;
-  });
+  function validateConfirm() {
+    const phraseMatch = input.value.trim() === action.confirmPhrase;
+    const reasonOk = !needsReason || (reasonInput && reasonInput.value.trim().length > 0);
+    const enabled = phraseMatch && reasonOk;
+    goBtn.disabled = !enabled;
+    goBtn.className = `action-btn action-btn--execute ${enabled ? '' : 'action-btn--disabled'}`;
+  }
+
+  input.addEventListener('input', validateConfirm);
+  if (reasonInput) reasonInput.addEventListener('input', validateConfirm);
 
   goBtn.addEventListener('click', () => {
-    if (input.value.trim() !== action.confirmPhrase) return;
-    executeAction(action, contextData, allData, confirm);
+    if (goBtn.disabled) return;
+    executeAction(action, contextData, allData, confirm, reasonInput?.value?.trim());
   });
 
   btnRow.append(cancelBtn, goBtn);
   confirm.append(btnRow);
   parentPanel.append(confirm);
-  input.focus();
+  (needsReason ? reasonInput : input).focus();
 }
 
-function executeAction(action, contextData, _allData, confirmEl) {
+function executeAction(action, contextData, _allData, confirmEl, reason) {
   const previewData = action.preview(
     contextData.provider || {},
     contextData.provider ? undefined : (contextData.queue || null),
@@ -682,6 +736,7 @@ function executeAction(action, contextData, _allData, confirmEl) {
     mode: 'execute',
     status: 'dispatched',
     note: 'Client-side dispatch recorded; server guard required for mutation',
+    reason: reason || undefined,
   });
 
   // Replace confirm with result
@@ -858,9 +913,47 @@ function showServerPreviewResult(previewResult, actionMeta, payload, container, 
 
     const confirm = el('div', { className: 'execute-confirm' });
 
+    // Enhanced warning for dangerous server actions
+    if (actionMeta.dangerous) {
+      const serverWarningClass = 'confirm-warning--high';
+      confirm.append(el('div', { className: `confirm-warning ${serverWarningClass}` }, [
+        el('div', { className: 'confirm-warning__header' }, [
+          el('span', { className: 'confirm-warning__icon', textContent: '⚠' }),
+          el('span', { className: 'confirm-warning__title', textContent: `${actionMeta.label} — DANGEROUS` }),
+        ]),
+        el('p', { className: 'confirm-warning__body', textContent: actionMeta.description || 'This action performs a server-side mutation with real side effects. Review the preview carefully before confirming.' }),
+        el('p', { className: 'confirm-warning__notice', textContent: 'Dangerous actions require explicit confirmation and pass through the full risk gate chain on the server.' }),
+      ]));
+    } else {
+      confirm.append(el('p', {
+        className: 'execute-confirm__prompt',
+        textContent: `Type "EXECUTE" to run "${actionMeta.label}" on server:`,
+      }));
+    }
+
+    // Reason input for dangerous server actions
+    let reasonInput;
+    if (actionMeta.dangerous) {
+      const reasonWrap = el('div', { className: 'execute-confirm__reason-wrap' });
+      reasonWrap.append(el('label', {
+        className: 'execute-confirm__reason-label',
+        textContent: `Reason for running "${actionMeta.label}" (required):`,
+      }));
+      reasonInput = el('input', {
+        className: 'execute-confirm__input execute-confirm__reason-input',
+        type: 'text',
+        placeholder: 'Describe why this action is needed…',
+        autocomplete: 'off',
+      });
+      reasonWrap.append(reasonInput);
+      confirm.append(reasonWrap);
+    }
+
     confirm.append(el('p', {
       className: 'execute-confirm__prompt',
-      textContent: `Type "EXECUTE" to run "${actionMeta.label}" on server:`,
+      textContent: actionMeta.dangerous
+        ? `Type "EXECUTE" to confirm "${actionMeta.label}" — this will mutate server state:`
+        : `Type "EXECUTE" to run "${actionMeta.label}" on server:`,
     }));
 
     const input = el('input', {
@@ -885,14 +978,19 @@ function showServerPreviewResult(previewResult, actionMeta, payload, container, 
       disabled: 'true',
     });
 
-    input.addEventListener('input', () => {
-      const match = input.value.trim() === 'EXECUTE';
-      goBtn.disabled = !match;
-      goBtn.className = `action-btn action-btn--execute ${match ? '' : 'action-btn--disabled'}`;
-    });
+    function validateServerConfirm() {
+      const phraseMatch = input.value.trim() === 'EXECUTE';
+      const reasonOk = !actionMeta.dangerous || (reasonInput && reasonInput.value.trim().length > 0);
+      const enabled = phraseMatch && reasonOk;
+      goBtn.disabled = !enabled;
+      goBtn.className = `action-btn action-btn--execute ${enabled ? '' : 'action-btn--disabled'}`;
+    }
+
+    input.addEventListener('input', validateServerConfirm);
+    if (reasonInput) reasonInput.addEventListener('input', validateServerConfirm);
 
     goBtn.addEventListener('click', async () => {
-      if (input.value.trim() !== 'EXECUTE') return;
+      if (goBtn.disabled) return;
 
       confirm.replaceChildren(el('p', { className: 'action-panel__guard', textContent: 'Executing…' }));
 
@@ -907,6 +1005,7 @@ function showServerPreviewResult(previewResult, actionMeta, payload, container, 
           mode: 'execute',
           status: result.ok ? 'success' : 'failed',
           serverAuditId: result.auditId,
+          reason: reasonInput?.value?.trim() || undefined,
         });
 
         const resultPanel = el('div', { className: 'execute-result execute-result--dispatched' }, [
@@ -934,6 +1033,7 @@ function showServerPreviewResult(previewResult, actionMeta, payload, container, 
           mode: 'execute',
           status: 'error',
           note: err.message,
+          reason: reasonInput?.value?.trim() || undefined,
         });
         confirm.replaceChildren(
           el('div', { className: 'action-panel__warning', textContent: `Execution error: ${err.message}` }),
@@ -944,7 +1044,7 @@ function showServerPreviewResult(previewResult, actionMeta, payload, container, 
     btnRow.append(cancelBtn, goBtn);
     confirm.append(btnRow);
     panel.append(confirm);
-    input.focus();
+    (actionMeta.dangerous && reasonInput ? reasonInput : input).focus();
   });
 }
 
@@ -1678,6 +1778,48 @@ function injectConsoleStyles() {
       border: 1px solid var(--surface-border, #262b3a);
     }
     .audit-row--server { background: rgba(96,165,250,0.04); }
+
+    /* Confirmation warning banner */
+    .confirm-warning {
+      padding: 10px 12px; border-radius: 6px; margin-bottom: 10px;
+      border: 1px solid;
+    }
+    .confirm-warning--low {
+      background: rgba(52,211,153,0.08); border-color: rgba(52,211,153,0.3);
+    }
+    .confirm-warning--medium {
+      background: rgba(251,191,36,0.10); border-color: rgba(251,191,36,0.35);
+    }
+    .confirm-warning--high {
+      background: rgba(248,113,113,0.10); border-color: rgba(248,113,113,0.35);
+    }
+    .confirm-warning__header {
+      display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+    }
+    .confirm-warning__icon { font-size: 14px; }
+    .confirm-warning--high .confirm-warning__icon { color: var(--status-disabled, #f87171); }
+    .confirm-warning--medium .confirm-warning__icon { color: var(--status-exhausted, #fbbf24); }
+    .confirm-warning--low .confirm-warning__icon { color: var(--status-available, #34d399); }
+    .confirm-warning__title {
+      font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    }
+    .confirm-warning--high .confirm-warning__title { color: var(--status-disabled, #f87171); }
+    .confirm-warning--medium .confirm-warning__title { color: var(--status-exhausted, #fbbf24); }
+    .confirm-warning--low .confirm-warning__title { color: var(--status-available, #34d399); }
+    .confirm-warning__body {
+      font-size: 11px; color: var(--text-secondary, #8b8fa4); line-height: 1.5; margin-bottom: 6px;
+    }
+    .confirm-warning__notice {
+      font-size: 11px; font-weight: 600; color: var(--status-disabled, #f87171);
+    }
+
+    /* Reason input */
+    .execute-confirm__reason-wrap { margin-bottom: 10px; }
+    .execute-confirm__reason-label {
+      display: block; font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .04em;
+      color: var(--text-muted, #8b8fa4); margin-bottom: 4px;
+    }
   `;
   document.head.append(style);
 }
