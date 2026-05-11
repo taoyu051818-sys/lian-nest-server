@@ -1,0 +1,7 @@
+{
+  "state": "green",
+  "commitSha": "0000000000000000000000000000000000000000",
+  "updatedAt": "2026-05-11T00:00:00Z",
+  "checks": "All checks passed (fixture)",
+  "source": "fixture"
+}

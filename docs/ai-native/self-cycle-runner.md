@@ -20,6 +20,9 @@ Instead of manually calling each script (state-reconciler, health writer, launch
 
 # Skip reconciliation (quick gate check)
 ./scripts/ai/run-self-cycle.ps1 -TaskFile ./tasks/issue-148.json -SkipReconcile
+
+# Validate fixtures through launch gate (no live GitHub needed)
+./scripts/ai/run-self-cycle.ps1 -DryRunFixture ./tests/fixtures/self-cycle
 ```
 
 ## Parameters
@@ -32,8 +35,9 @@ Instead of manually calling each script (state-reconciler, health writer, launch
 | `-HealthFile` | No | `./.github/ai-state/main-health.json` | Path to main health state marker |
 | `-Execute` | No | `$false` | Switch from dry-run to execute mode |
 | `-SkipReconcile` | No | `$false` | Skip the state-reconciler step |
+| `-DryRunFixture` | Yes* | — | Path to fixture directory with pre-built task and health JSON. Runs through launch gate without live GitHub. Mutually exclusive with `-TaskFile` and `-IssueLabel`. |
 
-*One of `-TaskFile` or `-IssueLabel` is required.
+*One of `-TaskFile`, `-IssueLabel`, or `-DryRunFixture` is required.
 
 ## Pipeline Steps
 
@@ -162,6 +166,48 @@ The runner does NOT replace any existing script. It calls them in sequence:
 - **No runtime changes** — the runner only orchestrates existing scripts.
 - **Skeleton mode** — in execute mode the runner still requires human re-confirmation before launching. This is the primary safety gate.
 - **Idempotent** — running the same cycle twice produces the same result.
+
+## Fixture-Based Dry-Run
+
+The `-DryRunFixture` parameter runs the planner-to-launch-gate path using
+pre-built fixture files, requiring no live GitHub access.
+
+### What It Proves
+
+1. A task JSON compiled from an issue's CONTROL APPENDIX has all required fields.
+2. The launch gate classifies the worker type correctly (e.g. docs-only → `docs`).
+3. A green health state permits the task to proceed through the gate.
+4. The full pipeline from fixture load → gate check → summary works end-to-end.
+
+### Fixture Directory Structure
+
+```
+tests/fixtures/self-cycle/
+  01-planner-output-task.json   ← compiled task JSON with expected gate result
+  02-health-green.json          ← green health marker
+  03-issue-body.md              ← sample issue body with CONTROL APPENDIX
+  README.md                     ← usage docs
+```
+
+The task fixture file wraps the task object with metadata:
+
+```json
+{
+  "description": "...",
+  "expectedGateResult": "pass",
+  "task": { /* task contract */ }
+}
+```
+
+The runner extracts the `task` field and writes it to a temp file for
+`check-launch-gate.ps1`.
+
+### Usage
+
+```powershell
+# Validate fixtures through the launch gate
+./scripts/ai/run-self-cycle.ps1 -DryRunFixture ./tests/fixtures/self-cycle
+```
 
 ## Issue Discovery & Task Compilation Handoff
 

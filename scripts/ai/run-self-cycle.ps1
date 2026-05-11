@@ -47,6 +47,12 @@
     Skip the state-reconciler step (useful when reconciler is not needed
     for the current task batch).
 
+.PARAMETER DryRunFixture
+    Path to a fixture directory containing pre-built task and health JSON.
+    Loads fixtures, extracts the task object, and runs through the launch
+    gate without live GitHub access. Mutually exclusive with -TaskFile
+    and -IssueLabel. Implies dry-run mode with -SkipReconcile.
+
 .EXAMPLE
     # Full dry-run cycle with explicit task file
     ./scripts/ai/run-self-cycle.ps1 -TaskFile ./tasks/issue-148.json
@@ -62,6 +68,10 @@
 .EXAMPLE
     # Skip reconciliation for a quick gate check
     ./scripts/ai/run-self-cycle.ps1 -TaskFile ./tasks/issue-148.json -SkipReconcile
+
+.EXAMPLE
+    # Validate fixture through launch gate (no live GitHub needed)
+    ./scripts/ai/run-self-cycle.ps1 -DryRunFixture ./tests/fixtures/self-cycle
 #>
 
 #Requires -Version 7.0
@@ -73,6 +83,9 @@ param(
 
     [Parameter(ParameterSetName = "IssueLabel", Mandatory = $true)]
     [string]$IssueLabel,
+
+    [Parameter(ParameterSetName = "DryRunFixture", Mandatory = $true)]
+    [string]$DryRunFixture,
 
     [string]$Repo = $env:GH_REPO,
 
@@ -137,7 +150,7 @@ function Write-SectionHeader {
 $cycleResult = [ordered]@{
     cycleVersion    = 1
     startedAt       = ([DateTime]::UtcNow).ToString("o")
-    mode            = if ($Execute) { "execute" } else { "dry-run" }
+    mode            = if ($DryRunFixture) { "fixture-dry-run" } elseif ($Execute) { "execute" } else { "dry-run" }
     taskFile        = $TaskFile
     steps           = @()
     humanStops      = @()
@@ -166,10 +179,56 @@ function Add-StepResult {
 }
 
 # ---------------------------------------------------------------------------
+# DryRunFixture: load fixture files and wire into pipeline
+# ---------------------------------------------------------------------------
+
+if ($DryRunFixture) {
+    Write-SectionHeader "FIXTURE — Loading dry-run fixtures"
+
+    if (-not (Test-Path $DryRunFixture)) {
+        Write-Fail "Fixture directory not found: $DryRunFixture"
+        exit 2
+    }
+
+    $taskFixtureFile = Get-ChildItem -Path $DryRunFixture -Filter "*-task.json" | Select-Object -First 1
+    $healthFixtureFile = Join-Path $DryRunFixture "02-health-green.json"
+
+    if (-not $taskFixtureFile) {
+        Write-Fail "No *-task.json fixture found in $DryRunFixture"
+        exit 2
+    }
+
+    Write-Step "Task fixture: $($taskFixtureFile.FullName)"
+    Write-Step "Health fixture: $healthFixtureFile"
+
+    # Load the fixture wrapper and extract the task object
+    $fixtureRaw = Get-Content -Path $taskFixtureFile.FullName -Raw -Encoding UTF8
+    $fixtureJson = $fixtureRaw | ConvertFrom-Json
+    $taskObj = if ($fixtureJson.task) { $fixtureJson.task } else { $fixtureJson }
+
+    # Write extracted task to a temp file for downstream scripts
+    $tempTaskFile = Join-Path ([System.IO.Path]::GetTempPath()) "self-cycle-fixture-task.json"
+    $taskObj | ConvertTo-Json -Depth 10 | Set-Content $tempTaskFile -Encoding UTF8
+
+    # Override pipeline inputs
+    $TaskFile = $tempTaskFile
+    $HealthFile = $healthFixtureFile
+    $Execute = $false
+    $SkipReconcile = $true
+
+    # Update cycle result to reflect fixture mode
+    $cycleResult.taskFile = $TaskFile
+
+    Write-Ok "Fixture loaded — dry-run through launch gate"
+    Add-StepResult -Name "fixture-load" -Status "pass" -Detail "Loaded from $DryRunFixture"
+    Write-Host ""
+}
+
+# ---------------------------------------------------------------------------
 # Validate inputs
 # ---------------------------------------------------------------------------
 
-$modeLabel = if ($Execute) { "EXECUTE" } else { "DRY-RUN" }
+$modeLabel = if ($DryRunFixture) { "FIXTURE-DRY-RUN" } elseif ($Execute) { "EXECUTE" } else { "DRY-RUN" }
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "  Self-Cycle Runner [$modeLabel]" -ForegroundColor Cyan
