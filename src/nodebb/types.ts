@@ -24,6 +24,31 @@ export interface NodebbAuth {
   sessionCookie?: string;
 }
 
+const AUTH_MODE_MAP: Record<string, NodebbAuthMode> = {
+  api_token: NodebbAuthMode.API_TOKEN,
+  session: NodebbAuthMode.SESSION,
+  none: NodebbAuthMode.NONE,
+};
+
+/**
+ * Convert a raw string (e.g. from env config) to a validated NodebbAuthMode.
+ * Throws on unrecognized values so the app fails fast at startup.
+ */
+export function toNodebbAuthMode(raw: unknown): NodebbAuthMode {
+  if (typeof raw !== 'string') {
+    throw new Error(
+      `Invalid NODEBB_AUTH_MODE: expected a string, got ${typeof raw}`,
+    );
+  }
+  const mode = AUTH_MODE_MAP[raw];
+  if (!mode) {
+    throw new Error(
+      `Invalid NODEBB_AUTH_MODE: "${raw}". Expected one of: ${Object.keys(AUTH_MODE_MAP).join(', ')}`,
+    );
+  }
+  return mode;
+}
+
 // ---------------------------------------------------------------------------
 // Response normalization
 // ---------------------------------------------------------------------------
