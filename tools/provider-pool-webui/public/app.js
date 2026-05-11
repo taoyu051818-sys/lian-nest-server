@@ -18,6 +18,7 @@
 const STATE_URL = '../../../../.github/ai-state/provider-pool.json';
 const POLICY_URL = '../../../../.github/ai-policy/provider-pool-policy.json';
 const WEBUI_STATE_URL = '../../../../.github/ai-state/provider-pool-webui.json';
+const PLANNING_URL = '../../../../.github/ai-state/planning-console.json';
 const REFRESH_INTERVAL_MS = 30_000;
 
 // ── helpers ──────────────────────────────────────────────────────────
@@ -746,6 +747,374 @@ function renderAuditSection() {
   return section;
 }
 
+// ── planning console ──────────────────────────────────────────────────
+
+function trustColor(trust) {
+  if (trust >= 70) return 'status-available';
+  if (trust >= 40) return 'status-exhausted';
+  return 'status-disabled';
+}
+
+function severityColor(severity) {
+  switch (severity) {
+    case 'low': return 'status-available';
+    case 'medium': return 'status-exhausted';
+    case 'high':
+    case 'critical': return 'status-disabled';
+    default: return '';
+  }
+}
+
+function readinessColor(readiness) {
+  switch (readiness) {
+    case 'ready': return 'status-available';
+    case 'blocked': return 'status-disabled';
+    case 'done': return '';
+    default: return '';
+  }
+}
+
+function healthStateColor(state) {
+  switch (state) {
+    case 'green': return 'status-available';
+    case 'yellow': return 'status-exhausted';
+    case 'red':
+    case 'black': return 'status-disabled';
+    default: return '';
+  }
+}
+
+function renderMetaSignals(signals) {
+  if (!signals) return null;
+  const s = signals.signals || {};
+  const container = el('div', { className: 'planning-section' });
+  container.append(el('h3', { textContent: 'Meta Signals' }));
+
+  const trustVal = s.trust ?? 0;
+  const trustBarClass = trustVal >= 70 ? 'bar-fill--green' : trustVal >= 40 ? 'bar-fill--yellow' : 'bar-fill--red';
+
+  const grid = el('div', { className: 'planning-signals-grid' }, [
+    el('div', { className: 'planning-signal-card' }, [
+      el('span', { className: 'planning-signal-label', textContent: 'Trust' }),
+      el('span', { className: `planning-signal-value ${trustColor(trustVal)}`, textContent: String(trustVal) }),
+      el('div', { className: 'bar-track' }, [
+        el('div', { className: `bar-fill ${trustBarClass}`, style: `width:${trustVal}%` }),
+      ]),
+    ]),
+    el('div', { className: 'planning-signal-card' }, [
+      el('span', { className: 'planning-signal-label', textContent: 'Failure' }),
+      el('span', { className: 'planning-signal-value', textContent: String(s.failureScore ?? 0) }),
+    ]),
+    el('div', { className: 'planning-signal-card' }, [
+      el('span', { className: 'planning-signal-label', textContent: 'Friction' }),
+      el('span', { className: 'planning-signal-value', textContent: String(s.frictionScore ?? 0) }),
+    ]),
+    el('div', { className: 'planning-signal-card' }, [
+      el('span', { className: 'planning-signal-label', textContent: 'Risk' }),
+      el('span', { className: 'planning-signal-value', textContent: String(s.riskScore ?? 0) }),
+    ]),
+    el('div', { className: 'planning-signal-card' }, [
+      el('span', { className: 'planning-signal-label', textContent: 'Cost (min)' }),
+      el('span', { className: 'planning-signal-value', textContent: String(s.cost ?? 0) }),
+    ]),
+    el('div', { className: 'planning-signal-card' }, [
+      el('span', { className: 'planning-signal-label', textContent: 'Top Pain' }),
+      el('span', { className: 'planning-signal-value font-mono', textContent: s.topPain ?? 'none' }),
+    ]),
+  ]);
+
+  container.append(grid);
+  return container;
+}
+
+function renderGapLedger(gaps) {
+  if (!gaps || gaps.length === 0) return null;
+  const container = el('div', { className: 'planning-section' });
+  container.append(el('h3', { textContent: 'Gap Ledger' }));
+
+  const rows = gaps.map((g) =>
+    el('tr', null, [
+      el('td', { className: 'mono', textContent: formatTimestamp(g.recordedAt) }),
+      el('td', { textContent: g.gapType }),
+      el('td', null, [
+        el('span', { className: `badge ${severityColor(g.severity)}`, textContent: g.severity }),
+      ]),
+      el('td', { textContent: g.description }),
+      el('td', { textContent: g.issue ? `#${g.issue}` : '—' }),
+      el('td', { textContent: g.branch ?? '—' }),
+    ]),
+  );
+
+  container.append(
+    el('div', { className: 'table-wrap' }, [
+      el('table', null, [
+        el('thead', null, [el('tr', null, [
+          el('th', { textContent: 'Time' }),
+          el('th', { textContent: 'Type' }),
+          el('th', { textContent: 'Severity' }),
+          el('th', { textContent: 'Description' }),
+          el('th', { textContent: 'Issue' }),
+          el('th', { textContent: 'Branch' }),
+        ])]),
+        el('tbody', null, rows),
+      ]),
+    ]),
+  );
+
+  return container;
+}
+
+function renderProposedBatch(batch) {
+  if (!batch) return null;
+  const candidates = batch.candidates || [];
+  if (candidates.length === 0) return null;
+
+  const container = el('div', { className: 'planning-section' });
+  container.append(el('h3', { textContent: 'Proposed Batch' }));
+
+  if (batch.conflictWarnings && batch.conflictWarnings.length > 0) {
+    for (const warn of batch.conflictWarnings) {
+      container.append(el('div', {
+        className: 'warning-banner',
+        textContent: `Conflict: ${warn}`,
+      }));
+    }
+  }
+
+  const rows = candidates.map((c) =>
+    el('tr', null, [
+      el('td', { textContent: c.issueNumber ? `#${c.issueNumber}` : '—' }),
+      el('td', { textContent: c.title ?? '—' }),
+      el('td', { textContent: c.taskType }),
+      el('td', null, [riskBadge(c.risk)]),
+      el('td', { textContent: c.conflictGroup ?? '—' }),
+      el('td', { textContent: c.actorRole ?? '—' }),
+      el('td', null, [
+        el('span', { className: `badge ${readinessColor(c.readiness)}`, textContent: c.readiness }),
+      ]),
+      el('td', { textContent: c.readinessNote ?? '—' }),
+    ]),
+  );
+
+  container.append(
+    el('div', { className: 'table-wrap' }, [
+      el('table', null, [
+        el('thead', null, [el('tr', null, [
+          el('th', { textContent: 'Issue' }),
+          el('th', { textContent: 'Title' }),
+          el('th', { textContent: 'Type' }),
+          el('th', { textContent: 'Risk' }),
+          el('th', { textContent: 'Conflict Group' }),
+          el('th', { textContent: 'Role' }),
+          el('th', { textContent: 'Readiness' }),
+          el('th', { textContent: 'Note' }),
+        ])]),
+        el('tbody', null, rows),
+      ]),
+    ]),
+  );
+
+  return container;
+}
+
+function renderBatchPreview(launchPlan) {
+  if (!launchPlan) return null;
+  const container = el('div', { className: 'planning-section' });
+  container.append(el('h3', { textContent: 'Batch Preview' }));
+
+  // Main health indicator
+  if (launchPlan.mainHealth) {
+    const mh = launchPlan.mainHealth;
+    const healthRow = el('div', { className: 'planning-health-row' }, [
+      el('span', { className: 'planning-health-label', textContent: 'Main Health' }),
+      el('span', {
+        className: `badge ${healthStateColor(mh.state)}`,
+        textContent: (mh.state || '—').toUpperCase(),
+      }),
+      el('span', {
+        className: 'planning-health-time mono',
+        textContent: formatTimestamp(mh.capturedAt),
+      }),
+    ]);
+    if (mh.reason) {
+      healthRow.append(el('span', { className: 'planning-health-reason', textContent: mh.reason }));
+    }
+    container.append(healthRow);
+  }
+
+  // Budget summary
+  if (launchPlan.budgetReservations) {
+    const b = launchPlan.budgetReservations;
+    const budgetGrid = el('div', { className: 'planning-budget-grid' }, [
+      el('div', { className: 'planning-budget-card' }, [
+        el('span', { className: 'planning-signal-label', textContent: 'Tasks' }),
+        el('span', { className: 'planning-signal-value', textContent: String(b.taskCount ?? 0) }),
+      ]),
+      el('div', { className: 'planning-budget-card' }, [
+        el('span', { className: 'planning-signal-label', textContent: 'Max Files' }),
+        el('span', { className: 'planning-signal-value', textContent: String(b.totalMaxFiles ?? 0) }),
+      ]),
+      el('div', { className: 'planning-budget-card' }, [
+        el('span', { className: 'planning-signal-label', textContent: 'Max Lines' }),
+        el('span', { className: 'planning-signal-value', textContent: String(b.totalMaxLinesChanged ?? 0) }),
+      ]),
+      el('div', { className: 'planning-budget-card' }, [
+        el('span', { className: 'planning-signal-label', textContent: 'Soft Limit' }),
+        el('span', { className: 'planning-signal-value', textContent: b.softTimeMinutesMax ? `${b.softTimeMinutesMax}m` : '—' }),
+      ]),
+      el('div', { className: 'planning-budget-card' }, [
+        el('span', { className: 'planning-signal-label', textContent: 'Hard Limit' }),
+        el('span', { className: 'planning-signal-value', textContent: b.hardTimeMinutesMax ? `${b.hardTimeMinutesMax}m` : '—' }),
+      ]),
+    ]);
+    container.append(budgetGrid);
+  }
+
+  // Selected tasks
+  const selected = launchPlan.selectedTasks || [];
+  if (selected.length > 0) {
+    container.append(el('h4', { textContent: 'Selected Tasks' }));
+    const selRows = selected.map((t) =>
+      el('tr', null, [
+        el('td', { textContent: t.targetIssue ? `#${t.targetIssue}` : '—' }),
+        el('td', { textContent: t.taskType }),
+        el('td', null, [riskBadge(t.risk)]),
+        el('td', { textContent: t.conflictGroup ?? '—' }),
+        el('td', { textContent: t.workerType ?? '—' }),
+        el('td', { textContent: (t.sharedLocks || []).join(', ') || '—' }),
+        el('td', { textContent: t.decision?.reason || '—' }),
+      ]),
+    );
+    container.append(
+      el('div', { className: 'table-wrap' }, [
+        el('table', null, [
+          el('thead', null, [el('tr', null, [
+            el('th', { textContent: 'Issue' }),
+            el('th', { textContent: 'Type' }),
+            el('th', { textContent: 'Risk' }),
+            el('th', { textContent: 'Conflict Group' }),
+            el('th', { textContent: 'Worker Type' }),
+            el('th', { textContent: 'Locks' }),
+            el('th', { textContent: 'Decision' }),
+          ])]),
+          el('tbody', null, selRows),
+        ]),
+      ]),
+    );
+  }
+
+  // Rejected tasks
+  const rejected = launchPlan.rejectedTasks || [];
+  if (rejected.length > 0) {
+    container.append(el('h4', { textContent: 'Rejected Tasks' }));
+    const rejRows = rejected.map((t) =>
+      el('tr', null, [
+        el('td', { textContent: t.targetIssue ? `#${t.targetIssue}` : '—' }),
+        el('td', { textContent: t.taskType }),
+        el('td', null, [riskBadge(t.risk)]),
+        el('td', { textContent: t.conflictGroup ?? '—' }),
+        el('td', { textContent: t.workerType ?? '—' }),
+        el('td', null, [
+          el('span', { className: 'badge badge--warn', textContent: t.decision?.rule || 'blocked' }),
+        ]),
+        el('td', { textContent: t.decision?.reason || '—' }),
+      ]),
+    );
+    container.append(
+      el('div', { className: 'table-wrap' }, [
+        el('table', null, [
+          el('thead', null, [el('tr', null, [
+            el('th', { textContent: 'Issue' }),
+            el('th', { textContent: 'Type' }),
+            el('th', { textContent: 'Risk' }),
+            el('th', { textContent: 'Conflict Group' }),
+            el('th', { textContent: 'Worker Type' }),
+            el('th', { textContent: 'Rule' }),
+            el('th', { textContent: 'Reason' }),
+          ])]),
+          el('tbody', null, rejRows),
+        ]),
+      ]),
+    );
+  }
+
+  // Acquired locks
+  const locks = launchPlan.locksAcquired || [];
+  if (locks.length > 0) {
+    container.append(el('h4', { textContent: 'Acquired Locks' }));
+    const lockRows = locks.map((l) =>
+      el('tr', null, [
+        el('td', { className: 'mono', textContent: l.lockName }),
+        el('td', { textContent: l.holderIssue ? `#${l.holderIssue}` : '—' }),
+        el('td', { textContent: l.conflictGroup ?? '—' }),
+      ]),
+    );
+    container.append(
+      el('div', { className: 'table-wrap' }, [
+        el('table', null, [
+          el('thead', null, [el('tr', null, [
+            el('th', { textContent: 'Lock' }),
+            el('th', { textContent: 'Holder' }),
+            el('th', { textContent: 'Conflict Group' }),
+          ])]),
+          el('tbody', null, lockRows),
+        ]),
+      ]),
+    );
+  }
+
+  // All-allowed indicator
+  container.append(el('div', {
+    className: `planning-all-allowed ${launchPlan.allAllowed ? 'planning-all-allowed--ok' : 'planning-all-allowed--blocked'}`,
+    textContent: launchPlan.allAllowed ? 'All tasks cleared for dispatch' : 'Some tasks blocked by gate',
+  }));
+
+  return container;
+}
+
+function renderPlanningConsole(planningData) {
+  const container = el('div', { className: 'console-section' });
+  container.append(el('h2', { textContent: 'Planning Console' }));
+
+  // View-only banner
+  container.append(el('div', { className: 'console-mode-banner' }, [
+    el('span', { className: 'console-mode-label', textContent: 'MODE:' }),
+    el('span', { className: 'console-mode-value', textContent: 'VIEW ONLY' }),
+    el('span', { className: 'console-mode-note', textContent: 'No mutation actions — planning data is read-only' }),
+  ]));
+
+  if (!planningData) {
+    container.append(el('p', { className: 'empty-state', textContent: 'No planning data available' }));
+    return container;
+  }
+
+  // Captured-at timestamp
+  if (planningData.capturedAt) {
+    container.append(el('p', {
+      className: 'planning-captured-at',
+      textContent: `Last captured: ${formatTimestamp(planningData.capturedAt)}`,
+    }));
+  }
+
+  // Meta signals
+  const signalsEl = renderMetaSignals(planningData.metaSignals);
+  if (signalsEl) container.append(signalsEl);
+
+  // Gap ledger
+  const gapsEl = renderGapLedger(planningData.gaps);
+  if (gapsEl) container.append(gapsEl);
+
+  // Proposed batch
+  const batchEl = renderProposedBatch(planningData.proposedBatch);
+  if (batchEl) container.append(batchEl);
+
+  // Batch preview / launch plan
+  const previewEl = renderBatchPreview(planningData.launchPlan);
+  if (previewEl) container.append(previewEl);
+
+  return container;
+}
+
 function injectConsoleStyles() {
   if (document.getElementById('console-styles')) return;
   const style = document.createElement('style');
@@ -855,6 +1224,71 @@ function injectConsoleStyles() {
     }
     .tab-panel { display: none; }
     .tab-panel--active { display: block; }
+
+    /* Planning Console */
+    .planning-section { margin-bottom: 20px; }
+    .planning-section h3 {
+      font-size: 12px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--text-muted, #8b8fa4); margin-bottom: 10px;
+    }
+    .planning-section h4 {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--text-muted, #565b72);
+      margin-bottom: 8px; margin-top: 16px;
+    }
+    .planning-captured-at {
+      font-family: var(--font-mono, monospace); font-size: 11px;
+      color: var(--text-muted, #565b72); margin-bottom: 12px;
+    }
+    .planning-signals-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 8px;
+    }
+    .planning-signal-card {
+      background: var(--surface-card, #161922); border: 1px solid var(--surface-border, #262b3a);
+      border-radius: 6px; padding: 10px 12px;
+      display: flex; flex-direction: column; gap: 4px;
+      transition: background 120ms ease;
+    }
+    .planning-signal-card:hover { background: var(--surface-card-hover, #1c2030); }
+    .planning-signal-label {
+      font-size: 10px; color: var(--text-muted, #565b72);
+      text-transform: uppercase; letter-spacing: .04em;
+    }
+    .planning-signal-value {
+      font-family: var(--font-mono, monospace); font-size: 16px;
+      font-weight: 700; color: var(--text-primary, #e2e4ea);
+    }
+    .planning-budget-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 8px; margin-bottom: 12px;
+    }
+    .planning-budget-card {
+      background: var(--surface-card, #161922); border: 1px solid var(--surface-border, #262b3a);
+      border-radius: 6px; padding: 8px 10px;
+      display: flex; flex-direction: column; gap: 2px; text-align: center;
+    }
+    .planning-health-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 12px; background: var(--surface-card, #161922);
+      border: 1px solid var(--surface-border, #262b3a);
+      border-radius: 6px; margin-bottom: 12px;
+    }
+    .planning-health-label { font-size: 12px; font-weight: 600; color: var(--text-primary, #e2e4ea); }
+    .planning-health-time { font-size: 11px; color: var(--text-muted, #565b72); margin-left: auto; }
+    .planning-health-reason { font-size: 11px; color: var(--text-muted, #8b8fa4); width: 100%; }
+    .planning-all-allowed {
+      margin-top: 12px; padding: 10px 12px; border-radius: 6px;
+      font-size: 12px; font-weight: 600; text-align: center;
+    }
+    .planning-all-allowed--ok {
+      background: rgba(52,211,153,0.1); border: 1px solid var(--status-available, #34d399);
+      color: var(--status-available, #34d399);
+    }
+    .planning-all-allowed--blocked {
+      background: rgba(251,191,36,0.1); border: 1px solid var(--status-exhausted, #fbbf24);
+      color: var(--status-exhausted, #fbbf24);
+    }
   `;
   document.head.append(style);
 }
@@ -881,6 +1315,14 @@ async function refresh(root) {
     webuiState = await fetchJSON(WEBUI_STATE_URL);
   } catch {
     webuiState = null;
+  }
+
+  // Planning data is optional — the planning loop may not have run yet
+  let planningData;
+  try {
+    planningData = await fetchJSON(PLANNING_URL);
+  } catch {
+    planningData = null;
   }
 
   const policyMap = Object.fromEntries(
@@ -918,9 +1360,13 @@ async function refresh(root) {
   const allData = { state, policy, webuiState };
   const consoleEl = renderOperationConsole(allData);
 
+  // Build planning console panel
+  const planningEl = renderPlanningConsole(planningData);
+
   // Tab bar
   const dashboardPanel = el('div', { className: 'tab-panel tab-panel--active', id: 'tab-dashboard' }, dashboardChildren);
   const consolePanel = el('div', { className: 'tab-panel', id: 'tab-console' }, [consoleEl]);
+  const planningPanel = el('div', { className: 'tab-panel', id: 'tab-planning' }, [planningEl]);
 
   const dashboardTab = el('button', {
     className: 'tab-btn tab-btn--active',
@@ -932,10 +1378,15 @@ async function refresh(root) {
     textContent: 'Operation Console',
     onClick: () => switchTab('console'),
   });
+  const planningTab = el('button', {
+    className: 'tab-btn',
+    textContent: 'Planning Console',
+    onClick: () => switchTab('planning'),
+  });
 
-  const tabBar = el('div', { className: 'tab-bar' }, [dashboardTab, consoleTab]);
+  const tabBar = el('div', { className: 'tab-bar' }, [dashboardTab, consoleTab, planningTab]);
 
-  root.replaceChildren(tabBar, dashboardPanel, consolePanel);
+  root.replaceChildren(tabBar, dashboardPanel, consolePanel, planningPanel);
 }
 
 function switchTab(tab) {
@@ -947,7 +1398,7 @@ function switchTab(tab) {
   const targetPanel = document.getElementById(`tab-${tab}`);
   if (targetPanel) targetPanel.classList.add('tab-panel--active');
 
-  const tabIndex = tab === 'dashboard' ? 0 : 1;
+  const tabIndex = tab === 'dashboard' ? 0 : tab === 'console' ? 1 : 2;
   if (tabs[tabIndex]) tabs[tabIndex].classList.add('tab-btn--active');
 }
 
