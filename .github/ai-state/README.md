@@ -8,6 +8,7 @@ Machine-readable state files consumed by AI automation (scheduler, launch gate, 
 .github/ai-state/
   launch-locks.json  # Currently held launch locks projection
   main-health.json   # Current main branch health state
+  worker-trust.json  # Worker trust state projection seed
   README.md          # This file
 ```
 
@@ -145,3 +146,79 @@ full state detection and recording workflow.
 - `markerVersion` enables schema evolution without breaking consumers.
 - `DryRun` is a switch parameter; omitting it writes the file.
 - The self-cycle runner and launch gate consume the marker; CI workflow integration is future work.
+
+## worker-trust.json
+
+Defines per-worker-class trust defaults and scheduling implications for the orchestrator. Read by the launcher before dispatching workers.
+
+### Schema
+
+```jsonc
+{
+  "markerVersion": 1,
+  "capturedAt": "2026-05-11T12:00:00Z",
+  "workerClasses": {
+    "<class-name>": {
+      "defaultTrustScore": 0.0-1.0,
+      "allowedHealthStates": ["green", "yellow", "red", "black"],
+      "riskTier": "low | medium | high",
+      "layer": "contract-planning | runtime-foundation | health-diagnostic | feature-repository | review-audit | merge-release",
+      "note": "Human-readable rationale"
+    }
+  },
+  "trustScore": {
+    "inputs": [
+      {
+        "name": "input-name",
+        "type": "enum | float | integer",
+        "weight": 0.0-1.0,
+        "description": "What this input measures"
+      }
+    ],
+    "formula": "weightedSum(inputs) clamped to [0.0, 1.0]"
+  },
+  "scheduling": {
+    "minTrustToLaunch": 0.3,
+    "highTrustThreshold": 0.7,
+    "rules": [
+      {
+        "condition": "trustScore expression",
+        "action": "block_launch | launch_with_monitoring | launch_standard",
+        "description": "What happens"
+      }
+    ]
+  }
+}
+```
+
+### Worker Classes
+
+| Class | Default Trust | Risk | Layer |
+|-------|:-------------:|:----:|-------|
+| `runtime-feature` | 0.5 | high | feature-repository |
+| `foundation-fix` | 0.8 | medium | runtime-foundation |
+| `docs-contract` | 0.9 | low | contract-planning |
+| `health-gate` | 0.9 | low | health-diagnostic |
+| `test-only` | 0.7 | medium | feature-repository |
+| `refactor` | 0.4 | high | feature-repository |
+| `review-audit` | 0.85 | low | review-audit |
+| `merge-release` | 0.6 | high | merge-release |
+
+### Scheduling Rules
+
+| Trust Score | Action |
+|:-----------:|--------|
+| < 0.3 | Block launch |
+| 0.3 – 0.7 | Launch with monitoring |
+| >= 0.7 | Standard launch |
+
+### Downstream Consumers
+
+- **Orchestrator/launcher**: Reads `workerClasses` and `scheduling` to determine dispatch policy.
+- **Launch gate**: Checks `allowedHealthStates` as a hard prerequisite.
+- **State reconciler**: Provides `historicalSuccessRate` input.
+
+### See Also
+
+- [worker-trust.md](../../docs/ai-native/worker-trust.md) — Full documentation
+- [main-health-policy.md](../../docs/ai-native/main-health-policy.md) — Health state definitions
