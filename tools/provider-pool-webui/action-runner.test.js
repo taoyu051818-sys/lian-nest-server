@@ -369,6 +369,128 @@ console.log("\naction-runner allowlist tests\n");
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
+  // --- Dangerous actions without confirm -------------------------------------
+
+  console.log("\ndangerous actions without confirm (all must refuse)\n");
+
+  {
+    const dir = tmpDir();
+    const state = fixtureState();
+    state.providers[0].status = "disabled";
+    const statePath = writeFixtureState(dir, state);
+    const res = await runAction("enable-provider", {
+      dryRun: false,
+      params: { providerId: "provider-default" },
+      statePath,
+    });
+    assert(res.ok === false, "enable-provider without confirm fails");
+    assert(res.mode === "confirmation-required", "enable-provider mode is confirmation-required");
+    assert(Array.isArray(res.changes), "confirmation-required includes changes array");
+    assert(typeof res.summary === "string", "confirmation-required includes summary");
+    const after = readFixtureState(statePath);
+    assert(after.providers[0].status === "disabled", "state unchanged when enable-provider lacks confirm");
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  {
+    const dir = tmpDir();
+    const state = fixtureState();
+    state.providers[0].cooldownExpiresAt = "2026-05-11T15:00:00Z";
+    state.providers[0].status = "exhausted";
+    const statePath = writeFixtureState(dir, state);
+    const res = await runAction("reset-cooldown", {
+      dryRun: false,
+      params: { providerId: "provider-default" },
+      statePath,
+    });
+    assert(res.ok === false, "reset-cooldown without confirm fails");
+    assert(res.mode === "confirmation-required", "reset-cooldown mode is confirmation-required");
+    const after = readFixtureState(statePath);
+    assert(after.providers[0].cooldownExpiresAt !== null, "state unchanged when reset-cooldown lacks confirm");
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  {
+    const dir = tmpDir();
+    const statePath = writeFixtureState(dir, fixtureState());
+    const res = await runAction("adjust-max-concurrency", {
+      dryRun: false,
+      params: { providerId: "provider-default", value: 3 },
+      statePath,
+    });
+    assert(res.ok === false, "adjust-max-concurrency without confirm fails");
+    assert(res.mode === "confirmation-required", "adjust-max-concurrency mode is confirmation-required");
+    const after = readFixtureState(statePath);
+    assert(after.providers[0].maxConcurrency === 1, "state unchanged when adjust-max-concurrency lacks confirm");
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  {
+    const dir = tmpDir();
+    const statePath = writeFixtureState(dir, fixtureState());
+    const res = await runAction("adjust-global-max-workers", {
+      dryRun: false,
+      params: { value: 5 },
+      statePath,
+    });
+    assert(res.ok === false, "adjust-global-max-workers without confirm fails");
+    assert(res.mode === "confirmation-required", "adjust-global-max-workers mode is confirmation-required");
+    const after = readFixtureState(statePath);
+    assert(after.global.globalMaxWorkers === 3, "state unchanged when adjust-global-max-workers lacks confirm");
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  // --- Unknown action --------------------------------------------------------
+
+  console.log("\nunknown action tests\n");
+
+  {
+    const res = await runAction("unknown-action", { params: {} });
+    assert(res.ok === false, "unknown-action is rejected");
+    assert(res.mode === "rejected", "unknown-action mode is rejected");
+    assert(res.error.includes("not allowlisted"), "unknown-action error mentions allowlist");
+    assert(!res.error.includes("secret"), "unknown-action error has no secrets");
+  }
+
+  {
+    const res = await runAction("", { params: {} });
+    assert(res.ok === false, "empty action name is rejected");
+    assert(res.mode === "rejected", "empty action mode is rejected");
+  }
+
+  {
+    const res = await runAction("DELETE", { params: {} });
+    assert(res.ok === false, "HTTP method as action is rejected");
+    assert(res.mode === "rejected", "HTTP method mode is rejected");
+  }
+
+  // --- Sanitized error messages ----------------------------------------------
+
+  console.log("\nsanitized error tests\n");
+
+  {
+    const dir = tmpDir();
+    const statePath = writeFixtureState(dir, fixtureState());
+    const res = await runAction("disable-provider", {
+      params: { providerId: "nonexistent", secret: "s3cret", token: "t0ken", apiKey: "k3y" },
+      statePath,
+    });
+    assert(res.ok === false, "error response for bad provider does not leak params");
+    assert(!JSON.stringify(res).includes("s3cret"), "error response has no secret value");
+    assert(!JSON.stringify(res).includes("t0ken"), "error response has no token value");
+    assert(!JSON.stringify(res).includes("k3y"), "error response has no apiKey value");
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  {
+    const res = await runAction("disable-provider", {
+      params: { providerId: "x", secret: "s3cret" },
+      statePath: "/nonexistent/path/state.json",
+    });
+    assert(res.ok === false, "state read error does not leak params");
+    assert(!JSON.stringify(res).includes("s3cret"), "state read error has no secret value");
+  }
+
   // --- Provider not found ----------------------------------------------------
 
   console.log("\nprovider not found tests\n");
