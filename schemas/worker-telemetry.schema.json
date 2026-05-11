@@ -1,0 +1,289 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/worker-telemetry.schema.json",
+  "title": "WorkerTelemetry",
+  "description": "Telemetry record for a single worker task execution, capturing cost, progress, and quality signals for accounting.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "capturedAt",
+    "timing",
+    "tokenUsage",
+    "estimatedCost",
+    "changedFiles",
+    "validationResults",
+    "gateOutcome"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version pinned to 1. Consumers must reject records with a different version."
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier for the worker task, matching the heartbeat taskId."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this telemetry record was captured."
+    },
+    "issueNumber": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub issue number this task targets, if applicable."
+    },
+    "prNumber": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub pull request number produced by this task, if applicable."
+    },
+    "taskType": {
+      "type": "string",
+      "enum": ["execution", "research", "review"],
+      "description": "Type of task from the task contract."
+    },
+    "actorRole": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Role that performed the work, from the task contract rolePacket."
+    },
+    "pmPhase": {
+      "type": ["string", "null"],
+      "description": "Wave or phase identifier for aggregating cost across a planning cycle."
+    },
+    "timing": {
+      "type": "object",
+      "description": "Wall-clock and progress timing for the task execution.",
+      "additionalProperties": false,
+      "required": ["elapsedMs"],
+      "properties": {
+        "elapsedMs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total wall-clock time from task start to telemetry capture, in milliseconds."
+        },
+        "softTimeMinutes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Budgeted soft time limit from the task contract, for utilization ratio."
+        },
+        "hardTimeMinutes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Budgeted hard time limit from the task contract."
+        },
+        "progressMilestones": {
+          "type": "array",
+          "description": "Ordered list of progress checkpoints recorded during execution.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "at"],
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Short label for the milestone, e.g. 'files_read', 'tests_started'."
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time",
+                "description": "ISO-8601 timestamp when the milestone was reached."
+              },
+              "detail": {
+                "type": ["string", "null"],
+                "description": "Optional additional context for the milestone."
+              }
+            }
+          }
+        }
+      }
+    },
+    "tokenUsage": {
+      "type": "object",
+      "description": "LLM token consumption for the task. Source and confidence indicate how values were obtained.",
+      "additionalProperties": false,
+      "required": ["inputTokens", "outputTokens", "source", "confidence"],
+      "properties": {
+        "inputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of input (prompt) tokens consumed."
+        },
+        "outputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of output (completion) tokens consumed."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["api_response", "log_parse", "estimate"],
+          "description": "How token counts were obtained: api_response (from provider), log_parse (parsed from logs), estimate (computed heuristically)."
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["high", "medium", "low"],
+          "description": "Reliability of the token counts: high (direct API), medium (parsed), low (estimated)."
+        },
+        "cachedInputTokens": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Input tokens served from prompt cache, if reported by the provider."
+        },
+        "apiCalls": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Number of LLM API calls made during the task."
+        }
+      }
+    },
+    "estimatedCost": {
+      "type": "object",
+      "description": "Estimated monetary cost of LLM usage for this task.",
+      "additionalProperties": false,
+      "required": ["amountCents", "currency", "model"],
+      "properties": {
+        "amountCents": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Estimated cost in cents (USD). Zero means negligible or unknown."
+        },
+        "currency": {
+          "type": "string",
+          "const": "USD",
+          "description": "Currency for the cost estimate. Currently only USD."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "LLM model identifier used for pricing, e.g. 'claude-opus-4-7'."
+        },
+        "pricingBasis": {
+          "type": ["string", "null"],
+          "enum": ["api_list", "estimated", "unknown"],
+          "description": "How the pricing was determined: api_list (official rates), estimated, unknown."
+        }
+      }
+    },
+    "changedFiles": {
+      "type": "object",
+      "description": "Actual file change footprint compared against task contract budgets.",
+      "additionalProperties": false,
+      "required": ["count", "linesAdded", "linesRemoved"],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of files modified or created."
+        },
+        "maxBudget": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Budgeted maxFiles from the task contract, for utilization comparison."
+        },
+        "linesAdded": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total lines added across all changed files."
+        },
+        "linesRemoved": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total lines removed across all changed files."
+        },
+        "maxLinesBudget": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Budgeted maxLinesChanged from the task contract."
+        }
+      }
+    },
+    "validationResults": {
+      "type": "array",
+      "description": "Outcome of each validation command from the task contract.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "exitCode"],
+        "properties": {
+          "command": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The validation command that was executed."
+          },
+          "exitCode": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Process exit code. 0 = pass, non-zero = fail."
+          },
+          "durationMs": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "description": "Wall-clock duration of the command in milliseconds."
+          }
+        }
+      }
+    },
+    "qualitySignals": {
+      "type": ["array", "null"],
+      "description": "Optional quality signals detected during or after execution.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category", "severity"],
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": ["dependency_generate", "runtime_compile", "boundary_guard", "docs_guard", "unknown"],
+            "description": "Failure or quality category, aligned with failure-taxonomy.md."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["red", "yellow"],
+            "description": "Severity: red (critical, blocks merge), yellow (non-critical, warning)."
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["high", "medium", "low"],
+            "description": "Confidence in the signal classification: high (3+ patterns), medium (2), low (1)."
+          },
+          "message": {
+            "type": ["string", "null"],
+            "description": "Human-readable description of the quality signal."
+          }
+        }
+      }
+    },
+    "gateOutcome": {
+      "type": "object",
+      "description": "Final gate result for the task.",
+      "additionalProperties": false,
+      "required": ["passed"],
+      "properties": {
+        "passed": {
+          "type": "boolean",
+          "description": "Whether the task passed all gates and is eligible for merge."
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "description": "If not passed, the primary reason for gate failure."
+        },
+        "mainHealthPolicy": {
+          "type": ["string", "null"],
+          "enum": ["gate-all", "gate-docs-only", "gate-none"],
+          "description": "Main health policy applied, from the task contract."
+        },
+        "generatedCodePolicy": {
+          "type": ["string", "null"],
+          "enum": ["forbid", "allow-with-regenerate-note", "source-artifact"],
+          "description": "Generated code policy applied, from the task contract."
+        }
+      }
+    }
+  }
+}
