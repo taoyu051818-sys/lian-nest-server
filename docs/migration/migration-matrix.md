@@ -152,6 +152,31 @@ Use these rules to derive planner tasks from the route-parity-matrix:
 
 ---
 
+## Updater Integration
+
+The migration matrix updater can update slice-level Status values in this
+document's execution phase tables (Phase 1–3). Use `-SliceMatrix` mode:
+
+```powershell
+# Suggest slice status advance (dry-run)
+./scripts/ai/update-migration-matrix.ps1 -Slice A3 -TargetStatus IMPLEMENTED -SliceMatrix
+
+# Write slice status to this file
+./scripts/ai/update-migration-matrix.ps1 -Slice A3 -TargetStatus IMPLEMENTED -SliceMatrix -Write
+```
+
+Or via PR metadata JSON with `"matrixType": "slice"`:
+
+```json
+{ "slice": "A3", "targetStatus": "IMPLEMENTED", "matrixType": "slice" }
+```
+
+The updater parses each execution phase table, matches rows by slice ID and
+order number, and replaces the status value. Same linear transition rules
+apply: `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TESTED` -> `LEGACY_DISABLED`.
+
+---
+
 ## Relationship to Other Documents
 
 | Document | Relationship |
