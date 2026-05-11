@@ -79,7 +79,7 @@ test('dry-run: output is valid JSON after banner', () => {
   const { stdout, exitCode } = run([]);
   assert.strictEqual(exitCode, 0);
   const snapshot = parseSnapshot(stdout);
-  assert.strictEqual(snapshot.schemaVersion, 1);
+  assert.strictEqual(snapshot.schemaVersion, 2);
   assert.ok(typeof snapshot.capturedAt === 'string');
 });
 
@@ -99,7 +99,8 @@ test('dry-run: all input sections present with correct shapes', () => {
   const snapshot = parseSnapshot(stdout);
   // Verify top-level keys exist
   const keys = ['schemaVersion', 'capturedAt', 'health', 'providerPool',
-    'resources', 'activeWorkers', 'workerTrust', 'metaSignals', 'queue', 'inputSources'];
+    'resources', 'activeWorkers', 'workerTrust', 'metaSignals', 'queue',
+    'actionReadiness', 'auditSummary', 'inputSources'];
   for (const key of keys) {
     assert.ok(key in snapshot, `missing key: ${key}`);
   }
@@ -132,6 +133,21 @@ test('dry-run: all input sections present with correct shapes', () => {
   if (snapshot.queue.summary !== null) {
     assert.ok(typeof snapshot.queue.summary.queued === 'number');
   }
+  // actionReadiness: always has actions array and counts
+  assert.ok(Array.isArray(snapshot.actionReadiness.actions), 'actionReadiness.actions is array');
+  assert.strictEqual(snapshot.actionReadiness.actions.length, 4, 'actionReadiness has 4 actions');
+  assert.ok(typeof snapshot.actionReadiness.readyCount === 'number', 'readyCount is number');
+  assert.ok(typeof snapshot.actionReadiness.totalActions === 'number', 'totalActions is number');
+  assert.ok(typeof snapshot.actionReadiness.allReady === 'boolean', 'allReady is boolean');
+  for (const action of snapshot.actionReadiness.actions) {
+    assert.ok(typeof action.id === 'string', 'action.id is string');
+    assert.ok(typeof action.ready === 'boolean', 'action.ready is boolean');
+    assert.ok(Array.isArray(action.blockedReasons), 'action.blockedReasons is array');
+  }
+  // auditSummary: always has totalEntries and byState
+  assert.ok(typeof snapshot.auditSummary.totalEntries === 'number', 'totalEntries is number');
+  assert.ok(typeof snapshot.auditSummary.byState === 'object', 'byState is object');
+  assert.ok(Array.isArray(snapshot.auditSummary.blockedReasons), 'auditSummary.blockedReasons is array');
   // inputSources: all boolean
   for (const key of Object.keys(snapshot.inputSources)) {
     assert.strictEqual(typeof snapshot.inputSources[key], 'boolean', `${key} should be boolean`);
@@ -148,7 +164,7 @@ test('live: writes file with --live flag', () => {
     assert.ok(stdout.includes('Dashboard state written to'), 'should print written message');
     assert.ok(fs.existsSync(outPath), 'file should exist');
     const written = JSON.parse(fs.readFileSync(outPath, 'utf8'));
-    assert.strictEqual(written.schemaVersion, 1);
+    assert.strictEqual(written.schemaVersion, 2);
     assert.ok(typeof written.capturedAt === 'string');
   } finally {
     if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
@@ -163,7 +179,7 @@ test('live: overwrites existing file', () => {
     const { exitCode } = run(['--live', '--out', outPath]);
     assert.strictEqual(exitCode, 0);
     const written = JSON.parse(fs.readFileSync(outPath, 'utf8'));
-    assert.strictEqual(written.schemaVersion, 1);
+    assert.strictEqual(written.schemaVersion, 2);
     assert.strictEqual(written.old, undefined);
   } finally {
     if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
@@ -177,7 +193,7 @@ test('stdout: prints JSON to stdout without banner', () => {
   assert.strictEqual(exitCode, 0);
   assert.ok(!stdout.includes('DRY RUN'), 'stdout mode should not have banner');
   const snapshot = JSON.parse(stdout);
-  assert.strictEqual(snapshot.schemaVersion, 1);
+  assert.strictEqual(snapshot.schemaVersion, 2);
 });
 
 test('stdout: combined with --live still prints JSON to stdout', () => {
@@ -186,7 +202,7 @@ test('stdout: combined with --live still prints JSON to stdout', () => {
     const { stdout, exitCode } = run(['--stdout', '--live', '--out', outPath]);
     assert.strictEqual(exitCode, 0);
     const snapshot = JSON.parse(stdout);
-    assert.strictEqual(snapshot.schemaVersion, 1);
+    assert.strictEqual(snapshot.schemaVersion, 2);
   } finally {
     if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
   }
@@ -200,17 +216,17 @@ test('output: has all required top-level keys', () => {
   const expected = [
     'schemaVersion', 'capturedAt', 'health', 'providerPool',
     'resources', 'activeWorkers', 'workerTrust', 'metaSignals',
-    'queue', 'inputSources',
+    'queue', 'actionReadiness', 'auditSummary', 'inputSources',
   ];
   for (const key of expected) {
     assert.ok(key in snapshot, `missing key: ${key}`);
   }
 });
 
-test('output: schemaVersion is 1', () => {
+test('output: schemaVersion is 2', () => {
   const { stdout } = run(['--stdout']);
   const snapshot = JSON.parse(stdout);
-  assert.strictEqual(snapshot.schemaVersion, 1);
+  assert.strictEqual(snapshot.schemaVersion, 2);
 });
 
 test('output: capturedAt is ISO-8601', () => {
@@ -247,6 +263,67 @@ test('output: activeWorkers has count', () => {
   const { stdout } = run(['--stdout']);
   const snapshot = JSON.parse(stdout);
   assert.ok(typeof snapshot.activeWorkers.count === 'number');
+});
+
+// ── Action readiness ─────────────────────────────────────────────────────────
+
+test('actionReadiness: has 4 actions with ids', () => {
+  const { stdout } = run(['--stdout']);
+  const snapshot = JSON.parse(stdout);
+  const ids = snapshot.actionReadiness.actions.map(a => a.id);
+  assert.deepStrictEqual(ids, ['launch-worker', 'merge-pr', 'retry-failed', 'drain-queue']);
+});
+
+test('actionReadiness: each action has ready boolean and blockedReasons array', () => {
+  const { stdout } = run(['--stdout']);
+  const snapshot = JSON.parse(stdout);
+  for (const action of snapshot.actionReadiness.actions) {
+    assert.strictEqual(typeof action.ready, 'boolean', `${action.id}.ready should be boolean`);
+    assert.ok(Array.isArray(action.blockedReasons), `${action.id}.blockedReasons should be array`);
+  }
+});
+
+test('actionReadiness: readyCount + totalActions consistent', () => {
+  const { stdout } = run(['--stdout']);
+  const snapshot = JSON.parse(stdout);
+  const { actions, readyCount, totalActions } = snapshot.actionReadiness;
+  assert.strictEqual(totalActions, 4);
+  assert.strictEqual(readyCount, actions.filter(a => a.ready).length);
+});
+
+test('actionReadiness: allReady matches readyCount', () => {
+  const { stdout } = run(['--stdout']);
+  const snapshot = JSON.parse(stdout);
+  const { readyCount, totalActions, allReady } = snapshot.actionReadiness;
+  assert.strictEqual(allReady, readyCount === totalActions);
+});
+
+// ── Audit summary ────────────────────────────────────────────────────────────
+
+test('auditSummary: has required fields', () => {
+  const { stdout } = run(['--stdout']);
+  const snapshot = JSON.parse(stdout);
+  assert.ok(typeof snapshot.auditSummary.totalEntries === 'number');
+  assert.ok(typeof snapshot.auditSummary.byState === 'object');
+  assert.ok(Array.isArray(snapshot.auditSummary.blockedReasons));
+});
+
+test('auditSummary: byState has all expected keys', () => {
+  const { stdout } = run(['--stdout']);
+  const snapshot = JSON.parse(stdout);
+  const expectedStates = ['queued', 'launching', 'running', 'prCreated', 'blocked', 'done'];
+  for (const key of expectedStates) {
+    assert.ok(typeof snapshot.auditSummary.byState[key] === 'number', `byState.${key} should be number`);
+  }
+});
+
+test('auditSummary: lastActivityAt is null or valid ISO string', () => {
+  const { stdout } = run(['--stdout']);
+  const snapshot = JSON.parse(stdout);
+  if (snapshot.auditSummary.lastActivityAt !== null) {
+    const parsed = new Date(snapshot.auditSummary.lastActivityAt);
+    assert.ok(!isNaN(parsed.getTime()), 'lastActivityAt should be valid ISO-8601');
+  }
 });
 
 // ── CLI error handling ───────────────────────────────────────────────────────
@@ -294,7 +371,7 @@ test('edge: --out with nested directory creates parent dirs', () => {
     assert.strictEqual(exitCode, 0);
     assert.ok(fs.existsSync(outPath));
     const written = JSON.parse(fs.readFileSync(outPath, 'utf8'));
-    assert.strictEqual(written.schemaVersion, 1);
+    assert.strictEqual(written.schemaVersion, 2);
   } finally {
     if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
     const parent = path.dirname(outPath);
