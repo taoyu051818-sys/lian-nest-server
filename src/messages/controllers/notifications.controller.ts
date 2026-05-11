@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query } from '@nestjs/common';
 import { NotificationsUseCase } from '../use-cases/notifications.use-case';
 import { NotificationListResponseDto } from '../dto/notification.dto';
 
@@ -7,10 +7,15 @@ export class NotificationsController {
   constructor(private readonly notificationsUseCase: NotificationsUseCase) {}
 
   @Get()
-  async listNotifications(): Promise<NotificationListResponseDto> {
+  async listNotifications(
+    @Query('page') page = '1',
+    @Query('perPage') perPage = '20',
+  ): Promise<NotificationListResponseDto> {
     // TODO: Extract uid from auth context (session/JWT)
     const uid = 0;
-    return this.notificationsUseCase.listNotifications(uid);
+    return this.notificationsUseCase.listNotifications(
+      uid,
+    );
   }
 
   @Get('unread-count')
