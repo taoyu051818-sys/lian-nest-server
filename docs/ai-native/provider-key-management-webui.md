@@ -446,6 +446,70 @@ The schema enforces that no secret values appear in any field:
 
 ---
 
+## Threat Model
+
+Threats specific to the provider key management surface. For the
+broader WebUI security model (localhost binding, admin token, worker
+isolation), see
+[Provider Pool WebUI Security](provider-pool-webui-security.md).
+
+| Threat | Attack vector | Mitigation | Residual risk |
+|--------|--------------|------------|---------------|
+| Credential exposure in UI | Render raw key or masked-but-reversible source pointer | All fields sourced from sanitized state files; `secretRefKey` is a pointer, not a value | None |
+| Credential leak via audit trail | Action payload or result contains key material | `sanitizeObject` scrubs credential-shaped fields before audit write | Low (requires code review to verify coverage) |
+| Auth probe abuse | Repeated "Test Key" calls used as oracle to enumerate valid keys | Probe returns only `valid` / `auth-failure` / `timeout` / `network-error`; no key-specific detail; rate-limited by admin token gate | Low (local-only, token-gated) |
+| Automated rotation without human consent | Script or agent calls `provider.rotateKey` without operator present | `ROTATE` + typed provider id confirmation; `dangerous: true` gate; no auto-retry | None (human gate enforced) |
+| State file tampering | Direct edit of `provider-pool.json` to falsify health status | State file is source of truth; UI derives badges from it; tampering is detectable via audit trail diff | Low (local file access required) |
+| Side-channel via rotation log | Rotation log entries reveal timing or frequency of key changes | Log stores only timestamps, provider id, and event type — no key material | None |
+
+---
+
+## Human Boundaries
+
+Actions in the Provider Settings panel are classified by the degree of
+human involvement required. These boundaries are enforced at the action
+module level and cannot be bypassed via the API.
+
+### Boundary Definitions
+
+| Boundary | Meaning | Enforcement |
+|----------|---------|-------------|
+| **Automated** | Action executes without human input after preview | `dangerous: false`, no typed confirmation |
+| **Human-gated** | Action requires explicit typed confirmation | `dangerous: true` + `confirm: true` + phrase match |
+| **Human-only** | Action describes steps the operator must perform outside the UI; the UI only resets state after confirmation | Multi-step workflow with external action required |
+
+### Classification
+
+| Action | Boundary | Rationale |
+|--------|----------|-----------|
+| Test Key | Human-gated | Operator initiates; probe runs automatically but result is non-destructive |
+| Rotate Key | Human-only | Operator must revoke old key, generate new key, and update local secret source outside the UI before confirming |
+
+### Why Rotate Key Is Human-Only
+
+The rotation workflow is deliberately split across UI and non-UI steps
+to prevent automated credential replacement:
+
+```
+UI step (preview)          →  Show rotation checklist
+Non-UI step (operator)     →  Revoke old key at provider console
+Non-UI step (operator)     →  Generate new key at provider console
+Non-UI step (operator)     →  Update local secret source
+UI step (confirm)          →  Operator confirms local update is done
+UI step (execute)          →  Reset provider state, run auth probe
+```
+
+The UI never accepts, stores, or transmits the new key. If the auth
+probe fails after confirmation, the provider is re-disabled and the
+operator must repeat the non-UI steps. This design ensures that:
+
+1. No automated process can rotate credentials without human awareness.
+2. The operator verifies the new key works at the provider console
+   before the UI accepts it.
+3. A compromised UI session cannot inject attacker-controlled keys.
+
+---
+
 ## References
 
 - [Provider Key Management API Contract](../contracts/provider-key-management-api.md) — endpoint contract for testKey and rotateKey
