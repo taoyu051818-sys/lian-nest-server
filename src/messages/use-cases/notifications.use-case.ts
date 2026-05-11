@@ -1,4 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   NodebbNotificationsProvider,
   NodebbAuthMode,
@@ -54,15 +58,21 @@ export class NotificationsUseCase {
     return { count, fallback: false };
   }
 
-  /**
-   * Mark a notification as read.
-   * TODO: Delegate to NodebbNotificationsProvider.markRead() when auth mode is resolved.
-   */
   async markRead(uid: number, nid: string): Promise<void> {
+    if (!nid || !nid.trim()) {
+      throw new BadRequestException('nid is required');
+    }
+
     void uid;
-    void nid;
-    throw new Error(
-      'Not implemented: NotificationsUseCase.markRead — read-only slice; writes deferred',
-    );
+    const auth = { mode: NodebbAuthMode.NONE };
+    const res = await this.notificationsProvider.markRead(nid, auth);
+
+    if (res.status === BodyStatus.NOT_FOUND) {
+      throw new NotFoundException(`Notification ${nid} not found`);
+    }
+
+    if (res.status !== BodyStatus.OK) {
+      throw new Error(res.error ?? 'Failed to mark notification as read');
+    }
   }
 }

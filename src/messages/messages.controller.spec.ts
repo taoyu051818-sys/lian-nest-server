@@ -5,6 +5,7 @@ import { MessagesUseCase } from './use-cases/messages.use-case';
 import { NotificationsUseCase } from './use-cases/notifications.use-case';
 import { NodebbNotificationsProvider } from '../nodebb';
 import { BodyStatus } from '../nodebb';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 describe('MessagesModule', () => {
   let module: TestingModule;
@@ -129,10 +130,19 @@ describe('MessagesModule', () => {
       expect(mockRes.set).toHaveBeenCalledWith('X-Fallback', 'true');
     });
 
-    it('should throw not implemented for markRead', async () => {
+    it('should delegate markRead to use case on success', async () => {
+      providerMock.markRead.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: null,
+        error: null,
+      });
       await expect(
         notificationsController.markRead('test-nid'),
-      ).rejects.toThrow('Not implemented: NotificationsUseCase.markRead');
+      ).resolves.toBeUndefined();
+      expect(providerMock.markRead).toHaveBeenCalledWith('test-nid', {
+        mode: 'none',
+      });
     });
   });
 
@@ -290,10 +300,53 @@ describe('MessagesModule', () => {
       expect(result).toEqual({ count: 0, fallback: true });
     });
 
-    it('should throw not implemented for markRead', async () => {
+    it('should call provider.markRead on success', async () => {
+      providerMock.markRead.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: null,
+        error: null,
+      });
       await expect(
-        notificationsUseCase.markRead(1, 'nid'),
-      ).rejects.toThrow('Not implemented: NotificationsUseCase.markRead');
+        notificationsUseCase.markRead(1, 'notif-1'),
+      ).resolves.toBeUndefined();
+      expect(providerMock.markRead).toHaveBeenCalledWith('notif-1', {
+        mode: 'none',
+      });
+    });
+
+    it('should throw BadRequestException for empty nid', async () => {
+      await expect(
+        notificationsUseCase.markRead(1, ''),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        notificationsUseCase.markRead(1, '   '),
+      ).rejects.toThrow(BadRequestException);
+      expect(providerMock.markRead).not.toHaveBeenCalled();
+    });
+
+    it('should throw NotFoundException when provider returns NOT_FOUND', async () => {
+      providerMock.markRead.mockResolvedValue({
+        status: BodyStatus.NOT_FOUND,
+        statusCode: 404,
+        data: null,
+        error: 'Notification not found',
+      });
+      await expect(
+        notificationsUseCase.markRead(1, 'missing-nid'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw Error when provider returns ERROR', async () => {
+      providerMock.markRead.mockResolvedValue({
+        status: BodyStatus.ERROR,
+        statusCode: 500,
+        data: null,
+        error: 'NodeBB unreachable',
+      });
+      await expect(
+        notificationsUseCase.markRead(1, 'test-nid'),
+      ).rejects.toThrow('NodeBB unreachable');
     });
   });
 });
