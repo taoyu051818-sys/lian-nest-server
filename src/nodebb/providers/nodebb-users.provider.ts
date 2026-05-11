@@ -18,6 +18,14 @@ export interface NodebbLikedEntry {
   timestamp: number;
 }
 
+/** Minimal shape for a history/viewed entry returned by NodeBB. */
+export interface NodebbHistoryEntry {
+  id: string;
+  type: 'topic' | 'post';
+  targetId: string;
+  timestamp: number;
+}
+
 @Injectable()
 export class NodebbUsersProvider {
   constructor(
@@ -68,6 +76,23 @@ export class NodebbUsersProvider {
   ): Promise<NodebbNormalizedResponse<NodebbLikedEntry[]>> {
     return this.client.get<NodebbLikedEntry[]>(
       `/api/v3/users/${uid}/upvoted`,
+      auth,
+    );
+  }
+
+  /**
+   * Fetch history/viewed items for a user.
+   *
+   * Calls NodeBB posts endpoint. The exact response shape is
+   * implementation-dependent; callers should treat errors as "no data"
+   * and fall back gracefully.
+   */
+  async getHistory(
+    uid: number,
+    auth?: NodebbAuth,
+  ): Promise<NodebbNormalizedResponse<NodebbHistoryEntry[]>> {
+    return this.client.get<NodebbHistoryEntry[]>(
+      `/api/v3/users/${uid}/posts`,
       auth,
     );
   }

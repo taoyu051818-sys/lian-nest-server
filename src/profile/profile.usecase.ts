@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { NodebbUsersProvider, NodebbLikedEntry } from '../nodebb/providers/nodebb-users.provider';
+import { NodebbUsersProvider, NodebbLikedEntry, NodebbHistoryEntry } from '../nodebb/providers/nodebb-users.provider';
 import { BodyStatus } from '../nodebb/types';
 import {
   PublicProfile,
@@ -106,10 +106,37 @@ export class ProfileUsecase {
     }
   }
 
-  async getHistory(uid: string): Promise<ProfileCollection<HistoryItem>> {
-    throw new Error(
-      `getHistory(${uid}) not implemented — awaiting NodeBB collection wiring`,
-    );
+  async getHistory(
+    uid: string,
+    query?: CollectionQuery,
+  ): Promise<ProfileCollection<HistoryItem>> {
+    const numericUid = this.parseUid(uid);
+    const { page, pageSize } = this.parsePagination(query);
+
+    try {
+      const response = await this.usersProvider.getHistory(numericUid);
+
+      if (response.status !== BodyStatus.OK || !response.data) {
+        return this.emptyFallback(page, pageSize);
+      }
+
+      const items: HistoryItem[] = response.data.map((entry: NodebbHistoryEntry) => ({
+        id: String(entry.id),
+        type: entry.type,
+        targetId: String(entry.targetId),
+        viewedAt: new Date(entry.timestamp).toISOString(),
+      }));
+
+      return {
+        items,
+        total: items.length,
+        page,
+        pageSize,
+        source: 'nodebb',
+      };
+    } catch {
+      return this.emptyFallback(page, pageSize);
+    }
   }
 
   private parseUid(uid: string): number {
