@@ -1,0 +1,36 @@
+{
+  "id": "user-detail-basic",
+  "endpoint": "GET /api/users/:uid",
+  "description": "User detail by uid returns mapped user fields",
+  "request": {
+    "method": "GET",
+    "path": "/api/users/<USER_UID>",
+    "params": { "uid": "<USER_UID>" }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "uid": "<STRING>",
+      "username": "<STRING>",
+      "userslug": "<STRING>",
+      "joinedAt": "<STRING>",
+      "reputation": "<NON_NEG_INT>",
+      "postCount": "<NON_NEG_INT>"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["uid", "username", "userslug", "joinedAt", "reputation", "postCount"],
+      "properties": {
+        "uid": { "type": "string" },
+        "username": { "type": "string" },
+        "userslug": { "type": "string" },
+        "joinedAt": { "type": "string", "format": "date-time" },
+        "reputation": { "type": "integer", "minimum": 0 },
+        "postCount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "notes": "USER_UID must reference a valid seeded user during test runs."
+}
