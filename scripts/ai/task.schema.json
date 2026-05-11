@@ -1,0 +1,160 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian.dev/schemas/ai-worker-task.json",
+  "title": "AI Worker Task Contract",
+  "description": "Schema for self-hosted AI batch launcher task definitions. Aligned with docs/ai-native/worker-task-contract.md.",
+  "type": "object",
+  "required": [
+    "taskType",
+    "risk",
+    "conflictGroup",
+    "targetIssue",
+    "allowedFiles",
+    "forbiddenFiles",
+    "validationCommands",
+    "rolePacket"
+  ],
+  "properties": {
+    "taskType": {
+      "type": "string",
+      "enum": ["execution", "research", "review"],
+      "description": "execution = write code/docs, research = read-only, review = evaluate existing work"
+    },
+    "risk": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "low = docs/config, medium = cross-module, high = auth/data/public API"
+    },
+    "conflictGroup": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Tasks in the same group must not run concurrently"
+    },
+    "targetIssue": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Primary GitHub issue number"
+    },
+    "targetPR": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "Target PR number if updating an existing PR, null for new work"
+    },
+    "issues": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1 },
+      "description": "Additional related issue numbers"
+    },
+    "expectedPR": {
+      "type": "boolean",
+      "description": "Whether this task should produce a PR"
+    },
+    "allowedFiles": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "description": "Glob patterns the worker MAY edit"
+    },
+    "forbiddenFiles": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Glob patterns the worker MUST NOT edit, even if inside allowedFiles"
+    },
+    "validationCommands": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Shell commands the worker must run before opening a PR"
+    },
+    "rolePacket": {
+      "type": "object",
+      "required": ["actorRole", "description"],
+      "properties": {
+        "actorRole": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Role name matching ops/agent-prompts/*.md"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One-line summary of what this worker does"
+        }
+      },
+      "additionalProperties": false
+    },
+    "attentionAreas": {
+      "type": "object",
+      "properties": {
+        "focus": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Key constraints or priorities"
+        },
+        "knownBlindspots": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Patterns or mistakes to actively avoid"
+        }
+      },
+      "additionalProperties": false
+    },
+    "reviewAndAcceptance": {
+      "type": "object",
+      "properties": {
+        "requiredReviewRoles": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "acceptanceOwner": {
+          "type": "string",
+          "description": "Who has final merge authority"
+        }
+      },
+      "additionalProperties": false
+    },
+    "budgets": {
+      "type": "object",
+      "properties": {
+        "maxFiles": { "type": "integer", "minimum": 1 },
+        "maxLinesChanged": { "type": "integer", "minimum": 1 },
+        "softTimeMinutes": { "type": "integer", "minimum": 1 },
+        "hardTimeMinutes": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "complexityAssessment": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["low", "low-medium", "medium", "high"]
+        },
+        "drivers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "splitRecommendation": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "stragglerPolicy": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["open_pr_or_comment_blocker"]
+        },
+        "publishPartial": { "type": "boolean" },
+        "maxExtensionMinutes": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "pmPhase": {
+      "type": "string",
+      "description": "Wave phase identifier for sequencing"
+    }
+  },
+  "additionalProperties": false
+}
