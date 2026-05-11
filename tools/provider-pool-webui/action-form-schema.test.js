@@ -138,6 +138,18 @@ console.log("\nbuildFormFields\n");
   assert(Array.isArray(none), "null fields returns array");
   assert(none.length === 0, "null fields returns empty array");
 
+  const undef = buildFormFields(undefined);
+  assert(Array.isArray(undef), "undefined fields returns array");
+  assert(undef.length === 0, "undefined fields returns empty array");
+
+  const num = buildFormFields(42);
+  assert(Array.isArray(num), "number fields returns array");
+  assert(num.length === 0, "number fields returns empty array");
+
+  const str = buildFormFields("providerId");
+  assert(Array.isArray(str), "string fields returns array");
+  assert(str.length === 0, "string fields returns empty array");
+
   const fields = buildFormFields(["providerId", "value"]);
   assert(fields.length === 2, "returns 2 fields");
   assert(fields[0].name === "providerId", "first field is providerId");
@@ -147,6 +159,17 @@ console.log("\nbuildFormFields\n");
 
   // All fields should be required
   assert(fields.every((f) => f.required), "all fields are required");
+
+  // Duplicate field names produce duplicate descriptors
+  const dupes = buildFormFields(["providerId", "providerId"]);
+  assert(dupes.length === 2, "duplicate field names produce 2 descriptors");
+  assert(dupes[0].name === "providerId", "first dupe is providerId");
+  assert(dupes[1].name === "providerId", "second dupe is providerId");
+
+  // Single-element array
+  const single = buildFormFields(["target"]);
+  assert(single.length === 1, "single element array returns 1 field");
+  assert(single[0].name === "target", "single field is target");
 }
 
 // --- buildFormSchema ---------------------------------------------------------
@@ -276,6 +299,16 @@ console.log("\nbuildFormSchemas\n");
 
   const mixed = buildFormSchemas(["view.provider.status", "nonexistent", "worker.kill"]);
   assert(mixed.length === 2, "filters out null schemas");
+
+  const emptyIds = buildFormSchemas([]);
+  assert(emptyIds.length === 0, "empty array returns empty result");
+
+  const allInvalid = buildFormSchemas(["nonexistent.a", "nonexistent.b"]);
+  assert(allInvalid.length === 0, "all-invalid ids returns empty result");
+
+  const withNull = buildFormSchemas([null, undefined, "worker.kill"]);
+  assert(withNull.length === 1, "null/undefined ids filtered out");
+  assert(withNull[0].actionId === "worker.kill", "only valid id survives");
 }
 
 // --- buildFormSchemasByCategory ----------------------------------------------
@@ -364,6 +397,163 @@ console.log("\nNo secrets leak\n");
     assert(!fieldsJson.includes("secret"), `${schema.actionId} fields have no secret`);
     assert(!fieldsJson.includes("token"), `${schema.actionId} fields have no token`);
     assert(!fieldsJson.includes("password"), `${schema.actionId} fields have no password`);
+  }
+}
+
+// --- buildFieldDescriptor edge cases -----------------------------------------
+
+console.log("\nbuildFieldDescriptor edge cases\n");
+
+{
+  // Null field name
+  const nullField = buildFieldDescriptor(null);
+  assert(nullField.name === null, "null field name preserved");
+  assert(nullField.type === "text", "null field defaults to text");
+  assert(nullField.required === true, "null field is required");
+
+  // Undefined field name
+  const undefField = buildFieldDescriptor(undefined);
+  assert(undefField.name === undefined, "undefined field name preserved");
+  assert(undefField.type === "text", "undefined field defaults to text");
+
+  // Empty string field name
+  const emptyField = buildFieldDescriptor("");
+  assert(emptyField.name === "", "empty string field name preserved");
+  assert(emptyField.type === "text", "empty string field defaults to text");
+
+  // Numeric field name
+  const numField = buildFieldDescriptor(42);
+  assert(numField.name === 42, "numeric field name preserved");
+  assert(numField.type === "text", "numeric field defaults to text");
+
+  // All known fields produce frozen descriptors
+  for (const name of Object.keys(FIELD_TYPES)) {
+    const desc = buildFieldDescriptor(name);
+    assert(Object.isFrozen(desc), `descriptor for ${name} is frozen`);
+    assert(desc.name === name, `descriptor for ${name} has correct name`);
+    assert(desc.required === true, `descriptor for ${name} is required`);
+  }
+}
+
+// --- defaultPreview consistency ----------------------------------------------
+
+console.log("\ndefaultPreview consistency\n");
+
+{
+  const all = buildFormSchemas();
+  for (const schema of all) {
+    if (schema.readOnly) {
+      assert(schema.defaultPreview === false, `${schema.actionId} readOnly → defaultPreview false`);
+    } else {
+      assert(schema.defaultPreview === true, `${schema.actionId} mutable → defaultPreview true`);
+    }
+  }
+}
+
+// --- riskBadge completeness --------------------------------------------------
+
+console.log("\nriskBadge completeness\n");
+
+{
+  const levels = ["low", "medium", "high", "critical"];
+  const expectedColors = { low: "green", medium: "yellow", high: "orange", critical: "red" };
+  const expectedCss = { low: "risk-low", medium: "risk-medium", high: "risk-high", critical: "risk-critical" };
+
+  for (const level of levels) {
+    const badge = riskBadge(level);
+    assert(badge !== null, `riskBadge(${level}) is not null`);
+    assert(badge.level === level, `riskBadge(${level}).level is ${level}`);
+    assert(badge.color === expectedColors[level], `riskBadge(${level}).color is ${expectedColors[level]}`);
+    assert(badge.cssClass === expectedCss[level], `riskBadge(${level}).cssClass is ${expectedCss[level]}`);
+    assert(typeof badge.label === "string", `riskBadge(${level}) has label string`);
+    assert(badge.label.length > 0, `riskBadge(${level}) label is non-empty`);
+    assert(Object.isFrozen(badge), `riskBadge(${level}) is frozen`);
+  }
+
+  // Non-string risk values
+  assert(riskBadge(0) === null, "numeric 0 risk returns null");
+  assert(riskBadge(false) === null, "false risk returns null");
+  assert(riskBadge({}) === null, "object risk returns null");
+}
+
+// --- formSchemaMeta risk distribution consistency ----------------------------
+
+console.log("\nformSchemaMeta risk distribution consistency\n");
+
+{
+  const meta = formSchemaMeta();
+  const riskSum = meta.riskDistribution.low + meta.riskDistribution.medium +
+    meta.riskDistribution.high + meta.riskDistribution.critical;
+  assert(riskSum === meta.totalForms, "risk distribution sums to totalForms");
+  assert(meta.withFields + (meta.totalForms - meta.withFields) === meta.totalForms,
+    "withFields + zero-field forms equals totalForms");
+}
+
+// --- Schema shape: no script path exposed ------------------------------------
+
+console.log("\nSchema shape: no script field exposed\n");
+
+{
+  const all = buildFormSchemas();
+  const schemaKeys = ["actionId", "title", "description", "category", "risk",
+    "riskBadge", "privileged", "readOnly", "defaultPreview", "fields",
+    "hasConfirmMessage", "submitLabel", "previewLabel"];
+  for (const schema of all) {
+    for (const key of Object.keys(schema)) {
+      assert(schemaKeys.includes(key), `${schema.actionId} has expected key ${key}`);
+    }
+    assert(!("script" in schema), `${schema.actionId} does not expose script`);
+  }
+}
+
+// --- Confirm message field substitution --------------------------------------
+
+console.log("\nConfirm message field substitution\n");
+
+{
+  const schema = buildFormSchema("provider.cooldown.reset");
+  assert(schema.hasConfirmMessage === true, "has confirm message");
+  // The confirm message template contains {providerId}
+  // The schema itself doesn't substitute, but confirms the template exists
+  assert(schema.submitLabel === "Execute", "submit label is Execute");
+  assert(schema.previewLabel === "Preview", "preview label is Preview");
+
+  // All mutable (non-read-only) actions should have a confirm message
+  const all = buildFormSchemas();
+  for (const s of all) {
+    if (!s.readOnly) {
+      assert(s.hasConfirmMessage === true, `${s.actionId} mutable action has confirm message`);
+    } else {
+      assert(s.hasConfirmMessage === false, `${s.actionId} read-only has no confirm message`);
+    }
+  }
+}
+
+// --- buildFormSchemasByCategory coverage --------------------------------------
+
+console.log("\nbuildFormSchemasByCategory coverage\n");
+
+{
+  const grouped = buildFormSchemasByCategory();
+  const categories = Object.keys(grouped);
+  assert(categories.length > 0, "has at least one category");
+
+  // Every schema appears in exactly one category
+  const allIds = [];
+  for (const cat of categories) {
+    for (const schema of grouped[cat]) {
+      allIds.push(schema.actionId);
+    }
+  }
+  const uniqueIds = new Set(allIds);
+  assert(uniqueIds.size === allIds.length, "no schema appears in multiple categories");
+  assert(uniqueIds.size === ACTIONS.length, "every action appears in exactly one category");
+
+  // Each category's schemas have matching category field
+  for (const cat of categories) {
+    assert(grouped[cat].every((s) => s.category === cat),
+      `all schemas in ${cat} have category ${cat}`);
+    assert(grouped[cat].length > 0, `category ${cat} is non-empty`);
   }
 }
 
