@@ -90,6 +90,30 @@ describe('UsersUsecase', () => {
       await expect(usecase.getByUid('1.5')).rejects.toThrow(NotFoundException);
     });
 
+    it('should throw NotFoundException for empty string uid', async () => {
+      await expect(usecase.getByUid('')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException for whitespace-only uid', async () => {
+      await expect(usecase.getByUid('   ')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException for NaN string uid', async () => {
+      await expect(usecase.getByUid('NaN')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException for Infinity uid', async () => {
+      await expect(usecase.getByUid('Infinity')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should include raw uid in error message for invalid uid', async () => {
+      await expect(usecase.getByUid('abc')).rejects.toThrow('Invalid uid: abc');
+    });
+
+    it('should include raw uid in error message for zero uid', async () => {
+      await expect(usecase.getByUid('0')).rejects.toThrow('Invalid uid: 0');
+    });
+
     it('should throw NotFoundException when user not found', async () => {
       mockUsersProvider.getByUid.mockResolvedValue({
         status: BodyStatus.NOT_FOUND,
@@ -188,8 +212,40 @@ describe('UsersUsecase', () => {
       expect(result.source).toBe('fallback');
     });
 
-    it('should throw NotFoundException for invalid uid', async () => {
+    it('should throw NotFoundException for non-numeric uid', async () => {
       await expect(usecase.getPosts('abc')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException for zero uid', async () => {
+      await expect(usecase.getPosts('0')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException for negative uid', async () => {
+      await expect(usecase.getPosts('-1')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException for fractional uid', async () => {
+      await expect(usecase.getPosts('1.5')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException for empty string uid', async () => {
+      await expect(usecase.getPosts('')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException for whitespace-only uid', async () => {
+      await expect(usecase.getPosts('   ')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException for NaN string uid', async () => {
+      await expect(usecase.getPosts('NaN')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException for Infinity uid', async () => {
+      await expect(usecase.getPosts('Infinity')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should include raw uid in error message for invalid uid', async () => {
+      await expect(usecase.getPosts('abc')).rejects.toThrow('Invalid uid: abc');
     });
 
     it('should return empty posts when data is empty array', async () => {
