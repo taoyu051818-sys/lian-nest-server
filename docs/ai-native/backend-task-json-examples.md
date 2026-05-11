@@ -2,6 +2,8 @@
 
 Reference examples for each backend worker tier. All examples include the four required backend fields: `sourceOfTruthDocs`, `blockedBy`, `mainHealthPolicy`, `generatedCodePolicy`.
 
+**Control-plane note**: These JSON examples show the scheduling envelope — file boundaries, sequencing, health gates, and routing. The actual task semantics (what to build, acceptance criteria, business rules) live in the linked GitHub issue body and `sourceOfTruthDocs`. Workers must read those sources before starting work.
+
 See [worker-task-contract.md](worker-task-contract.md) for field definitions.
 
 ---

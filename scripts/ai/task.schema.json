@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://lian.dev/schemas/ai-worker-task.json",
   "title": "AI Worker Task Contract",
-  "description": "Schema for self-hosted AI batch launcher task definitions. Aligned with docs/ai-native/worker-task-contract.md.",
+  "description": "Control-plane schema for self-hosted AI batch launcher task definitions. This schema covers scheduling metadata (file boundaries, budgets, conflict groups, risk, validation commands, role routing) — not task semantics. Workers must read the GitHub issue body and sourceOfTruthDocs for task understanding. Aligned with docs/ai-native/worker-task-contract.md.",
   "type": "object",
   "required": [
     "taskType",

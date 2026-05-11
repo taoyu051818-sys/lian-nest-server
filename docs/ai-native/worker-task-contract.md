@@ -2,6 +2,20 @@
 
 Every worker task is defined by a JSON contract. This contract is embedded in the worker prompt as a control appendix and governs what the worker may do.
 
+## Control Plane vs. Semantic Source
+
+Task JSON is a **control-plane envelope** — it carries scheduling metadata, routing hints, and hard boundaries for the launcher and orchestrator. It is **not** the full semantic source for the task.
+
+| Concern | Where it lives |
+|---|---|
+| Scheduling boundaries (`allowedFiles`, `forbiddenFiles`, `budgets`, `risk`, `conflictGroup`) | Task JSON |
+| Routing and role assignment (`rolePacket`, `pmPhase`) | Task JSON |
+| Validation gate (`validationCommands`, `mainHealthPolicy`) | Task JSON |
+| **What to build and why** | GitHub issue body, `sourceOfTruthDocs`, role prompt, and docs the worker reads at runtime |
+| **Business rules and acceptance criteria** | GitHub issue body, linked contracts, and architecture docs |
+
+The launcher reads JSON to set up the worktree, enforce file boundaries, and run validation commands. The worker reads the GitHub issue body and referenced docs to understand what the task actually means. Workers must not derive task semantics from JSON fields alone — always read the issue and source-of-truth docs first.
+
 ## Schema
 
 ```json
@@ -84,10 +98,10 @@ Whether this task is expected to produce a PR. `true` for execution tasks, `fals
 
 ### rolePacket
 
-Identifies which role prompt governs this worker's behavior.
+Identifies which role prompt governs this worker's behavior. This is routing metadata — the launcher uses it to select the correct role prompt and log context. It does **not** encode the full task definition; the worker must read the GitHub issue body for that.
 
 - `actorRole`: The role name matching a prompt in `ops/agent-prompts/`.
-- `description`: One-line summary of what this worker is doing.
+- `description`: One-line summary of what this worker is doing (for logging and PR metadata).
 
 ### attentionAreas
 
