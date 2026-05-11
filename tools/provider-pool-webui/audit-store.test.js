@@ -24,6 +24,7 @@ const {
   looksLikeRawProcessOutput,
   validateEntry,
   buildEntry,
+  appendEntry,
   readEntries,
   countEntries,
   trimEntries,
@@ -419,6 +420,181 @@ console.log('\ntrimEntries via createAuditStore');
   cleanup(tmp);
 }
 
+// --- trimEntries boundary: maxEntries=0 ---
+// JS quirk: slice(-0) === slice(0), so maxEntries=0 keeps all entries
+
+console.log('\ntrimEntries boundary: maxEntries=0');
+
+{
+  const tmp = tmpDir();
+  const p = path.join(tmp, 'zero.jsonl');
+  fs.writeFileSync(p, '{"a":1}\n{"b":2}\n', 'utf8');
+  trimEntries(p, 0);
+  assert(readEntries(p).length === 2, 'maxEntries=0 keeps all entries (JS slice(-0) quirk)');
+  cleanup(tmp);
+}
+
+// --- trimEntries boundary: maxEntries=1 ---
+
+console.log('\ntrimEntries boundary: maxEntries=1');
+
+{
+  const tmp = tmpDir();
+  const p = path.join(tmp, 'one.jsonl');
+  fs.writeFileSync(p, '{"i":1}\n{"i":2}\n{"i":3}\n', 'utf8');
+  assert(trimEntries(p, 1) === 2, 'maxEntries=1 removes all but last');
+  const kept = readEntries(p);
+  assert(kept.length === 1, 'exactly 1 entry kept');
+  assert(kept[0].i === 3, 'keeps the newest entry');
+  cleanup(tmp);
+}
+
+// --- trimEntries idempotency ---
+
+console.log('\ntrimEntries idempotency');
+
+{
+  const tmp = tmpDir();
+  const p = path.join(tmp, 'idempotent.jsonl');
+  fs.writeFileSync(p, '{"i":1}\n{"i":2}\n{"i":3}\n{"i":4}\n{"i":5}\n', 'utf8');
+  assert(trimEntries(p, 3) === 2, 'first trim removes 2');
+  assert(trimEntries(p, 3) === 0, 'second trim is no-op');
+  const kept = readEntries(p);
+  assert(kept.length === 3, 'still has exactly 3 entries');
+  assert(kept[0].i === 3, 'entries unchanged after second trim');
+  cleanup(tmp);
+}
+
+// --- trimEntries default maxEntries (MAX_ENTRIES) ---
+
+console.log('\ntrimEntries default maxEntries');
+
+{
+  const tmp = tmpDir();
+  const p = path.join(tmp, 'default.jsonl');
+  fs.writeFileSync(p, '{"a":1}\n', 'utf8');
+  assert(trimEntries(p) === 0, 'single entry under default limit is no-op');
+  assert(readEntries(p).length === 1, 'entry preserved');
+  cleanup(tmp);
+}
+
+// --- countEntries edge cases ---
+
+console.log('\ncountEntries edge cases');
+
+{
+  const tmp = tmpDir();
+
+  // Missing file
+  assert(countEntries(path.join(tmp, 'missing.jsonl')) === 0, 'missing file returns 0');
+
+  // Empty file
+  const emptyPath = path.join(tmp, 'empty-count.jsonl');
+  fs.writeFileSync(emptyPath, '', 'utf8');
+  assert(countEntries(emptyPath) === 0, 'empty file returns 0');
+
+  // File with only blank lines
+  const blankPath = path.join(tmp, 'blank-count.jsonl');
+  fs.writeFileSync(blankPath, '\n  \n\t\n', 'utf8');
+  assert(countEntries(blankPath) === 0, 'only-blank-lines file returns 0');
+
+  cleanup(tmp);
+}
+
+// --- appendEntry creates nested directories ---
+
+console.log('\nappendEntry creates nested directories');
+
+{
+  const tmp = tmpDir();
+  const nestedPath = path.join(tmp, 'deep', 'nested', 'audit.jsonl');
+  appendEntry(nestedPath, { action: 'test.nested' });
+  assert(fs.existsSync(nestedPath), 'nested directory created');
+  const entries = readEntries(nestedPath);
+  assert(entries.length === 1, 'entry written in nested path');
+  assert(entries[0].action === 'test.nested', 'entry content correct');
+  cleanup(tmp);
+}
+
+// --- appendEntry auto-trims on write ---
+
+console.log('\nappendEntry auto-trims on write');
+
+{
+  const tmp = tmpDir();
+  const p = path.join(tmp, 'auto-trim.jsonl');
+  // Write 5 entries with maxEntries=3
+  for (let i = 1; i <= 5; i++) {
+    appendEntry(p, { action: `a${i}` }, 3);
+  }
+  const entries = readEntries(p);
+  assert(entries.length === 3, 'auto-trimmed to maxEntries');
+  assert(entries[0].action === 'a3', 'oldest kept is a3');
+  assert(entries[2].action === 'a5', 'newest kept is a5');
+  cleanup(tmp);
+}
+
+// --- createAuditStore retention: record beyond maxEntries ---
+
+console.log('\ncreateAuditStore retention: record beyond maxEntries');
+
+{
+  const tmp = tmpDir();
+  const store = createAuditStore({ filePath: path.join(tmp, 'retention.jsonl'), dryRun: false, maxEntries: 2 });
+
+  store.record({ action: 'x1' });
+  store.record({ action: 'x2' });
+  store.record({ action: 'x3' });
+
+  const entries = store.read();
+  assert(entries.length === 2, 'retained exactly maxEntries after overflow');
+  assert(entries[0].action === 'x2', 'oldest retained is x2');
+  assert(entries[1].action === 'x3', 'newest retained is x3');
+  cleanup(tmp);
+}
+
+// --- createAuditStore retention: rapid burst ---
+
+console.log('\ncreateAuditStore retention: rapid burst');
+
+{
+  const tmp = tmpDir();
+  const store = createAuditStore({ filePath: path.join(tmp, 'burst.jsonl'), dryRun: false, maxEntries: 5 });
+
+  for (let i = 1; i <= 20; i++) {
+    store.record({ action: `burst-${i}` });
+  }
+
+  const entries = store.read();
+  assert(entries.length === 5, 'retained exactly 5 after 20 writes');
+  assert(entries[0].action === 'burst-16', 'oldest kept is burst-16');
+  assert(entries[4].action === 'burst-20', 'newest kept is burst-20');
+  cleanup(tmp);
+}
+
+// --- createAuditStore retention: trim on pre-existing oversized file ---
+
+console.log('\ncreateAuditStore retention: trim on pre-existing oversized file');
+
+{
+  const tmp = tmpDir();
+  const p = path.join(tmp, 'preexisting.jsonl');
+  // Write 10 entries manually
+  const lines = [];
+  for (let i = 1; i <= 10; i++) {
+    lines.push(JSON.stringify({ action: `pre-${i}` }));
+  }
+  fs.writeFileSync(p, lines.join('\n') + '\n', 'utf8');
+
+  // Open store with maxEntries=4 — read should still return all, trim removes excess
+  const store = createAuditStore({ filePath: p, dryRun: false, maxEntries: 4 });
+  assert(store.read().length === 10, 'reads all pre-existing entries');
+  assert(store.trim() === 6, 'trim removes 6 excess entries');
+  assert(store.read().length === 4, 'exactly 4 entries after trim');
+  assert(store.read()[0].action === 'pre-7', 'keeps newest pre-existing entries');
+  cleanup(tmp);
+}
+
 // --- CLI self-test ---
 
 console.log('\nCLI self-test');
@@ -438,6 +614,7 @@ console.log('\nCLI self-test');
   assert(typeof mod.MAX_STRING_LENGTH === 'number', 'exports MAX_STRING_LENGTH');
   assert(typeof mod.MAX_ENTRIES === 'number', 'exports MAX_ENTRIES');
   assert(typeof mod.trimEntries === 'function', 'exports trimEntries');
+  assert(typeof mod.appendEntry === 'function', 'exports appendEntry');
   assert(Array.isArray(mod.SECRET_PATTERNS), 'exports SECRET_PATTERNS');
 }
 
