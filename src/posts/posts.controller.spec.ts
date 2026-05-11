@@ -1,6 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotImplementedException } from '@nestjs/common';
 import { PostsController } from './posts.controller';
+import { PostsService } from './posts.service';
+
+const mockPostsService = {
+  getPostDetail: jest.fn(),
+};
 
 describe('PostsController', () => {
   let controller: PostsController;
@@ -8,9 +13,11 @@ describe('PostsController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [PostsController],
+      providers: [{ provide: PostsService, useValue: mockPostsService }],
     }).compile();
 
     controller = module.get<PostsController>(PostsController);
+    jest.clearAllMocks();
   });
 
   it('should be defined', () => {
@@ -26,10 +33,14 @@ describe('PostsController', () => {
   });
 
   describe('getPostDetail', () => {
-    it('should throw NotImplementedException', () => {
-      expect(() => controller.getPostDetail('1')).toThrow(
-        NotImplementedException,
-      );
+    it('should delegate to PostsService.getPostDetail', async () => {
+      const mockDetail = { pid: 42, tid: 10, title: 'Test' };
+      mockPostsService.getPostDetail.mockResolvedValue(mockDetail);
+
+      const result = await controller.getPostDetail('42');
+
+      expect(mockPostsService.getPostDetail).toHaveBeenCalledWith('42');
+      expect(result).toBe(mockDetail);
     });
   });
 
