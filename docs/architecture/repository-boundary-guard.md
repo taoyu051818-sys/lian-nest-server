@@ -247,3 +247,19 @@ implementations on day one. Two concerns:
 | **Dependency** | Slices 1 and existing `nodebb-boundary.spec.ts`. |
 | **Validation** | `npm run test:boundary` runs both boundary specs and exits non-zero on any violation. |
 | **Acceptance** | Single command validates all module boundaries. Documented in CI config and worker contracts. |
+
+## 6. Implemented commands (issue #27)
+
+| Command | What it does |
+|---|---|
+| `npm run test:boundary` | Runs the Jest boundary spec only (`repository-boundary.spec.ts`). |
+| `npm test` | Runs all specs including the boundary guard. |
+| `node scripts/check-repository-boundary.js` | Standalone Node script — same check, no Jest dependency. |
+
+### Allowlist (approved importers)
+
+Only files under `src/repositories/` may import these packages:
+
+`@prisma/client`, `prisma`, `ioredis`, `redis`, `pg`, `mysql2`, `better-sqlite3`, `fs`, `fs/promises`
+
+All other `src/` files must use repository interfaces via `REPOSITORY_TOKENS` injection.

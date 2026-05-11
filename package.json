@@ -13,6 +13,7 @@
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
     "test": "jest --runInBand",
+    "test:boundary": "jest --runInBand --testPathPattern=repository-boundary",
     "test:cov": "jest --coverage",
     "lint": "eslint \"{src,test}/**/*.ts\""
   },
