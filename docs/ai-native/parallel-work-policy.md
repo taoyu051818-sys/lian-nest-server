@@ -26,6 +26,9 @@ touch overlapping files or have semantic dependencies.
 | `profile` | PR1 | Independent after A2 |
 | `migration-docs` | Legacy shutdown matrix, acceptance checklist | Docs-only, low conflict |
 | `ai-policy-docs` | Worker checklist, parallel work policy | Docs-only, low conflict |
+| `appmodule-wire-search` | Wire SearchModule into AppModule | Shared lock: `app-module` |
+| `appmodule-wire-groups` | Wire GroupsModule into AppModule | Shared lock: `app-module` |
+| `appmodule-wire-topics` | Wire TopicsModule into AppModule | Shared lock: `app-module` |
 
 ---
 
@@ -74,6 +77,32 @@ otherwise be forbidden or outside `allowedFiles`.
 If two tasks in the same batch claim the same lock, the launch gate flags a
 conflict. This extends the conflict group model to allow coordinated access to
 shared files without broader boundary relaxation.
+
+#### AppModule Single-Writer Rule
+
+`app.module.ts` is the most common shared lock. Any task that adds a new module
+to the `imports[]` array claims the `app-module` lock. Because NestJS module
+imports are a flat list with positional merge semantics, two workers wiring
+different modules into AppModule in parallel will produce a last-write-wins
+conflict — one worker's import is silently lost.
+
+**Concrete example:** Wiring SearchModule, GroupsModule, and TopicsModule into
+AppModule requires three separate tasks (each touches `app.module.ts`). Even
+though the three feature modules are otherwise independent, they MUST execute
+sequentially:
+
+```
+appmodule-wire-search → appmodule-wire-groups → appmodule-wire-topics
+```
+
+The orchestrator MUST NOT launch these tasks in parallel. Each task declares
+`sharedLocks: ["app-module"]` so the launch gate rejects the batch if more than
+one claims the lock simultaneously.
+
+**Why not one task for all three?** Combining unrelated module wiring into a
+single PR violates single-responsibility: if one module breaks, the others are
+blocked from merging. The shared lock lets each module get its own PR while
+still serializing access to the shared file.
 
 **Supported lock names and their file patterns:**
 

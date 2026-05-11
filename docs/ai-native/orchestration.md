@@ -200,6 +200,35 @@ sequentially. Tasks with the same non-doc `conflictGroup` are rejected.
 and at least one touches non-doc files, the launcher rejects the batch before
 dispatch. Docs-only groups (all `allowedFiles` under `docs/`) are exempt.
 
+### AppModule Shared Lock in Batch Scheduling
+
+When a batch contains multiple module-wiring tasks (e.g. wiring SearchModule,
+GroupsModule, and TopicsModule into `app.module.ts`), the orchestrator MUST
+serialize them. Each task declares `sharedLocks: ["app-module"]` in its task
+JSON. The launch gate rejects the batch if two tasks claim the same shared lock.
+
+**Correct — serial wiring:**
+
+```json
+[
+  { "conflictGroup": "appmodule-wire-search", "sharedLocks": ["app-module"], "allowedFiles": ["src/app.module.ts"] },
+  { "conflictGroup": "appmodule-wire-groups", "sharedLocks": ["app-module"], "allowedFiles": ["src/app.module.ts"] },
+  { "conflictGroup": "appmodule-wire-topics", "sharedLocks": ["app-module"], "allowedFiles": ["src/app.module.ts"] }
+]
+```
+
+These three tasks have distinct `conflictGroup` values but share the
+`app-module` lock. The launcher dispatches them sequentially: the second task
+waits until the first merges, and the third waits until the second merges.
+
+**Wrong — parallel wiring (would lose imports):**
+
+Launching all three simultaneously causes last-write-wins on `app.module.ts`.
+Only the last worker to commit would have its module import survive.
+
+See [Parallel Work Policy](parallel-work-policy.md) §Rule 5 for the full
+shared-lock specification.
+
 ## Security Model
 
 ### No Secrets Required

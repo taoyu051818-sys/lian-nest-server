@@ -212,6 +212,36 @@ When Prisma lands (PR #30), RepositoryModule providers will be replaced with rea
 - Stage 5 is deferred until AuthModule PRs merge
 - If AuthModule PRs merge before Stage 4, reorder: Stage 5 becomes Stage 4b
 
+## AppModule Single-Writer Rule
+
+`app.module.ts` is a single-writer resource. When multiple feature modules need
+to be wired into the `imports[]` array, each wiring task MUST execute
+sequentially, not in parallel. This applies even when the feature modules are
+otherwise independent.
+
+**Why:** NestJS module imports are a flat list. Two workers appending to
+`imports[]` concurrently produce a last-write-wins conflict — one worker's
+import is silently lost. There is no merge strategy that recovers the lost entry.
+
+**Enforcement:** Each wiring task declares `sharedLocks: ["app-module"]` in its
+task JSON. The launch gate rejects batches where multiple tasks claim the same
+lock. See [Parallel Work Policy §Rule 5](../ai-native/parallel-work-policy.md).
+
+**Example — future onboarding wave:** When SearchModule, GroupsModule, and
+TopicsModule are each ready to wire, they get separate PRs but serialize on the
+AppModule lock:
+
+```
+appmodule-wire-search → appmodule-wire-groups → appmodule-wire-topics
+```
+
+This preserves single-responsibility (each module gets its own PR) while
+preventing concurrent writes to `app.module.ts`.
+
+**Not a conflict group:** These tasks have distinct `conflictGroup` values (they
+are independent features). The shared lock is a finer-grained mechanism that
+serializes only the file-level write, not the entire task scope.
+
 ## Validation Commands
 
 For each stage PR, run:
