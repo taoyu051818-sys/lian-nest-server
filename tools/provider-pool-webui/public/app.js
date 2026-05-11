@@ -27,6 +27,18 @@ const ACTIONS_PREVIEW_URL = '/api/actions/preview';
 const ACTIONS_EXECUTE_URL = '/api/actions/execute';
 const SERVER_AUDIT_URL = '/api/audit';
 
+// Documentation links for action modules — maps action ID to relative doc path
+const ACTION_DOC_LINKS = {
+  'compile-tasks':       '../../../../docs/ai-native/webui-action-compile-tasks.md',
+  'plan.next.batch':     '../../../../docs/ai-native/webui-action-plan-next-batch.md',
+  'create-issues':       '../../../../docs/ai-native/webui-action-create-issues.md',
+  'issue-state':         '../../../../docs/ai-native/webui-action-issue-state.md',
+  'launch-batch':        '../../../../docs/ai-native/webui-action-launch-batch.md',
+  'merge-prs':           '../../../../docs/ai-native/webui-action-merge-prs.md',
+  'provider-rotation':   '../../../../docs/ai-native/webui-action-provider-rotation.md',
+  'worker.control':      '../../../../docs/ai-native/webui-action-worker-control.md',
+};
+
 // ── helpers ──────────────────────────────────────────────────────────
 
 function el(tag, attrs, children) {
@@ -693,6 +705,28 @@ function executeAction(action, contextData, _allData, confirmEl) {
   );
 }
 
+// ── doc links & risk prompts ──────────────────────────────────────────
+
+function renderDocLink(actionId) {
+  const docPath = ACTION_DOC_LINKS[actionId];
+  if (!docPath) return null;
+  return el('a', {
+    className: 'action-card__doc-link',
+    href: docPath,
+    target: '_blank',
+    rel: 'noopener',
+    textContent: 'Docs',
+  });
+}
+
+function renderRiskPrompt(actionMeta) {
+  if (!actionMeta.dangerous) return null;
+  return el('div', {
+    className: 'action-card__risk-prompt',
+    textContent: '⚠ HIGH RISK — This action mutates state. Review docs before executing.',
+  });
+}
+
 // ── server action module cards ────────────────────────────────────────
 
 function renderServerActionCards(serverActions, allData) {
@@ -712,22 +746,30 @@ function renderServerActionCards(serverActions, allData) {
 function renderServerActionCard(actionMeta, allData) {
   const card = el('div', { className: 'action-card action-card--server' });
 
+  const badges = el('div', { className: 'action-card__badges' }, [
+    riskBadge(actionMeta.dangerous ? 'high' : 'low'),
+    el('span', {
+      className: 'risk-badge',
+      style: 'background:rgba(96,165,250,0.12);color:#60a5fa',
+      textContent: 'MODULE',
+    }),
+  ]);
+
+  const docLink = renderDocLink(actionMeta.id);
+  if (docLink) badges.append(docLink);
+
   const header = el('div', { className: 'action-card__header' }, [
     el('span', { className: 'action-card__label', textContent: actionMeta.label }),
-    el('div', { className: 'action-card__badges' }, [
-      riskBadge(actionMeta.dangerous ? 'high' : 'low'),
-      el('span', {
-        className: 'risk-badge',
-        style: 'background:rgba(96,165,250,0.12);color:#60a5fa',
-        textContent: 'MODULE',
-      }),
-    ]),
+    badges,
   ]);
   card.append(header);
 
   if (actionMeta.description) {
     card.append(el('p', { className: 'action-card__desc', textContent: actionMeta.description }));
   }
+
+  const riskPrompt = renderRiskPrompt(actionMeta);
+  if (riskPrompt) card.append(riskPrompt);
 
   if (actionMeta.dangerous) {
     card.append(el('div', { className: 'action-card__blocker', textContent: '⚠ Dangerous — requires explicit confirmation' }));
@@ -1669,6 +1711,20 @@ function injectConsoleStyles() {
       border-left: 3px solid var(--accent-blue, #60a5fa);
     }
     .action-card__badges { display: flex; gap: 4px; align-items: center; }
+    .action-card__doc-link {
+      display: inline-flex; align-items: center; padding: 1px 6px;
+      font-family: var(--font-mono, monospace); font-size: 10px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .04em; border-radius: 3px;
+      color: var(--accent-blue, #60a5fa); background: rgba(96,165,250,0.12);
+      border: 1px solid rgba(96,165,250,0.25); text-decoration: none; cursor: pointer;
+      transition: background 120ms ease, border-color 120ms ease;
+    }
+    .action-card__doc-link:hover { background: rgba(96,165,250,0.18); border-color: var(--accent-blue, #60a5fa); }
+    .action-card__risk-prompt {
+      font-size: 11px; color: var(--status-disabled, #f87171);
+      background: rgba(248,113,113,0.1); padding: 6px 8px; border-radius: 4px;
+      border: 1px solid rgba(248,113,113,0.25); margin-bottom: 8px; line-height: 1.4;
+    }
     .server-action-result { margin-top: 8px; }
     .execute-result__payload {
       font-family: var(--font-mono, monospace); font-size: 11px;
