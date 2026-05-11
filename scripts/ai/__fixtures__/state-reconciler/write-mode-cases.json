@@ -1,0 +1,178 @@
+[
+  {
+    "case": "apply-single-drift-stale-running",
+    "description": "Apply mode prints gh issue edit suggestion for a single stale-running drift",
+    "applyMode": true,
+    "issues": [
+      {
+        "number": 501,
+        "title": "Stale running issue",
+        "state": "OPEN",
+        "labels": [{"name": "agent:running"}],
+        "updatedAt": "2026-04-01T00:00:00Z",
+        "linkedPRs": []
+      }
+    ],
+    "expectedInOutput": [
+      "APPLY MODE",
+      "gh issue edit 501",
+      "# Suggested: agent:running -> agent:blocked",
+      "Commands printed for manual review",
+      "stale-running"
+    ],
+    "notExpectedInOutput": [
+      "Nothing to suggest"
+    ]
+  },
+  {
+    "case": "apply-multiple-drifts",
+    "description": "Apply mode prints suggestions for each drift when an issue has multiple drifts",
+    "applyMode": true,
+    "issues": [
+      {
+        "number": 502,
+        "title": "Done without merge and closed PR",
+        "state": "OPEN",
+        "labels": [{"name": "agent:done"}],
+        "updatedAt": "2026-04-01T00:00:00Z",
+        "linkedPRs": [
+          {
+            "number": 552,
+            "title": "PR for issue 502",
+            "state": "CLOSED",
+            "mergedAt": null
+          }
+        ]
+      }
+    ],
+    "expectedInOutput": [
+      "APPLY MODE",
+      "gh issue edit 502",
+      "done-without-merge",
+      "done-with-closed-pr",
+      "Commands printed for manual review"
+    ],
+    "notExpectedInOutput": [
+      "Nothing to suggest"
+    ]
+  },
+  {
+    "case": "apply-no-drift-strictmode-bug",
+    "description": "Known bug: Apply mode with zero drifts hits strict-mode null-COUNT error because Find-StateDrift returns @() which unwraps to $null in the main flow (unlike -FixtureDir which wraps with @())",
+    "applyMode": true,
+    "issues": [
+      {
+        "number": 503,
+        "title": "Healthy running issue",
+        "state": "OPEN",
+        "labels": [{"name": "agent:running"}],
+        "updatedAt": "2026-05-11T10:00:00Z",
+        "linkedPRs": [
+          {
+            "number": 553,
+            "title": "PR for issue 503",
+            "state": "OPEN",
+            "mergedAt": null
+          }
+        ]
+      }
+    ],
+    "expectedExitCode": 1,
+    "expectedInOutput": [
+      "Count"
+    ],
+    "notExpectedInOutput": []
+  },
+  {
+    "case": "apply-multiple-issues-mixed",
+    "description": "Apply mode only prints suggestions for issues with drift, skips clean ones",
+    "applyMode": true,
+    "issues": [
+      {
+        "number": 504,
+        "title": "Stale queued issue",
+        "state": "OPEN",
+        "labels": [{"name": "agent:queued"}],
+        "updatedAt": "2026-04-01T00:00:00Z",
+        "linkedPRs": []
+      },
+      {
+        "number": 505,
+        "title": "Healthy running issue",
+        "state": "OPEN",
+        "labels": [{"name": "agent:running"}],
+        "updatedAt": "2026-05-11T10:00:00Z",
+        "linkedPRs": [
+          {
+            "number": 555,
+            "title": "PR for issue 505",
+            "state": "OPEN",
+            "mergedAt": null
+          }
+        ]
+      }
+    ],
+    "expectedInOutput": [
+      "APPLY MODE",
+      "gh issue edit 504",
+      "stale-queued",
+      "Commands printed for manual review"
+    ],
+    "notExpectedInOutput": [
+      "gh issue edit 505"
+    ]
+  },
+  {
+    "case": "apply-merged-pr-stale-label",
+    "description": "Apply mode suggests label transition for merged PR with stale agent label",
+    "applyMode": true,
+    "issues": [
+      {
+        "number": 506,
+        "title": "Merged PR but running label",
+        "state": "OPEN",
+        "labels": [{"name": "agent:running"}],
+        "updatedAt": "2026-05-10T10:00:00Z",
+        "linkedPRs": [
+          {
+            "number": 556,
+            "title": "PR for issue 506",
+            "state": "MERGED",
+            "mergedAt": "2026-05-10T09:00:00Z"
+          }
+        ]
+      }
+    ],
+    "expectedInOutput": [
+      "APPLY MODE",
+      "gh issue edit 506",
+      "merged-pr-stale-label",
+      "# Suggested: agent:running -> agent:done",
+      "Commands printed for manual review"
+    ],
+    "notExpectedInOutput": [
+      "Nothing to suggest"
+    ]
+  },
+  {
+    "case": "apply-dryrun-mutually-exclusive",
+    "description": "Apply and DryRun flags are mutually exclusive and produce an error",
+    "applyMode": true,
+    "dryRunMode": true,
+    "issues": [
+      {
+        "number": 507,
+        "title": "Dummy issue",
+        "state": "OPEN",
+        "labels": [],
+        "updatedAt": "2026-05-11T10:00:00Z",
+        "linkedPRs": []
+      }
+    ],
+    "expectedExitCode": 1,
+    "expectedInOutput": [
+      "cannot be used together"
+    ],
+    "notExpectedInOutput": []
+  }
+]
