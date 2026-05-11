@@ -65,8 +65,27 @@ Worker classes control which automation may target main when health is degraded:
 ### Downstream Consumers
 
 - **Scheduler/launch gate**: Reads `state` and `allowedWorkerClasses` before dispatching new workers.
+- **Self-cycle runner**: Reads the marker at Step 2 to gate the cycle. A `red` or `black` state, or a missing marker, stops the cycle.
 - **Merge scripts**: Checks `state` is not `red`/`black` before merging.
 - **Monitoring**: Reads `capturedAt` to detect stale markers.
+
+## Write Workflow
+
+The marker is produced by `write-main-health-state.ps1` after a health gate run:
+
+```
+post-merge-health-gate.js --quick
+        |
+        v
+write-main-health-state.ps1 -State <state> -Checks "..."
+        |
+        v
+.github/ai-state/main-health.json
+```
+
+The self-cycle runner reads this file at Step 2. See
+[main-health-policy.md](../../docs/ai-native/main-health-policy.md) for the
+full state detection and recording workflow.
 
 ## Design Decisions
 
@@ -74,4 +93,4 @@ Worker classes control which automation may target main when health is degraded:
 - No secrets or tokens are stored in marker files.
 - `markerVersion` enables schema evolution without breaking consumers.
 - `DryRun` is a switch parameter; omitting it writes the file.
-- CI integration is not wired yet (future work).
+- The self-cycle runner and launch gate consume the marker; CI workflow integration is future work.
