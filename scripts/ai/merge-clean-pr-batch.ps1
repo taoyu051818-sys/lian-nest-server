@@ -45,6 +45,10 @@
     - Generated Prisma freshness (client without schema) — blocking
     Guards are skipped when their required inputs are missing.
 
+.PARAMETER ShowFixtures
+    Print example guard fixture templates (task-manifest.json, PR body)
+    and exit. Use this to bootstrap guard testing for a new task.
+
 .EXAMPLE
     # Dry-run with inline PR numbers
     .\scripts\ai\merge-clean-pr-batch.ps1 -PRs 42,45 -Repo owner/name
@@ -65,6 +69,9 @@ param(
 
     [Parameter(Mandatory = $true, ParameterSetName = 'File')]
     [string]$AllowlistFile,
+
+    [Parameter(Mandatory = $true, ParameterSetName = 'Fixtures')]
+    [switch]$ShowFixtures,
 
     [string]$Repo,
 
@@ -343,7 +350,98 @@ function Invoke-PRMerge {
 # Main
 # ---------------------------------------------------------------------------
 
+function Write-GuardFixtures {
+    Write-Banner "Guard Fixture Templates"
+
+    $manifestJson = @'
+{
+  "taskId": "170-merge-guard-fixtures",
+  "allowedFiles": [
+    "scripts/ai/merge-clean-pr-batch.ps1",
+    "docs/ai-native/controlled-auto-merge.md",
+    "docs/ai-native/merge-closure-sop.md"
+  ],
+  "forbiddenFiles": [
+    "src/**",
+    "prisma/**",
+    "package.json",
+    "package-lock.json"
+  ]
+}
+'@
+
+    $prBody = @'
+## Summary
+Add guard fixture templates for explicit allowlist safety testing.
+
+## Changed files
+- scripts/ai/merge-clean-pr-batch.ps1
+- docs/ai-native/controlled-auto-merge.md
+- docs/ai-native/merge-closure-sop.md
+
+## Linked issues
+Closes #170
+
+## Validation
+- npm run check: PASS
+- Dry-run with -RunGuards: PASS
+
+## Non-goals
+- No changes to src/** or prisma/**
+- No runtime behavior changes
+
+## Risk / rollback
+Low risk — docs and fixture-only changes. Revert commit to roll back.
+
+## Follow-up handoff
+None required. All guard fixtures self-contained.
+'@
+
+    $highRiskManifest = @'
+{
+  "taskId": "example-high-risk",
+  "allowedFiles": [
+    "src/modules/auth/auth.module.ts",
+    "src/modules/auth/dto/login.dto.ts"
+  ],
+  "forbiddenFiles": [
+    "src/**",
+    "prisma/**",
+    "package.json",
+    "package-lock.json"
+  ]
+}
+'@
+
+    Write-Host "--- task-manifest.json (allowlist fixture, safe PR) ---"
+    Write-Host $manifestJson
+    Write-Host ""
+    Write-Host "--- task-manifest.json (high-risk, src/** in allowedFiles) ---"
+    Write-Host $highRiskManifest
+    Write-Host ""
+    Write-Host "--- PR body template (passes handoff guard) ---"
+    Write-Host $prBody
+    Write-Host ""
+    Write-Host "Usage:"
+    Write-Host "  1. Copy task-manifest.json to .ai/task-manifest.json"
+    Write-Host "  2. Use the PR body template for your PR description"
+    Write-Host "  3. Run: .\scripts\ai\merge-clean-pr-batch.ps1 -PRs N -Repo owner/name -RunGuards"
+    Write-Host ""
+    Write-Host "Guard behavior:"
+    Write-Host "  - allowedFiles outside of forbiddenFiles  => PASS"
+    Write-Host "  - any file matching forbiddenFiles         => BLOCK"
+    Write-Host "  - any file outside allowedFiles             => BLOCK"
+    Write-Host "  - missing handoff sections in PR body       => BLOCK"
+    Write-Host "  - high-risk PRs (src/prisma/auth)           => BLOCK (always human-required)"
+}
+
 function Main {
+    # Show fixtures and exit
+    if ($ShowFixtures.IsPresent) {
+        Write-GuardFixtures
+        exit 0
+    }
+
     # Resolve repository
     if (-not $Repo) {
         $Repo = $env:GH_REPO

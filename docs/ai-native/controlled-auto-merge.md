@@ -147,6 +147,118 @@ Checks that if `src/generated/prisma/` files changed, the corresponding
 `prisma/schema.prisma` also changed. Generated-only changes without a
 schema update block merge (fail-closed for ownership enforcement).
 
+## Guard Fixtures
+
+Guard fixtures are example files that demonstrate and test the guard
+safety behavior. Use them to bootstrap guard testing for a new task.
+
+### Printing Fixtures
+
+```powershell
+# Print all guard fixture templates and exit
+.\scripts\ai\merge-clean-pr-batch.ps1 -ShowFixtures
+```
+
+This prints:
+- A **safe** `task-manifest.json` with allowedFiles outside forbiddenFiles
+- A **high-risk** `task-manifest.json` that would be blocked
+- A **PR body template** that passes the handoff guard
+
+### Task Manifest Fixture (Safe)
+
+```json
+{
+  "taskId": "170-merge-guard-fixtures",
+  "allowedFiles": [
+    "scripts/ai/merge-clean-pr-batch.ps1",
+    "docs/ai-native/controlled-auto-merge.md",
+    "docs/ai-native/merge-closure-sop.md"
+  ],
+  "forbiddenFiles": [
+    "src/**",
+    "prisma/**",
+    "package.json",
+    "package-lock.json"
+  ]
+}
+```
+
+This manifest is safe: every `allowedFiles` entry falls outside the
+`forbiddenFiles` globs. The boundary guard will pass for any PR that
+only touches these files.
+
+### Task Manifest Fixture (High-Risk — Blocked)
+
+```json
+{
+  "taskId": "example-high-risk",
+  "allowedFiles": [
+    "src/modules/auth/auth.module.ts",
+    "src/modules/auth/dto/login.dto.ts"
+  ],
+  "forbiddenFiles": [
+    "src/**",
+    "prisma/**",
+    "package.json",
+    "package-lock.json"
+  ]
+}
+```
+
+This manifest is **always blocked**: `allowedFiles` entries overlap
+with `forbiddenFiles` (`src/**`). High-risk PRs touching runtime,
+database, auth, or dependency files must remain human-required. The
+boundary guard rejects these regardless of the allowlist.
+
+### PR Body Fixture (Passes Handoff Guard)
+
+```markdown
+## Summary
+Add guard fixture templates for explicit allowlist safety testing.
+
+## Changed files
+- scripts/ai/merge-clean-pr-batch.ps1
+- docs/ai-native/controlled-auto-merge.md
+- docs/ai-native/merge-closure-sop.md
+
+## Linked issues
+Closes #170
+
+## Validation
+- npm run check: PASS
+- Dry-run with -RunGuards: PASS
+
+## Non-goals
+- No changes to src/** or prisma/**
+- No runtime behavior changes
+
+## Risk / rollback
+Low risk — docs and fixture-only changes. Revert commit to roll back.
+
+## Follow-up handoff
+None required. All guard fixtures self-contained.
+```
+
+All seven required handoff sections are present. Missing any one of
+them blocks merge.
+
+### Explicit Allowlist Safety
+
+The controlled auto-merge script enforces explicit allowlist safety
+through three mechanisms:
+
+1. **Script-level**: Only PRs passed via `-PRs` or `-AllowlistFile`
+   are ever processed. The script never discovers or guesses PRs.
+2. **Guard-level**: When `-RunGuards` is active, each PR's changed
+   files are validated against the task manifest's `allowedFiles` and
+   `forbiddenFiles` globs. Files outside the allowlist block merge.
+3. **Policy-level**: High-risk categories (`src/**`, `prisma/**`,
+   `package.json`, auth/security code) are forbidden from auto-merge.
+   These always require human review from the designated roles.
+
+This triple-layer safety ensures that no unspecified, out-of-boundary,
+or high-risk PR is merged without explicit human approval.
+
 ### Dry-Run Report
 
 In dry-run mode with `-RunGuards`, the script prints a guard
