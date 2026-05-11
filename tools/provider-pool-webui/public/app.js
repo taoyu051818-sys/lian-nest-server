@@ -20,6 +20,12 @@ const POLICY_URL = '../../../../.github/ai-policy/provider-pool-policy.json';
 const WEBUI_STATE_URL = '../../../../.github/ai-state/provider-pool-webui.json';
 const REFRESH_INTERVAL_MS = 30_000;
 
+// Action API endpoints (relative to WebUI server origin)
+const ACTIONS_LIST_URL = '/api/actions';
+const ACTIONS_PREVIEW_URL = '/api/actions/preview';
+const ACTIONS_EXECUTE_URL = '/api/actions/execute';
+const SERVER_AUDIT_URL = '/api/audit';
+
 // ── helpers ──────────────────────────────────────────────────────────
 
 function el(tag, attrs, children) {
@@ -434,6 +440,8 @@ const ACTION_REGISTRY = {
 };
 
 const auditLog = [];
+let cachedServerActions = [];
+let cachedServerAudit = [];
 
 function logAuditEvent(entry) {
   auditLog.push({
@@ -441,6 +449,50 @@ function logAuditEvent(entry) {
     timestamp: new Date().toISOString(),
     id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
   });
+}
+
+// ── server action module integration ─────────────────────────────────
+
+async function fetchServerActions() {
+  try {
+    const data = await fetchJSON(ACTIONS_LIST_URL);
+    return Array.isArray(data.actions) ? data.actions : [];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchServerAudit() {
+  try {
+    const data = await fetchJSON(SERVER_AUDIT_URL);
+    return Array.isArray(data.entries) ? data.entries : [];
+  } catch {
+    return [];
+  }
+}
+
+async function requestServerPreview(actionId, payload) {
+  const res = await fetch(ACTIONS_PREVIEW_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionId, payload }),
+    cache: 'no-store',
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `Preview failed (${res.status})`);
+  return data;
+}
+
+async function requestServerExecute(actionId, payload) {
+  const res = await fetch(ACTIONS_EXECUTE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionId, payload, confirm: true }),
+    cache: 'no-store',
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `Execution failed (${res.status})`);
+  return data;
 }
 
 function riskClass(level) {
@@ -640,6 +692,261 @@ function executeAction(action, contextData, _allData, confirmEl) {
   );
 }
 
+// ── server action module cards ────────────────────────────────────────
+
+function renderServerActionCards(serverActions, allData) {
+  if (!serverActions || serverActions.length === 0) return null;
+
+  const section = el('div', { className: 'console-group' });
+  section.append(el('h3', { textContent: 'Action Modules (Server)' }));
+
+  const grid = el('div', { className: 'action-grid' });
+  for (const action of serverActions) {
+    grid.append(renderServerActionCard(action, allData));
+  }
+  section.append(grid);
+  return section;
+}
+
+function renderServerActionCard(actionMeta, allData) {
+  const card = el('div', { className: 'action-card action-card--server' });
+
+  const header = el('div', { className: 'action-card__header' }, [
+    el('span', { className: 'action-card__label', textContent: actionMeta.label }),
+    el('div', { className: 'action-card__badges' }, [
+      riskBadge(actionMeta.dangerous ? 'high' : 'low'),
+      el('span', {
+        className: 'risk-badge',
+        style: 'background:rgba(96,165,250,0.12);color:#60a5fa',
+        textContent: 'MODULE',
+      }),
+    ]),
+  ]);
+  card.append(header);
+
+  if (actionMeta.description) {
+    card.append(el('p', { className: 'action-card__desc', textContent: actionMeta.description }));
+  }
+
+  if (actionMeta.dangerous) {
+    card.append(el('div', { className: 'action-card__blocker', textContent: '⚠ Dangerous — requires explicit confirmation' }));
+  }
+
+  // Build payload form
+  const form = buildPayloadForm(actionMeta, allData);
+  card.append(form);
+
+  // Preview button
+  const previewBtn = el('button', {
+    className: 'action-btn action-btn--preview',
+    textContent: 'Preview',
+  });
+
+  const resultContainer = el('div', { className: 'server-action-result' });
+  card.append(previewBtn);
+  card.append(resultContainer);
+
+  previewBtn.addEventListener('click', async () => {
+    const payload = collectFormPayload(form);
+    resultContainer.replaceChildren(el('p', { className: 'action-panel__guard', textContent: 'Requesting preview…' }));
+
+    try {
+      const previewResult = await requestServerPreview(actionMeta.id, payload);
+      showServerPreviewResult(previewResult, actionMeta, payload, resultContainer, allData);
+    } catch (err) {
+      resultContainer.replaceChildren(
+        el('div', { className: 'action-panel__warning', textContent: `Preview error: ${err.message}` }),
+      );
+    }
+  });
+
+  return card;
+}
+
+function buildPayloadForm(actionMeta, allData) {
+  const form = el('div', { className: 'action-form' });
+  const providers = allData.state?.providers || [];
+
+  // If the action id hints at provider context, add a provider selector
+  const isProviderAction = /provider|cooldown|retry/i.test(actionMeta.id);
+
+  if (isProviderAction && providers.length > 0) {
+    const selectWrap = el('div', { className: 'action-form__field' });
+    selectWrap.append(el('label', { className: 'action-form__label', textContent: 'Provider' }));
+
+    const select = el('select', { className: 'action-form__select', 'data-field': 'providerId' });
+    select.append(el('option', { value: '', textContent: '— select provider —' }));
+    for (const p of providers) {
+      select.append(el('option', { value: p.id, textContent: `${p.id} (${p.status})` }));
+    }
+    selectWrap.append(select);
+    form.append(selectWrap);
+  }
+
+  // Generic JSON payload editor for advanced params
+  const jsonWrap = el('div', { className: 'action-form__field' });
+  jsonWrap.append(el('label', { className: 'action-form__label', textContent: 'Payload (JSON)' }));
+  const textarea = el('textarea', {
+    className: 'action-form__textarea',
+    'data-field': 'jsonPayload',
+    placeholder: '{}',
+    rows: '3',
+  });
+  jsonWrap.append(textarea);
+  form.append(jsonWrap);
+
+  return form;
+}
+
+function collectFormPayload(form) {
+  const payload = {};
+
+  // Collect select fields
+  for (const select of form.querySelectorAll('select[data-field]')) {
+    if (select.value) payload[select.dataset.field] = select.value;
+  }
+
+  // Collect text input fields
+  for (const input of form.querySelectorAll('input[data-field]')) {
+    if (input.value) payload[input.dataset.field] = input.value;
+  }
+
+  // Merge JSON payload if provided
+  const textarea = form.querySelector('textarea[data-field="jsonPayload"]');
+  if (textarea && textarea.value.trim()) {
+    try {
+      const jsonPayload = JSON.parse(textarea.value.trim());
+      Object.assign(payload, jsonPayload);
+    } catch {
+      // ignore invalid JSON — server will handle it
+    }
+  }
+
+  return payload;
+}
+
+function showServerPreviewResult(previewResult, actionMeta, payload, container, _allData) {
+  container.replaceChildren();
+
+  // Preview result panel
+  const panel = el('div', { className: 'action-panel' });
+  panel.append(el('h4', { className: 'action-panel__title', textContent: 'Server Preview' }));
+
+  if (previewResult.dryRun) {
+    panel.append(el('p', { className: 'action-panel__guard', textContent: 'DRY RUN — no side effects' }));
+  }
+
+  if (previewResult.preview) {
+    panel.append(renderPreviewPayload(previewResult.preview));
+  } else if (previewResult.message) {
+    panel.append(el('p', { className: 'action-card__desc', textContent: previewResult.message }));
+  }
+
+  // Execute button (only after preview)
+  const executeBtn = el('button', {
+    className: 'action-btn action-btn--execute',
+    textContent: 'Execute…',
+  });
+  panel.append(executeBtn);
+  container.append(panel);
+
+  // Execute confirmation flow
+  executeBtn.addEventListener('click', () => {
+    const existing = panel.querySelector('.execute-confirm');
+    if (existing) existing.remove();
+
+    const confirm = el('div', { className: 'execute-confirm' });
+
+    confirm.append(el('p', {
+      className: 'execute-confirm__prompt',
+      textContent: `Type "EXECUTE" to run "${actionMeta.label}" on server:`,
+    }));
+
+    const input = el('input', {
+      className: 'execute-confirm__input',
+      type: 'text',
+      placeholder: 'EXECUTE',
+      autocomplete: 'off',
+    });
+    confirm.append(input);
+
+    const btnRow = el('div', { className: 'execute-confirm__actions' });
+
+    const cancelBtn = el('button', {
+      className: 'action-btn action-btn--cancel',
+      textContent: 'Cancel',
+      onClick: () => confirm.remove(),
+    });
+
+    const goBtn = el('button', {
+      className: 'action-btn action-btn--execute action-btn--disabled',
+      textContent: 'Execute',
+      disabled: 'true',
+    });
+
+    input.addEventListener('input', () => {
+      const match = input.value.trim() === 'EXECUTE';
+      goBtn.disabled = !match;
+      goBtn.className = `action-btn action-btn--execute ${match ? '' : 'action-btn--disabled'}`;
+    });
+
+    goBtn.addEventListener('click', async () => {
+      if (input.value.trim() !== 'EXECUTE') return;
+
+      confirm.replaceChildren(el('p', { className: 'action-panel__guard', textContent: 'Executing…' }));
+
+      try {
+        const result = await requestServerExecute(actionMeta.id, payload);
+        // Record in client audit
+        logAuditEvent({
+          action: actionMeta.id,
+          riskLevel: actionMeta.dangerous ? 'high' : 'low',
+          target: payload.providerId || 'server-module',
+          payload,
+          mode: 'execute',
+          status: result.ok ? 'success' : 'failed',
+          serverAuditId: result.auditId,
+        });
+
+        const resultPanel = el('div', { className: 'execute-result execute-result--dispatched' }, [
+          el('p', { textContent: result.ok
+            ? `Action "${actionMeta.label}" executed successfully`
+            : `Action "${actionMeta.label}" failed`,
+          }),
+        ]);
+        if (result.auditId) {
+          resultPanel.append(el('p', { className: 'execute-result__note', textContent: `Audit ID: ${result.auditId}` }));
+        }
+        if (result.result) {
+          resultPanel.append(el('pre', {
+            className: 'execute-result__payload',
+            textContent: JSON.stringify(result.result, null, 2),
+          }));
+        }
+        confirm.replaceWith(resultPanel);
+      } catch (err) {
+        logAuditEvent({
+          action: actionMeta.id,
+          riskLevel: actionMeta.dangerous ? 'high' : 'low',
+          target: payload.providerId || 'server-module',
+          payload,
+          mode: 'execute',
+          status: 'error',
+          note: err.message,
+        });
+        confirm.replaceChildren(
+          el('div', { className: 'action-panel__warning', textContent: `Execution error: ${err.message}` }),
+        );
+      }
+    });
+
+    btnRow.append(cancelBtn, goBtn);
+    confirm.append(btnRow);
+    panel.append(confirm);
+    input.focus();
+  });
+}
+
 function renderOperationConsole(allData) {
   const { state, policy, webuiState } = allData;
   const container = el('div', { className: 'console-section' });
@@ -652,7 +959,11 @@ function renderOperationConsole(allData) {
     el('span', { className: 'console-mode-note', textContent: 'Execute requires typed confirmation' }),
   ]));
 
-  // Provider actions
+  // Server action modules (loaded from action module directory)
+  const serverSection = renderServerActionCards(cachedServerActions, allData);
+  if (serverSection) container.append(serverSection);
+
+  // Provider actions (client-side)
   const providers = state?.providers || [];
   if (providers.length > 0) {
     const providerSection = el('div', { className: 'console-group' });
@@ -675,7 +986,7 @@ function renderOperationConsole(allData) {
     container.append(providerSection);
   }
 
-  // Queue actions
+  // Queue actions (client-side)
   if (webuiState?.queueEntries?.length > 0 || webuiState?.queue) {
     const queueSection = el('div', { className: 'console-group' });
     queueSection.append(el('h3', { textContent: 'Queue Actions' }));
@@ -692,7 +1003,7 @@ function renderOperationConsole(allData) {
     container.append(queueSection);
   }
 
-  // Global actions
+  // Global actions (client-side)
   const globalSection = el('div', { className: 'console-group' });
   globalSection.append(el('h3', { textContent: 'Global Actions' }));
 
@@ -703,7 +1014,7 @@ function renderOperationConsole(allData) {
   globalSection.append(globalGrid);
   container.append(globalSection);
 
-  // Audit log section
+  // Merged audit log (client + server)
   container.append(renderAuditSection());
 
   return container;
@@ -713,12 +1024,24 @@ function renderAuditSection() {
   const section = el('div', { className: 'console-group console-audit' });
   section.append(el('h3', { textContent: 'Audit Log' }));
 
-  if (auditLog.length === 0) {
-    section.append(el('p', { className: 'empty-state', textContent: 'No operations recorded in this session' }));
-    return section;
-  }
+  // Merge client-side and server-side audit entries
+  const serverRows = (cachedServerAudit || []).map((entry) =>
+    el('tr', { className: 'audit-row--server' }, [
+      el('td', { className: 'mono', textContent: formatTimestamp(entry.completedAt || entry.startedAt) }),
+      el('td', { textContent: entry.actionId }),
+      el('td', null, [riskBadge(entry.status === 'error' ? 'high' : 'low')]),
+      el('td', { textContent: 'server' }),
+      el('td', { textContent: 'execute' }),
+      el('td', null, [
+        el('span', {
+          className: `badge ${entry.status === 'success' ? 'badge-available' : 'badge-disabled'}`,
+          textContent: entry.status,
+        }),
+      ]),
+    ]),
+  );
 
-  const rows = auditLog.map((entry) =>
+  const clientRows = auditLog.map((entry) =>
     el('tr', null, [
       el('td', { className: 'mono', textContent: formatTimestamp(entry.timestamp) }),
       el('td', { textContent: entry.action }),
@@ -728,6 +1051,13 @@ function renderAuditSection() {
       el('td', { textContent: entry.status }),
     ]),
   );
+
+  const allRows = [...serverRows, ...clientRows];
+
+  if (allRows.length === 0) {
+    section.append(el('p', { className: 'empty-state', textContent: 'No operations recorded in this session' }));
+    return section;
+  }
 
   section.append(
     el('table', { className: 'audit-table' }, [
@@ -739,9 +1069,24 @@ function renderAuditSection() {
         el('th', { textContent: 'Mode' }),
         el('th', { textContent: 'Status' }),
       ])]),
-      el('tbody', null, rows),
+      el('tbody', null, allRows),
     ]),
   );
+
+  // Refresh server audit button
+  const refreshBtn = el('button', {
+    className: 'action-btn action-btn--safe',
+    textContent: 'Refresh Server Audit',
+    onClick: async () => {
+      cachedServerAudit = await fetchServerAudit();
+      const parent = section.parentElement;
+      if (parent) {
+        const oldAudit = parent.querySelector('.console-audit');
+        if (oldAudit) oldAudit.replaceWith(renderAuditSection());
+      }
+    },
+  });
+  section.append(refreshBtn);
 
   return section;
 }
@@ -855,6 +1200,50 @@ function injectConsoleStyles() {
     }
     .tab-panel { display: none; }
     .tab-panel--active { display: block; }
+
+    /* Server action form styles */
+    .action-form { margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.15); border-radius: 4px; }
+    .action-form__field { margin-bottom: 8px; }
+    .action-form__field:last-child { margin-bottom: 0; }
+    .action-form__label {
+      display: block; font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .04em;
+      color: var(--text-muted, #8b8fa4); margin-bottom: 4px;
+    }
+    .action-form__select,
+    .action-form__input {
+      width: 100%; padding: 6px 8px; background: var(--surface-bg, #0f1117);
+      border: 1px solid var(--surface-border, #262b3a); border-radius: 4px;
+      color: var(--text-primary, #e2e4ea); font-family: var(--font-mono, monospace);
+      font-size: 12px;
+    }
+    .action-form__textarea {
+      width: 100%; padding: 6px 8px; background: var(--surface-bg, #0f1117);
+      border: 1px solid var(--surface-border, #262b3a); border-radius: 4px;
+      color: var(--text-primary, #e2e4ea); font-family: var(--font-mono, monospace);
+      font-size: 12px; resize: vertical; min-height: 48px;
+    }
+    .action-form__select:focus,
+    .action-form__input:focus,
+    .action-form__textarea:focus {
+      outline: none; border-color: var(--accent-blue, #60a5fa);
+    }
+    .action-form__select option {
+      background: var(--surface-bg, #0f1117); color: var(--text-primary, #e2e4ea);
+    }
+    .action-card--server {
+      border-left: 3px solid var(--accent-blue, #60a5fa);
+    }
+    .action-card__badges { display: flex; gap: 4px; align-items: center; }
+    .server-action-result { margin-top: 8px; }
+    .execute-result__payload {
+      font-family: var(--font-mono, monospace); font-size: 11px;
+      color: var(--text-secondary, #8b8fa4); white-space: pre-wrap;
+      word-break: break-word; padding: 6px; margin-top: 6px;
+      background: var(--surface-bg, #0f1117); border-radius: 4px;
+      border: 1px solid var(--surface-border, #262b3a);
+    }
+    .audit-row--server { background: rgba(96,165,250,0.04); }
   `;
   document.head.append(style);
 }
@@ -882,6 +1271,12 @@ async function refresh(root) {
   } catch {
     webuiState = null;
   }
+
+  // Server action modules and audit are optional — server may not be running
+  [cachedServerActions, cachedServerAudit] = await Promise.all([
+    fetchServerActions(),
+    fetchServerAudit(),
+  ]);
 
   const policyMap = Object.fromEntries(
     (policy.providers ?? []).map(p => [p.id, p]),
