@@ -8,6 +8,7 @@
  * Run: node scripts/guards/check-provider-quota.test.js
  */
 
+const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const {
@@ -153,6 +154,42 @@ console.log('\ncheck-provider-quota tests\n');
   const violations = validateQuotaState(state);
   assert(violations.some((v) => v.includes('currentConcurrency')), 'missing currentConcurrency fails');
 }
+{
+  const state = validState();
+  state.providers = null;
+  const violations = validateQuotaState(state);
+  assert(violations.some((v) => v.includes('not an array')), 'null providers fails');
+}
+{
+  const state = validState();
+  delete state.providers[0].maxConcurrency;
+  const violations = validateQuotaState(state);
+  assert(violations.some((v) => v.includes('maxConcurrency')), 'missing maxConcurrency fails');
+}
+{
+  const state = validState();
+  state.providers = [];
+  const violations = validateQuotaState(state);
+  assert(violations.length === 0, 'empty providers array passes validation');
+}
+{
+  const state = validState();
+  state.providers[0].consecutiveFailures = -1;
+  const violations = validateQuotaState(state);
+  assert(violations.length === 0, 'negative consecutiveFailures passes schema check (numeric)');
+}
+{
+  const state = validState();
+  state.providers[0].currentConcurrency = -5;
+  const violations = validateQuotaState(state);
+  assert(violations.length === 0, 'negative currentConcurrency passes schema check (numeric)');
+}
+{
+  const state = validState();
+  state.providers[0].status = 'disabled';
+  const violations = validateQuotaState(state);
+  assert(violations.length === 0, 'disabled status passes validation');
+}
 
 // --- validatePolicyExhaustionConfig ---
 
@@ -241,6 +278,42 @@ console.log('\ncheck-provider-quota tests\n');
   assert(result.blocked.length === 1, 'mixed: one blocked');
   assert(result.recovered.length === 1, 'mixed: one recovered');
 }
+{
+  const state = validState();
+  state.providers[0].status = 'disabled';
+  state.providers[0].cooldownExpiresAt = '2099-12-31T23:59:59Z';
+  const result = detectExhaustedProviders(state);
+  assert(result.blocked.length === 0, 'disabled provider not counted in blocked');
+  assert(result.recovered.length === 0, 'disabled provider not counted in recovered');
+  assert(result.stalled.length === 0, 'disabled provider not counted in stalled');
+}
+{
+  const state = validState();
+  state.providers[0].status = 'exhausted';
+  state.providers[0].cooldownExpiresAt = '2099-01-01T00:00:00Z';
+  state.providers[1].status = 'exhausted';
+  state.providers[1].cooldownExpiresAt = '2099-06-01T00:00:00Z';
+  const result = detectExhaustedProviders(state);
+  assert(result.blocked.length === 2, 'two exhausted future cooldowns → both blocked');
+  assert(result.recovered.length === 0, 'two blocked → none recovered');
+  assert(result.stalled.length === 0, 'two blocked → none stalled');
+}
+{
+  const state = validState();
+  state.providers[0].status = 'exhausted';
+  state.providers[0].cooldownExpiresAt = null;
+  state.providers[1].status = 'exhausted';
+  state.providers[1].cooldownExpiresAt = null;
+  const result = detectExhaustedProviders(state);
+  assert(result.stalled.length === 2, 'two exhausted no cooldowns → both stalled');
+}
+{
+  const state = validState();
+  state.providers[0].status = 'exhausted';
+  state.providers[0].cooldownExpiresAt = new Date().toISOString();
+  const result = detectExhaustedProviders(state);
+  assert(result.recovered.length === 1, 'cooldown at exact current time → recovered (expires <= now)');
+}
 
 // --- detectQuotaTrends ---
 
@@ -306,6 +379,21 @@ console.log('\ncheck-provider-quota tests\n');
   assert(readiness.assignable === true, 'one exhausted + one available → still assignable');
   assert(readiness.summary.exhausted === 1, 'reports correct exhausted count');
 }
+{
+  const state = validState();
+  state.providers = [];
+  const readiness = computeQuotaReadiness(state);
+  assert(readiness.assignable === false, 'empty providers → not assignable');
+  assert(readiness.summary.totalProviders === 0, 'empty providers → zero total');
+}
+{
+  const state = validState();
+  state.providers[0].status = 'disabled';
+  const readiness = computeQuotaReadiness(state);
+  assert(readiness.assignable === true, 'one disabled + one available → still assignable');
+  assert(readiness.summary.disabled === 1, 'reports correct disabled count');
+  assert(readiness.summary.available === 1, 'reports correct available count');
+}
 
 // --- checkProviderQuota (integration with real files) ---
 
@@ -325,6 +413,56 @@ console.log('\ncheck-provider-quota tests\n');
   assert(result.ok === false, 'missing state file fails guard');
   assert(result.violations.some((v) => v.includes('not found')), 'violation mentions not found');
 }
+{
+  const tmpState = path.join(__dirname, '.tmp-exhausted-state.json');
+  const exhausted = validState();
+  exhausted.providers[0].status = 'exhausted';
+  exhausted.providers[0].cooldownExpiresAt = '2099-12-31T23:59:59Z';
+  fs.writeFileSync(tmpState, JSON.stringify(exhausted));
+  try {
+    const result = checkProviderQuota({ statePath: tmpState });
+    assert(result.ok === false, 'exhausted provider with active cooldown fails guard');
+    assert(result.violations.some((v) => v.includes('exhausted')), 'violation mentions exhausted');
+    assert(result.exhaustion.blocked === 1, 'result reports 1 blocked');
+  } finally {
+    fs.unlinkSync(tmpState);
+  }
+}
+{
+  const tmpState = path.join(__dirname, '.tmp-disabled-state.json');
+  const disabled = validState();
+  disabled.providers[0].status = 'disabled';
+  fs.writeFileSync(tmpState, JSON.stringify(disabled));
+  try {
+    const result = checkProviderQuota({ statePath: tmpState });
+    assert(result.ok === true, 'disabled provider with one available passes guard');
+    assert(result.readiness.summary.disabled === 1, 'result reports 1 disabled');
+  } finally {
+    fs.unlinkSync(tmpState);
+  }
+}
+{
+  const result = checkProviderQuota();
+  assert(Array.isArray(result.violations), 'violations is an array');
+  assert(result.violations.every((v) => typeof v === 'string'), 'all violations are strings');
+  assert(result.violations.every((v) => !v.includes('at ') || !v.match(/\.(js|ts):\d+/)), 'no stack traces in violations');
+  assert(result.warnings.every((w) => typeof w === 'string'), 'all warnings are strings');
+}
+{
+  const tmpState = path.join(__dirname, '.tmp-stalled-state.json');
+  const stalled = validState();
+  stalled.providers[0].status = 'exhausted';
+  stalled.providers[0].cooldownExpiresAt = null;
+  fs.writeFileSync(tmpState, JSON.stringify(stalled));
+  try {
+    const result = checkProviderQuota({ statePath: tmpState });
+    assert(result.ok === false, 'exhausted with no cooldown fails guard');
+    assert(result.violations.some((v) => v.includes('stalled')), 'violation mentions stalled');
+    assert(result.exhaustion.stalled === 1, 'result reports 1 stalled');
+  } finally {
+    fs.unlinkSync(tmpState);
+  }
+}
 
 // --- loadJson ---
 
@@ -337,6 +475,17 @@ console.log('\ncheck-provider-quota tests\n');
   const result = loadJson('/nonexistent/path.json');
   assert(result.ok === false, 'loadJson fails for missing file');
   assert(result.error.includes('not found'), 'error mentions not found');
+}
+{
+  const tmpInvalid = path.join(__dirname, '.tmp-invalid.json');
+  fs.writeFileSync(tmpInvalid, '{bad json');
+  try {
+    const result = loadJson(tmpInvalid);
+    assert(result.ok === false, 'loadJson fails for invalid JSON');
+    assert(result.error.includes('Invalid JSON'), 'error mentions invalid JSON');
+  } finally {
+    fs.unlinkSync(tmpInvalid);
+  }
 }
 
 // --- CLI ---
@@ -377,6 +526,45 @@ const script = path.resolve(__dirname, 'check-provider-quota.js');
     assert(false, 'CLI unknown flag should exit non-zero');
   } catch (err) {
     assert(err.status === 2, 'CLI unknown flag exits with code 2');
+  }
+}
+{
+  const out = execSync(`node "${script}" --json --warn-only`, { encoding: 'utf-8' });
+  const result = JSON.parse(out);
+  assert(typeof result.ok === 'boolean', 'CLI --json --warn-only returns valid JSON');
+}
+{
+  const tmpCli = path.join(__dirname, '.tmp-cli-exhausted.json');
+  const exhausted = validState();
+  exhausted.providers[0].status = 'exhausted';
+  exhausted.providers[0].cooldownExpiresAt = '2099-12-31T23:59:59Z';
+  fs.writeFileSync(tmpCli, JSON.stringify(exhausted));
+  try {
+    try {
+      execSync(`node "${script}" --json --state "${tmpCli}"`, { encoding: 'utf-8', stdio: 'pipe' });
+      assert(false, 'CLI with exhausted state should exit non-zero');
+    } catch (err) {
+      const result = JSON.parse(err.stdout);
+      assert(result.ok === false, 'CLI with exhausted state returns ok=false');
+      assert(result.violations.length > 0, 'CLI with exhausted state has violations');
+    }
+  } finally {
+    fs.unlinkSync(tmpCli);
+  }
+}
+{
+  const tmpCli = path.join(__dirname, '.tmp-cli-warn.json');
+  const exhausted = validState();
+  exhausted.providers[0].status = 'exhausted';
+  exhausted.providers[0].cooldownExpiresAt = '2099-12-31T23:59:59Z';
+  fs.writeFileSync(tmpCli, JSON.stringify(exhausted));
+  try {
+    execSync(`node "${script}" --json --warn-only --state "${tmpCli}"`, { encoding: 'utf-8', stdio: 'pipe' });
+    assert(true, 'CLI --warn-only exits 0 even with violations');
+  } catch {
+    assert(false, 'CLI --warn-only exits 0 even with violations');
+  } finally {
+    fs.unlinkSync(tmpCli);
   }
 }
 
