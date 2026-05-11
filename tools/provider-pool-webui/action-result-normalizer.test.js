@@ -405,6 +405,216 @@ console.log("\nEdge cases\n");
   assert(stringCode.errorCode === "ERR_NOT_FOUND", "string code mapped to errorCode");
 }
 
+// --- Boundary cases: redactSecrets -------------------------------------------
+
+console.log("\nBoundary cases: redactSecrets\n");
+
+{
+  assert(redactSecrets("") === "", "empty string returns empty");
+  assert(
+    !redactSecrets("normal text with no secrets").includes("[redacted"),
+    "clean text passes through"
+  );
+  assert(
+    redactSecrets("-----BEGIN RSA PRIVATE KEY-----\nMIIEow...\n-----END RSA PRIVATE KEY-----")
+      .includes("[redacted-private-key]"),
+    "private key content redacted"
+  );
+  const multiSecret = "token=abc123 and password=xyz789";
+  const redactedMulti = redactSecrets(multiSecret);
+  assert(
+    redactedMulti.includes("[redacted"),
+    "multiple secrets in one string redacted"
+  );
+}
+
+// --- Boundary cases: capString -----------------------------------------------
+
+console.log("\nBoundary cases: capString\n");
+
+{
+  assert(capString(123) === 123, "non-string number passes through");
+  assert(capString(null) === null, "null passes through");
+  assert(capString(undefined) === undefined, "undefined passes through");
+}
+
+// --- Boundary cases: sanitizeValue -------------------------------------------
+
+console.log("\nBoundary cases: sanitizeValue\n");
+
+{
+  assert(typeof sanitizeValue(NaN) === "number", "NaN passes through as number");
+  assert(sanitizeValue(Infinity) === Infinity, "Infinity passes through");
+  assert(sanitizeValue(0) === 0, "zero passes through");
+  assert(sanitizeValue(false) === false, "false passes through");
+  assert(sanitizeValue("") === "", "empty string passes through");
+
+  const deep = { a: { b: { c: { d: { e: "deep" } } } } };
+  assert(sanitizeValue(deep).a.b.c.d.e === "deep", "deeply nested values preserved");
+
+  const arrWithSecrets = ["normal", "ghp_abc123xyz", "safe"];
+  const sanitizedArr = sanitizeValue(arrWithSecrets);
+  assert(!sanitizedArr[1].includes("ghp_abc"), "secrets in arrays redacted");
+}
+
+// --- Boundary cases: sanitizeObject ------------------------------------------
+
+console.log("\nBoundary cases: sanitizeObject\n");
+
+{
+  const emptyObj = sanitizeObject({});
+  assert(typeof emptyObj === "object" && emptyObj !== null, "empty object returns object");
+  assert(Object.keys(emptyObj).length === 0, "empty object has no keys");
+
+  const exactKeys = {};
+  for (let i = 0; i < MAX_OBJECT_KEYS; i++) {
+    exactKeys[`key${i}`] = i;
+  }
+  const exactSanitized = sanitizeObject(exactKeys);
+  assert(exactSanitized._truncatedKeys === undefined, "exactly MAX_OBJECT_KEYS not truncated");
+
+  const allSecrets = { apiKey: "a", token: "b", password: "c" };
+  const allRedacted = sanitizeObject(allSecrets);
+  assert(allRedacted.apiKey === "[redacted]", "all-secret apiKey redacted");
+  assert(allRedacted.token === "[redacted]", "all-secret token redacted");
+  assert(allRedacted.password === "[redacted]", "all-secret password redacted");
+
+  const nestedSecrets = { normal: { apiKey: "secret-val", safe: "ok" } };
+  const nestedSanitized = sanitizeObject(nestedSecrets);
+  assert(nestedSanitized.normal.apiKey === "[redacted]", "nested secret key redacted");
+  assert(nestedSanitized.normal.safe === "ok", "nested non-secret key preserved");
+}
+
+// --- Boundary cases: classifyStatus ------------------------------------------
+
+console.log("\nBoundary cases: classifyStatus\n");
+
+{
+  // ok uses strict equality — non-boolean truthy/falsy values fall through
+  assert(classifyStatus({ ok: "yes" }) === "unknown", "non-boolean ok string -> unknown");
+  assert(classifyStatus({ ok: 0 }) === "unknown", "non-boolean ok 0 -> unknown");
+  assert(classifyStatus({ ok: 1 }) === "unknown", "non-boolean ok 1 -> unknown");
+  assert(
+    classifyStatus({ ok: false, mode: "preview" }) === "error",
+    "ok:false takes precedence over mode"
+  );
+  assert(
+    classifyStatus({ ok: true, mode: "rejected" }) === "success",
+    "ok:true takes precedence over mode"
+  );
+  assert(classifyStatus({ mode: "unknown-mode" }) === "unknown", "unknown mode -> unknown");
+}
+
+// --- Boundary cases: classifySeverity ----------------------------------------
+
+console.log("\nBoundary cases: classifySeverity\n");
+
+{
+  // ok uses strict equality — non-boolean truthy/falsy values fall through
+  assert(classifySeverity({ ok: "yes" }) === "info", "non-boolean ok string -> info");
+  assert(classifySeverity({ ok: 0 }) === "info", "non-boolean ok 0 -> info");
+  assert(classifySeverity({ ok: 1 }) === "info", "non-boolean ok 1 -> info");
+  assert(
+    classifySeverity({ ok: false, mode: "preview" }) === "error",
+    "ok:false takes precedence over preview"
+  );
+  assert(
+    classifySeverity({ ok: true, mode: "rejected" }) === "success",
+    "ok:true takes precedence over rejected"
+  );
+  assert(classifySeverity({ mode: "unknown-mode" }) === "info", "unknown mode -> info");
+  assert(
+    classifySeverity({ ok: false, mode: "confirmation-required" }) === "warning",
+    "confirmation-required still warning even with ok:false"
+  );
+}
+
+// --- Boundary cases: normalizeResult -----------------------------------------
+
+console.log("\nBoundary cases: normalizeResult\n");
+
+{
+  // Both errorCode and code — errorCode wins
+  const bothCodes = normalizeResult({
+    ok: false,
+    errorCode: "PRIMARY",
+    code: "SECONDARY",
+    error: "fail",
+  });
+  assert(bothCodes.errorCode === "PRIMARY", "errorCode takes precedence over code");
+
+  // Non-array changes field is dropped
+  const nonArrayChanges = normalizeResult({ ok: true, changes: "not-an-array" });
+  assert(nonArrayChanges.changes === undefined, "non-array changes dropped");
+
+  // Context with only actionId
+  const ctxActionOnly = normalizeResult({ ok: true }, { actionId: "test-id" });
+  assert(ctxActionOnly.actionId === "test-id", "context actionId without label");
+  assert(ctxActionOnly.label === null, "missing context label is null");
+
+  // Context with only label
+  const ctxLabelOnly = normalizeResult({ ok: true }, { label: "Test Label" });
+  assert(ctxLabelOnly.label === "Test Label", "context label without actionId");
+
+  // Audit object with secret fields
+  const auditSecret = normalizeResult({
+    ok: true,
+    audit: { token: "secret-value", actor: "webui" },
+  });
+  assert(auditSecret.audit.token === "[redacted]", "audit secrets redacted");
+  assert(auditSecret.audit.actor === "webui", "audit non-secret preserved");
+
+  // Empty string summary is falsy, skipped
+  const emptySummary = normalizeResult({ ok: true, summary: "" });
+  assert(
+    !("summary" in emptySummary) || emptySummary.summary === "",
+    "empty summary handled"
+  );
+
+  // Zero numeric values preserved
+  const zeroValues = normalizeResult({
+    ok: true,
+    changes: [{ count: 0, label: "" }],
+  });
+  assert(zeroValues.changes[0].count === 0, "zero numeric values preserved");
+
+  // Minimal valid result
+  const minimal = normalizeResult({ ok: true });
+  assert(minimal.schemaVersion === 1, "minimal result has schema version");
+  assert(minimal.status === "success", "minimal result status");
+  assert(minimal.severity === "success", "minimal result severity");
+}
+
+// --- Boundary cases: normalizeResults ----------------------------------------
+
+console.log("\nBoundary cases: normalizeResults\n");
+
+{
+  // Undefined entries
+  const withUndefined = normalizeResults([undefined, { ok: true }, undefined]);
+  assert(withUndefined.length === 3, "undefined entries preserved in length");
+  assert(withUndefined[0].ok === false, "leading undefined -> ok=false");
+  assert(withUndefined[2].ok === false, "trailing undefined -> ok=false");
+
+  // Mixed primitive types
+  const mixed = normalizeResults([{ ok: true }, "string", 42, null]);
+  assert(mixed.length === 4, "mixed types preserved in length");
+  assert(mixed[0].ok === true, "valid object entry works");
+  assert(mixed[1].ok === false, "string entry -> ok=false");
+  assert(mixed[2].ok === false, "number entry -> ok=false");
+  assert(mixed[3].ok === false, "null entry -> ok=false");
+
+  // Empty array
+  const emptyArr = normalizeResults([]);
+  assert(emptyArr.length === 0, "empty array returns empty");
+
+  // Large array beyond MAX_ARRAY_LENGTH
+  const bigArray = Array.from({ length: 60 }, (_, i) => ({ ok: true, index: i }));
+  const normalizedBig = normalizeResults(bigArray);
+  assert(normalizedBig.length === 60, "large array length preserved");
+  assert(normalizedBig[59].ok === true, "last element in large array normalized");
+}
+
 // --- Summary -----------------------------------------------------------------
 
 console.log("\n" + passed + " passed, " + failed + " failed\n");
