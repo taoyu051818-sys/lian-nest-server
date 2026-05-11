@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Detects state drift between issues, PRs, worker labels, and active-worker projection without mutating by default.
+    Detects state drift between issues, PRs, worker labels, and active-worker projection. Dry-run by default; -Write executes safe label transitions.
 .DESCRIPTION
     Reads issue/PR state from `gh` JSON or fixture files and detects obvious drift:
     - Running issue with no open PR (stale-running)
@@ -16,7 +16,9 @@
     - Issue is agent:running but missing from projection (running-missing-from-projection)
     - Projection timestamp older than stale threshold (stale-projection)
     Dry-run by default; pass -Apply to suggest label transitions (still no auto-mutation).
-    Pass -DryRun to explicitly confirm no mutation (conflicts with -Apply).
+    Pass -Write to execute safe label transitions via gh api (mutually exclusive with -DryRun and -Apply).
+    Safe transitions: merged-pr-stale-label (-> agent:done), stale-running (-> agent:blocked).
+    Pass -DryRun to explicitly confirm no mutation (conflicts with -Apply and -Write).
     Pass -Help to display usage and drift rule reference.
     Evidence precedence: worker evidence > PR state > issue labels.
 .EXAMPLE
@@ -54,6 +56,9 @@ param(
     [string]$ActiveWorkersPath,
 
     [Parameter(Mandatory = $false)]
+    [switch]$Write,
+
+    [Parameter(Mandatory = $false)]
     [switch]$Help
 )
 
@@ -82,7 +87,8 @@ OPTIONS
     -StaleHours <int>           Hours before running/queued is considered stale (default: 72)
     -ActiveWorkersPath <string> Path to active-workers.json projection (enables projection drift rules)
     -Apply                      Print suggested gh issue edit commands (no auto-mutation)
-    -DryRun                     Confirm dry-run mode; conflicts with -Apply
+    -DryRun                     Confirm dry-run mode; conflicts with -Apply and -Write
+    -Write                      Execute safe label transitions via gh api (conflicts with -DryRun and -Apply)
     -Help                       Show this help message
 
 DRIFT RULES (label-based)
@@ -101,18 +107,20 @@ DRIFT RULES (active-worker projection, requires -ActiveWorkersPath)
     stale-projection                capturedAt older than StaleHours threshold
 
 DRY-RUN CONTRACT
-    This script never calls gh issue edit or gh pr edit.
+    Default mode is dry-run: no gh issue edit or gh pr edit calls occur.
     -Apply only prints suggested commands for manual review.
-    Use -DryRun to explicitly confirm no mutation will occur
-    (conflicts with -Apply, which prints suggestion commands).
+    -Write executes safe label transitions (merged-pr-stale-label -> agent:done,
+    stale-running -> agent:blocked) via gh api. All other rules remain suggestions.
+    Use -DryRun to explicitly confirm no mutation (conflicts with -Apply and -Write).
 
 "@ | Write-Output
     exit 0
 }
 
-# DryRun and Apply are mutually exclusive
-if ($DryRun -and $Apply) {
-    Write-Error "-DryRun and -Apply cannot be used together. -DryRun enforces no mutation; -Apply prints suggestion commands."
+# DryRun, Apply, and Write are mutually exclusive
+$modeFlags = @(@($DryRun, $Apply, $Write) | Where-Object { $_ }).Count
+if ($modeFlags -gt 1) {
+    Write-Error "-DryRun, -Apply, and -Write are mutually exclusive. Use only one mode flag."
     exit 1
 }
 
@@ -234,12 +242,14 @@ function Find-StateDrift {
             $hoursSinceUpdate = ($now - $updatedAt).TotalHours
             if ($hoursSinceUpdate -gt $StaleThresholdHours) {
                 $drifts += [PSCustomObject]@{
-                    Issue     = $num
-                    Title     = $title
-                    Rule      = "stale-running"
-                    Detail    = "agent:running for $([int]$hoursSinceUpdate)h with no open PR"
-                    Suggest   = "agent:running -> agent:blocked (or close if abandoned)"
-                    Severity  = "warning"
+                    Issue       = $num
+                    Title       = $title
+                    Rule        = "stale-running"
+                    Detail      = "agent:running for $([int]$hoursSinceUpdate)h with no open PR"
+                    Suggest     = "agent:running -> agent:blocked (or close if abandoned)"
+                    Severity    = "warning"
+                    AddLabel    = "agent:blocked"
+                    RemoveLabel = "agent:running"
                 }
             }
         }
@@ -298,12 +308,14 @@ function Find-StateDrift {
         # Rule 6: Merged PR but issue label is not agent:done (label drift)
         if ($mergedPRs.Count -gt 0 -and $agentLabel -and $agentLabel -ne "agent:done") {
             $drifts += [PSCustomObject]@{
-                Issue     = $num
-                Title     = $title
-                Rule      = "merged-pr-stale-label"
-                Detail    = "PR #$($mergedPRs[0].number) merged but issue still has $agentLabel"
-                Suggest   = "$agentLabel -> agent:done"
-                Severity  = "error"
+                Issue       = $num
+                Title       = $title
+                Rule        = "merged-pr-stale-label"
+                Detail      = "PR #$($mergedPRs[0].number) merged but issue still has $agentLabel"
+                Suggest     = "$agentLabel -> agent:done"
+                Severity    = "error"
+                AddLabel    = "agent:done"
+                RemoveLabel = $agentLabel
             }
         }
 
@@ -488,6 +500,51 @@ function Build-MarkdownReport {
 }
 
 # ---------------------------------------------------------------------------
+# Write-mode remediation
+# ---------------------------------------------------------------------------
+
+function Invoke-SafeRemediation {
+    param($Drifts, [string]$RepoName)
+
+    $applied = 0
+    $skipped = 0
+    $failed = 0
+
+    foreach ($d in $Drifts) {
+        if (-not $d.AddLabel -and -not $d.RemoveLabel) {
+            $skipped++
+            Write-Output "  [SKIP] #$($d.Issue): $($d.Rule) -- no safe auto-transition"
+            continue
+        }
+
+        try {
+            if ($d.RemoveLabel) {
+                try {
+                    gh api "repos/$RepoName/issues/$($d.Issue)/labels/$($d.RemoveLabel)" -X DELETE 2>&1 | Out-Null
+                    Write-Output "  [WRITE] #$($d.Issue): removed label '$($d.RemoveLabel)'"
+                } catch {
+                    Write-Output "  [WRITE] #$($d.Issue): label '$($d.RemoveLabel)' already absent"
+                }
+            }
+            if ($d.AddLabel) {
+                gh api "repos/$RepoName/issues/$($d.Issue)/labels" -X POST -f name="$($d.AddLabel)" 2>&1 | Out-Null
+                Write-Output "  [WRITE] #$($d.Issue): added label '$($d.AddLabel)'"
+            }
+            $applied++
+        } catch {
+            $failed++
+            Write-Warning "  [FAIL] #$($d.Issue): $($d.Rule) -- $($_.Exception.Message)"
+        }
+    }
+
+    return [PSCustomObject]@{
+        Applied = $applied
+        Skipped = $skipped
+        Failed  = $failed
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Fixture validation
 # ---------------------------------------------------------------------------
 
@@ -592,11 +649,26 @@ if (-not $FixturePath -and -not $Repo -and -not $FixtureDir) {
     exit 1
 }
 
-Write-Output "State Reconciler (dry-run by default)"
+# Write mode requires live repo (not fixtures)
+if ($Write -and ($FixturePath -or $FixtureDir)) {
+    Write-Error "-Write cannot be used with -FixturePath or -FixtureDir (requires a live GitHub repo)."
+    exit 1
+}
+if ($Write -and -not $Repo) {
+    Write-Error "-Write requires -Repo to be specified."
+    exit 1
+}
+
+Write-Output "State Reconciler"
 Write-Output "======================================"
 if ($DryRun) {
     Write-Output "Mode: DRY-RUN (explicit -DryRun flag; no mutation will occur)"
-    Write-Output ""
+} elseif ($Write) {
+    Write-Output "Mode: WRITE (will execute safe label transitions via gh api)"
+} elseif ($Apply) {
+    Write-Output "Mode: APPLY (printing suggestions only)"
+} else {
+    Write-Output "Mode: DRY-RUN (default; no mutation will occur)"
 }
 Write-Output ""
 
@@ -652,12 +724,34 @@ if ($Apply) {
         Write-Output "Nothing to suggest."
     } else {
         foreach ($d in $drifts) {
-            Write-Output "  gh issue edit $($d.Issue) --repo $Repo --add-label '...' --remove-label '...'"
+            $addPart = if ($d.AddLabel) { $d.AddLabel } else { "..." }
+            $removePart = if ($d.RemoveLabel) { $d.RemoveLabel } else { "..." }
+            Write-Output "  gh issue edit $($d.Issue) --repo $Repo --add-label '$addPart' --remove-label '$removePart'"
             Write-Output "  # Suggested: $($d.Suggest)"
         }
     }
     Write-Output ""
     Write-Output "Commands printed for manual review. No labels were changed."
+}
+
+if ($Write) {
+    Write-Output ""
+    Write-Output "=== WRITE MODE (executing safe label transitions) ==="
+    Write-Output ""
+    if ($drifts.Count -eq 0) {
+        Write-Output "No drift detected. Nothing to remediate."
+    } else {
+        $remediation = Invoke-SafeRemediation -Drifts $drifts -RepoName $Repo
+        Write-Output ""
+        Write-Output "--- Remediation Summary ---"
+        Write-Output "  Applied: $($remediation.Applied)"
+        Write-Output "  Skipped: $($remediation.Skipped) (no safe transition)"
+        Write-Output "  Failed:  $($remediation.Failed)"
+        if ($remediation.Failed -gt 0) {
+            Write-Warning "Some transitions failed. Review output above."
+            exit 1
+        }
+    }
 }
 
 # Always exit 0 -- drift is informational, not a failure
