@@ -49,18 +49,34 @@ The worker receives these allowed tools for reading context:
 ### Dry Run (default)
 
 ```powershell
+# Single task
 ./scripts/ai/batch-launch.ps1 -TaskFile ./tasks/issue-86.json
+
+# Task array (batch)
+./scripts/ai/batch-launch.ps1 -TaskFile ./tasks/batch-wave-1.json
 ```
 
-Prints the launch plan without making changes.
+Prints the launch plan without making changes. Shows branch names, worktree
+paths, and file boundaries for every task. Displays gate decisions and
+conflict-group violations for review.
 
 ### Execute
 
 ```powershell
+# Single task
 ./scripts/ai/batch-launch.ps1 -TaskFile ./tasks/issue-86.json -Execute
+
+# Task array (batch)
+./scripts/ai/batch-launch.ps1 -TaskFile ./tasks/batch-wave-1.json -Execute
 ```
 
-Creates a worktree, runs the worker, and commits results.
+Creates worktrees and runs workers sequentially. The launcher enforces:
+
+1. **Task contract validation** — every task must have all required fields.
+2. **Duplicate conflict-group rejection** — non-doc groups with more than one
+   task are rejected before any worker is dispatched.
+3. **Launch gate** — the gate check runs on the full batch; blocked tasks
+   prevent execution.
 
 ### Manual Worker
 
@@ -70,7 +86,9 @@ Creates a worktree, runs the worker, and commits results.
 
 Runs the worker directly against an existing worktree.
 
-## Task JSON Example
+## Task JSON Examples
+
+### Single Task
 
 ```json
 {
@@ -106,6 +124,40 @@ Runs the worker directly against an existing worktree.
   }
 }
 ```
+
+### Task Array (Batch)
+
+A task file may contain an array of task objects. Each task is processed
+sequentially. Tasks with the same non-doc `conflictGroup` are rejected.
+
+```json
+[
+  {
+    "taskType": "execution",
+    "risk": "low",
+    "conflictGroup": "ai-batch-launcher",
+    "targetIssue": 163,
+    "allowedFiles": ["scripts/ai/batch-launch.ps1", "docs/ai-native/orchestration.md"],
+    "forbiddenFiles": ["src/**"],
+    "validationCommands": ["npm run check"],
+    "rolePacket": { "actorRole": "automation-launcher-worker", "description": "Upgrade batch launcher." }
+  },
+  {
+    "taskType": "execution",
+    "risk": "low",
+    "conflictGroup": "ai-policy-docs",
+    "targetIssue": 164,
+    "allowedFiles": ["docs/ai-native/parallel-work-policy.md"],
+    "forbiddenFiles": ["src/**"],
+    "validationCommands": ["npm run check"],
+    "rolePacket": { "actorRole": "docs-worker", "description": "Update parallel work policy." }
+  }
+]
+```
+
+**Duplicate conflict-group rule:** If two tasks share the same `conflictGroup`
+and at least one touches non-doc files, the launcher rejects the batch before
+dispatch. Docs-only groups (all `allowedFiles` under `docs/`) are exempt.
 
 ## Security Model
 
@@ -144,8 +196,8 @@ The self-hosted launcher is additive — it does not replace or modify existing 
 ## Future Work
 
 - [x] Launch gate integration — `check-launch-gate.ps1` runs automatically in `batch-launch.ps1`
+- [x] Parallel worker launch with conflict group enforcement — `batch-launch.ps1` accepts task arrays and rejects duplicate non-doc conflict groups
 - [ ] Task queue integration (read from GitHub issues directly)
-- [ ] Parallel worker launch with conflict group enforcement
 - [ ] PR creation automation after successful worker completion
 - [ ] Integration with merge queue assistant for end-to-end flow
 - [ ] Worker output logging and audit trail

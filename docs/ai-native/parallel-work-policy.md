@@ -111,3 +111,19 @@ counts, prefer smaller diff size.
 If a conflict cannot be resolved by rebase: workers comment conflict details on
 their issues, the orchestrator pauses the conflict group, and the architect or
 repo-owner decides which PR takes precedence.
+
+---
+
+## Launcher Enforcement
+
+The batch launcher (`scripts/ai/batch-launch.ps1`) enforces these rules
+automatically when processing task arrays:
+
+| Rule | Enforcement |
+|------|-------------|
+| Serial within conflict group | Duplicate non-doc `conflictGroup` values are rejected before any worker is dispatched |
+| Docs tasks are low-conflict | Docs-only groups (all `allowedFiles` under `docs/`) are exempt from the duplicate-group rejection |
+| Gate check | The launch gate runs on the full batch; blocked tasks prevent execution |
+
+Workers still must respect `allowedFiles` and rebase before PR — these are not
+enforced by the launcher.

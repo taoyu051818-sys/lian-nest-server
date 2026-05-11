@@ -4,10 +4,14 @@
     Self-hosted AI batch launcher for lian-nest-server.
 
 .DESCRIPTION
-    Reads a task JSON file, validates it against the schema, runs the launch
-    gate check, and launches a Claude Code worker in a new git worktree.
-    Designed for local orchestrator use — no CI secrets or runtime
-    dependencies required.
+    Reads a task JSON file (single object or array), validates each task
+    against the contract, runs the launch gate check, and launches Claude
+    Code workers in isolated git worktrees.
+
+    Supports both single-task and array-task files. When an array is
+    provided, each task is processed sequentially — the launcher enforces
+    conflict-group rules and rejects duplicate non-doc groups before any
+    worker dispatch.
 
     The launch gate (check-launch-gate.ps1) runs automatically before any
     worker dispatch. In execute mode, blocked tasks are refused. In dry-run
@@ -15,6 +19,7 @@
 
 .PARAMETER TaskFile
     Path to a task JSON file conforming to scripts/ai/task.schema.json.
+    Must be a single task object or an array of task objects.
 
 .PARAMETER DryRun
     Print the launch plan without executing. Default mode.
@@ -24,9 +29,15 @@
     .github/ai-state/main-health.json
 
 .EXAMPLE
-    ./scripts/ai/batch-launch.ps1 -TaskFile ./tasks/issue-86.json -DryRun
+    # Single task dry-run
+    ./scripts/ai/batch-launch.ps1 -TaskFile ./tasks/issue-86.json
 
 .EXAMPLE
+    # Array task dry-run
+    ./scripts/ai/batch-launch.ps1 -TaskFile ./tasks/batch-wave-1.json
+
+.EXAMPLE
+    # Execute a single task
     ./scripts/ai/batch-launch.ps1 -TaskFile ./tasks/issue-86.json -Execute
 #>
 
@@ -60,46 +71,113 @@ if (-not (Test-Path $TaskFile)) {
 }
 
 try {
-    $task = Get-Content $TaskFile -Raw | ConvertFrom-Json
+    $raw = Get-Content $TaskFile -Raw
+    $parsed = $raw | ConvertFrom-Json
 } catch {
     Write-Fail "Invalid JSON: $_"
 }
 
+# Normalize to array — supports both single object and array input
+if ($parsed -is [System.Array]) {
+    $tasks = @($parsed)
+} else {
+    $tasks = @($parsed)
+}
+
+if ($tasks.Count -eq 0) {
+    Write-Fail "Task file contains no tasks."
+}
+
+Write-Step "Loaded $($tasks.Count) task(s)"
+
 # ── Validate required fields ─────────────────────────────────────────────────
 
-Write-Step "Validating task contract"
+Write-Step "Validating task contracts"
 
 $requiredFields = @(
     "taskType", "risk", "conflictGroup", "targetIssue",
     "allowedFiles", "forbiddenFiles", "validationCommands", "rolePacket"
 )
 
-foreach ($field in $requiredFields) {
-    if (-not ($task.PSObject.Properties.Name -contains $field)) {
-        Write-Fail "Missing required field: $field"
+$validTaskTypes = @("execution", "research", "review")
+$validRisks = @("low", "medium", "high")
+
+foreach ($task in $tasks) {
+    foreach ($field in $requiredFields) {
+        if (-not ($task.PSObject.Properties.Name -contains $field)) {
+            Write-Fail "Task #$($task.targetIssue): missing required field: $field"
+        }
+    }
+
+    if ($task.taskType -notin $validTaskTypes) {
+        Write-Fail "Task #$($task.targetIssue): invalid taskType: $($task.taskType). Must be one of: $($validTaskTypes -join ', ')"
+    }
+
+    if ($task.risk -notin $validRisks) {
+        Write-Fail "Task #$($task.targetIssue): invalid risk: $($task.risk). Must be one of: $($validRisks -join ', ')"
+    }
+
+    if ($task.allowedFiles.Count -eq 0) {
+        Write-Fail "Task #$($task.targetIssue): allowedFiles must not be empty"
+    }
+
+    if (-not $task.rolePacket.actorRole) {
+        Write-Fail "Task #$($task.targetIssue): rolePacket.actorRole is required"
     }
 }
 
-# Validate enum values
-$validTaskTypes = @("execution", "research", "review")
-if ($task.taskType -notin $validTaskTypes) {
-    Write-Fail "Invalid taskType: $($task.taskType). Must be one of: $($validTaskTypes -join ', ')"
+Write-Ok "All $($tasks.Count) task contract(s) valid"
+
+# ── Reject duplicate non-doc conflict groups ─────────────────────────────────
+
+Write-Step "Checking for duplicate conflict groups"
+
+$groupCounts = @{}
+foreach ($task in $tasks) {
+    $g = $task.conflictGroup
+    if ($g) {
+        if ($groupCounts.ContainsKey($g)) {
+            $groupCounts[$g]++
+        } else {
+            $groupCounts[$g] = 1
+        }
+    }
 }
 
-$validRisks = @("low", "medium", "high")
-if ($task.risk -notin $validRisks) {
-    Write-Fail "Invalid risk: $($task.risk). Must be one of: $($validRisks -join ', ')"
+# Classify whether a group is docs-only (all tasks in the group have only docs/ allowedFiles)
+$groupIsDocsOnly = @{}
+foreach ($task in $tasks) {
+    $g = $task.conflictGroup
+    if (-not $g) { continue }
+
+    $allowed = @($task.allowedFiles)
+    $allDocs = ($allowed.Count -gt 0) -and ($allowed | Where-Object { $_ -notmatch "^docs/" }).Count -eq 0
+
+    if (-not $groupIsDocsOnly.ContainsKey($g)) {
+        $groupIsDocsOnly[$g] = $allDocs
+    } else {
+        # If any task in the group is NOT docs-only, the group is not docs-only
+        $groupIsDocsOnly[$g] = $groupIsDocsOnly[$g] -and $allDocs
+    }
 }
 
-if ($task.allowedFiles.Count -eq 0) {
-    Write-Fail "allowedFiles must not be empty"
+$hasDuplicateConflict = $false
+foreach ($g in $groupCounts.Keys) {
+    if ($groupCounts[$g] -gt 1 -and -not $groupIsDocsOnly[$g]) {
+        Write-Host "   CONFLICT: duplicate non-doc group '$g' ($($groupCounts[$g])x)" -ForegroundColor Red
+        $hasDuplicateConflict = $true
+    }
 }
 
-if (-not $task.rolePacket.actorRole) {
-    Write-Fail "rolePacket.actorRole is required"
+if ($hasDuplicateConflict) {
+    if ($Execute) {
+        Write-Fail "Duplicate non-doc conflict groups detected. Resolve before using -Execute."
+    } else {
+        Write-Warn "Dry-run: duplicate non-doc conflict groups would block execution."
+    }
+} else {
+    Write-Ok "No duplicate non-doc conflict groups"
 }
-
-Write-Ok "Task contract valid (issue #$($task.targetIssue), type=$($task.taskType), risk=$($task.risk))"
 
 # ── Launch gate check ────────────────────────────────────────────────────────
 
@@ -154,62 +232,83 @@ if ($gateReport) {
     Write-Warn "Gate check produced no report — proceeding without gate enforcement"
 }
 
-# ── Build branch name ────────────────────────────────────────────────────────
+# ── Build per-task plan ──────────────────────────────────────────────────────
 
-$branchName = "claude/issue-$($task.targetIssue)-$($task.conflictGroup -replace '[^a-zA-Z0-9-]', '-')"
-Write-Step "Target branch: $branchName"
+Write-Step "Building launch plan for $($tasks.Count) task(s)"
 
-# ── Build worktree path ──────────────────────────────────────────────────────
+$taskPlans = @()
 
-$worktreeDir = ".claude/worktrees/$branchName"
-Write-Step "Worktree path: $worktreeDir"
+foreach ($task in $tasks) {
+    $branchName = "claude/issue-$($task.targetIssue)-$($task.conflictGroup -replace '[^a-zA-Z0-9-]', '-')"
+    $worktreeDir = ".claude/worktrees/$branchName"
 
-# ── Build allowed files summary ──────────────────────────────────────────────
-
-Write-Step "File boundaries"
-Write-Host "   Allowed:" -ForegroundColor Gray
-foreach ($pattern in $task.allowedFiles) {
-    Write-Host "     + $pattern" -ForegroundColor Gray
+    $taskPlans += [ordered]@{
+        Task        = $task
+        BranchName  = $branchName
+        WorktreeDir = $worktreeDir
+    }
 }
-Write-Host "   Forbidden:" -ForegroundColor Gray
-foreach ($pattern in $task.forbiddenFiles) {
-    Write-Host "     - $pattern" -ForegroundColor Gray
+
+# ── Show plan ────────────────────────────────────────────────────────────────
+
+foreach ($plan in $taskPlans) {
+    $task = $plan.Task
+    Write-Host ""
+    Write-Host "   Task #$($task.targetIssue) — $($task.conflictGroup)" -ForegroundColor White
+    Write-Host "     Branch:  $($plan.BranchName)" -ForegroundColor Gray
+    Write-Host "     Worktree: $($plan.WorktreeDir)" -ForegroundColor Gray
+    Write-Host "     Allowed:" -ForegroundColor Gray
+    foreach ($pattern in $task.allowedFiles) {
+        Write-Host "       + $pattern" -ForegroundColor Gray
+    }
+    Write-Host "     Forbidden:" -ForegroundColor Gray
+    foreach ($pattern in $task.forbiddenFiles) {
+        Write-Host "       - $pattern" -ForegroundColor Gray
+    }
 }
 
 # ── Dry run exit ─────────────────────────────────────────────────────────────
 
 if ($DryRun -and -not $Execute) {
+    Write-Host ""
     Write-Step "DRY RUN — no changes made (gate decision shown above)"
     Write-Host ""
     Write-Host "To execute:" -ForegroundColor Yellow
     Write-Host "  ./scripts/ai/batch-launch.ps1 -TaskFile $TaskFile -Execute" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "Worker command:" -ForegroundColor Yellow
-    Write-Host "  ./scripts/ai/run-claude-print.ps1 -TaskFile $TaskFile -Branch $branchName -Worktree $worktreeDir" -ForegroundColor Yellow
+    foreach ($plan in $taskPlans) {
+        Write-Host "Worker command for issue #$($plan.Task.targetIssue):" -ForegroundColor Yellow
+        Write-Host "  ./scripts/ai/run-claude-print.ps1 -TaskFile $TaskFile -Branch $($plan.BranchName) -Worktree $($plan.WorktreeDir)" -ForegroundColor Yellow
+    }
     exit 0
 }
 
 # ── Execute mode ─────────────────────────────────────────────────────────────
 
-Write-Step "EXECUTE mode — launching worker"
+Write-Step "EXECUTE mode — launching $($tasks.Count) worker(s)"
 
-# Create worktree
-Write-Step "Creating git worktree: $worktreeDir"
-git worktree add -b $branchName $worktreeDir main 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Fail "Failed to create worktree (branch may already exist)"
+foreach ($plan in $taskPlans) {
+    $task = $plan.Task
+    $branchName = $plan.BranchName
+    $worktreeDir = $plan.WorktreeDir
+
+    Write-Host ""
+    Write-Step "Processing task #$($task.targetIssue) (group=$($task.conflictGroup))"
+
+    # Create worktree
+    Write-Step "Creating git worktree: $worktreeDir"
+    git worktree add -b $branchName $worktreeDir main 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail "Failed to create worktree for issue #$($task.targetIssue) (branch may already exist)"
+    }
+    Write-Ok "Worktree created"
+
+    # Run worker
+    Write-Step "Running Claude Code worker for issue #$($task.targetIssue)"
+    & ./scripts/ai/run-claude-print.ps1 -TaskFile $TaskFile -Branch $branchName -Worktree $worktreeDir
+
+    Write-Ok "Worker complete for issue #$($task.targetIssue)"
 }
-Write-Ok "Worktree created"
 
-# Run worker
-Write-Step "Running Claude Code worker"
-$claudeArgs = @(
-    "--print"
-    "--output-format", "text"
-    "-p", (Get-Content $TaskFile -Raw)
-    "--allowedTools", "Edit,Write,Bash(git *),Bash(npm run *),Bash(gh *)"
-)
-
-& ./scripts/ai/run-claude-print.ps1 -TaskFile $TaskFile -Branch $branchName -Worktree $worktreeDir
-
-Write-Step "Batch launcher complete"
+Write-Host ""
+Write-Step "Batch launcher complete — $($tasks.Count) task(s) processed"
