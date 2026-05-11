@@ -75,17 +75,17 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 
 | endpoint | family | slice | status | contract | fixture | impl_pr | test_status | shutdown_ready |
 |----------|--------|-------|--------|----------|---------|---------|-------------|----------------|
-| GET /api/posts/:pid | POSTS | P1 | CONTRACTED | [P1 contract](../contracts/endpoint-migration-queue.md#p1--posts-list--detail) | — | — | — | NO |
+| GET /api/posts/:pid | POSTS | P1 | IMPLEMENTED | [P1 contract](../contracts/endpoint-migration-queue.md#p1--posts-list--detail) | — | [#128](https://github.com/taoyu051818-sys/lian-nest-server/pull/128) | — | NO |
 | PUT /api/posts/:pid | POSTS | P2 | CONTRACTED | [P2 contract](../contracts/endpoint-migration-queue.md#p2--posts--create--updatedelete) | — | — | — | NO |
 | DELETE /api/posts/:pid | POSTS | P2 | CONTRACTED | [P2 contract](../contracts/endpoint-migration-queue.md#p2--posts--create--updatedelete) | — | — | — | NO |
 | POST /api/posts/:pid/vote | POSTS | P3 | CONTRACTED | [P3 contract](../contracts/endpoint-migration-queue.md#p3--posts--reactions) | — | — | — | NO |
-| POST /api/topic/:tid | POSTS | P4 | CONTRACTED | [P4 contract](../contracts/endpoint-migration-queue.md#p4--posts--replies) | — | — | — | NO |
+| POST /api/topic/:tid | POSTS | P4 | IMPLEMENTED | [P4 contract](../contracts/endpoint-migration-queue.md#p4--posts--replies) | — | [#185](https://github.com/taoyu051818-sys/lian-nest-server/pull/185) | — | NO |
 
 ### MESSAGING — Direct Messages
 
 | endpoint | family | slice | status | contract | fixture | impl_pr | test_status | shutdown_ready |
 |----------|--------|-------|--------|----------|---------|---------|-------------|----------------|
-| GET /api/messages | MESSAGING | M1 | CONTRACTED | [M1 contract](../contracts/endpoint-migration-queue.md#m1--messages-send--list--markread) | — | — | — | NO |
+| GET /api/messages | MESSAGING | M1 | IMPLEMENTED | [M1 contract](../contracts/endpoint-migration-queue.md#m1--messages-send--list--markread) | — | [#180](https://github.com/taoyu051818-sys/lian-nest-server/pull/180) | — | NO |
 | GET /api/messages/:mid | MESSAGING | M1 | CONTRACTED | [M1 contract](../contracts/endpoint-migration-queue.md#m1--messages-send--list--markread) | — | — | — | NO |
 | POST /api/messages | MESSAGING | M1 | CONTRACTED | [M1 contract](../contracts/endpoint-migration-queue.md#m1--messages-send--list--markread) | — | — | — | NO |
 | POST /api/messages/:mid | MESSAGING | M1 | CONTRACTED | [M1 contract](../contracts/endpoint-migration-queue.md#m1--messages-send--list--markread) | — | — | — | NO |
@@ -95,6 +95,7 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 | endpoint | family | slice | status | contract | fixture | impl_pr | test_status | shutdown_ready |
 |----------|--------|-------|--------|----------|---------|---------|-------------|----------------|
 | GET /api/notifications | NOTIFICATIONS | N1 | CONTRACTED | [N1 contract](../contracts/endpoint-migration-queue.md#n1--notifications-list--unreadcount--markread) | — | — | — | NO |
+| GET /api/notifications/unread-count | NOTIFICATIONS | N1 | IMPLEMENTED | [N1 contract](../contracts/endpoint-migration-queue.md#n1--unread-count) | — | [#152](https://github.com/taoyu051818-sys/lian-nest-server/pull/152) | — | NO |
 | PUT /api/notifications/:nid | NOTIFICATIONS | N1 | CONTRACTED | [N1 contract](../contracts/endpoint-migration-queue.md#n1--notifications-list--unreadcount--markread) | — | — | — | NO |
 | POST /api/notifications/mark-all | NOTIFICATIONS | N1 | CONTRACTED | [N1 contract](../contracts/endpoint-migration-queue.md#n1--notifications-list--unreadcount--markread) | — | — | — | NO |
 
@@ -126,16 +127,16 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 
 | Status | Count | Percentage |
 |--------|-------|------------|
-| `NOT_STARTED` | 18 | 46% |
-| `CONTRACTED` | 21 | 54% |
-| `IMPLEMENTED` | 0 | 0% |
+| `NOT_STARTED` | 18 | 45% |
+| `CONTRACTED` | 18 | 45% |
+| `IMPLEMENTED` | 4 | 10% |
 | `PARITY_TESTED` | 0 | 0% |
 | `LEGACY_DISABLED` | 0 | 0% |
-| **Total** | **39** | 100% |
+| **Total** | **40** | 100% |
 
 | Test Status | Count |
 |-------------|-------|
-| `—` (no fixture) | 39 |
+| `—` (no fixture) | 40 |
 | `PENDING` | 0 |
 | `PASS` | 0 |
 | `FAIL` | 0 |

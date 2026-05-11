@@ -16,9 +16,9 @@ Tracks which legacy route families have been migrated to Nest controllers.
 | USERS        | UNMIGRATED   |                          |       |       |
 | CATEGORIES   | UNMIGRATED   |                          |       |       |
 | TOPICS       | UNMIGRATED   |                          |       |       |
-| POSTS        | UNMIGRATED   |                          |       |       |
-| MESSAGING    | UNMIGRATED   |                          |       |       |
-| NOTIFICATIONS| UNMIGRATED   |                          |       |       |
+| POSTS        | IN_PROGRESS  | PostsModule / PostsController | #128, #185 | 2 of 5 endpoints implemented (detail, replies) |
+| MESSAGING    | IN_PROGRESS  | MessagesModule / MessagesController | #180 | 1 of 4 endpoints implemented (list) |
+| NOTIFICATIONS| IN_PROGRESS  | NotificationsController (under MessagesModule) | #152 | 1 of 4 endpoints implemented (unread-count) |
 | TAGS         | UNMIGRATED   |                          |       |       |
 | SEARCH       | UNMIGRATED   |                          |       |       |
 | GROUPS       | UNMIGRATED   |                          |       |       |
@@ -39,12 +39,40 @@ When a family moves to IN_PROGRESS or MIGRATED, add per-route detail below.
 
 > Expand this section for each family as migration begins.
 
+### POSTS
+
+| Method | Path                  | Status       | Controller / Handler        |
+|--------|-----------------------|--------------|-----------------------------|
+| GET    | /api/posts/:pid       | IMPLEMENTED  | PostsController.getPostDetail (#128) |
+| PUT    | /api/posts/:pid       | UNMIGRATED   |                             |
+| DELETE | /api/posts/:pid       | UNMIGRATED   |                             |
+| POST   | /api/posts/:pid/vote  | UNMIGRATED   |                             |
+| POST   | /api/topic/:tid       | IMPLEMENTED  | PostsController.listReplies (#185) |
+
+### MESSAGING
+
+| Method | Path                  | Status       | Controller / Handler        |
+|--------|-----------------------|--------------|-----------------------------|
+| GET    | /api/messages         | IMPLEMENTED  | MessagesController.listMessages (#180) |
+| GET    | /api/messages/:mid    | UNMIGRATED   |                             |
+| POST   | /api/messages         | UNMIGRATED   |                             |
+| POST   | /api/messages/:mid    | UNMIGRATED   |                             |
+
+### NOTIFICATIONS
+
+| Method | Path                         | Status       | Controller / Handler        |
+|--------|------------------------------|--------------|-----------------------------|
+| GET    | /api/notifications           | UNMIGRATED   |                             |
+| GET    | /api/notifications/unread-count | IMPLEMENTED | NotificationsController.getUnreadCount (#152) |
+| PUT    | /api/notifications/:nid      | UNMIGRATED   |                             |
+| POST   | /api/notifications/mark-all  | UNMIGRATED   |                             |
+
 ## Progress Summary
 
 - **Total families:** 10
 - **MIGRATED:** 0
-- **IN_PROGRESS:** 0
-- **UNMIGRATED:** 10
+- **IN_PROGRESS:** 3
+- **UNMIGRATED:** 7
 
 ## How to Update
 

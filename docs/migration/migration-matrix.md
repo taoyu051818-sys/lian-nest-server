@@ -142,13 +142,13 @@ Use these rules to derive planner tasks from the route-parity-matrix:
 | USERS | 5 | 0 | 0 | 0 | 0 | 5 |
 | CATEGORIES | 4 | 0 | 0 | 0 | 0 | 4 |
 | TOPICS | 6 | 0 | 0 | 0 | 0 | 6 |
-| POSTS | 0 | 5 | 0 | 0 | 0 | 5 |
-| MESSAGING | 0 | 4 | 0 | 0 | 0 | 4 |
-| NOTIFICATIONS | 0 | 3 | 0 | 0 | 0 | 3 |
+| POSTS | 0 | 3 | 2 | 0 | 0 | 5 |
+| MESSAGING | 0 | 3 | 1 | 0 | 0 | 4 |
+| NOTIFICATIONS | 0 | 3 | 1 | 0 | 0 | 4 |
 | TAGS | 2 | 0 | 0 | 0 | 0 | 2 |
 | SEARCH | 1 | 0 | 0 | 0 | 0 | 1 |
 | GROUPS | 4 | 0 | 0 | 0 | 0 | 4 |
-| **Total** | **22** | **17** | **0** | **0** | **0** | **39** |
+| **Total** | **18** | **18** | **4** | **0** | **0** | **40** |
 
 ---
 
