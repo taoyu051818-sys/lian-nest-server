@@ -1,0 +1,172 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/taoyu051818-sys/lian-nest-server/schemas/provider-assignment.schema.json",
+  "title": "ProviderAssignment",
+  "description": "Record of a provider-to-worker assignment. Captures which API provider was selected for a worker task, the selection metadata, and the outcome. Contains no secrets — only provider identifiers and concurrency snapshots.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "assignmentId",
+    "taskId",
+    "providerId",
+    "assignedAt",
+    "selectionStrategy",
+    "providerStatus",
+    "assignmentMethod"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version pinned to 1. Consumers must reject records with a different version."
+    },
+    "assignmentId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier for this assignment, e.g. 'assign-wave14-issue-525-001'."
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Worker task id that received this assignment, matching the heartbeat taskId."
+    },
+    "providerId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier of the assigned provider from the provider pool policy (e.g. 'provider-default')."
+    },
+    "assignedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when the provider was assigned to the worker."
+    },
+    "releasedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when the assignment was released (worker completed or failed). Null if still active."
+    },
+    "issueNumber": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub issue number this task targets, if applicable."
+    },
+    "prNumber": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub pull request number produced by this task, if applicable."
+    },
+    "taskType": {
+      "type": ["string", "null"],
+      "enum": ["execution", "research", "review"],
+      "description": "Type of task from the worker task contract."
+    },
+    "actorRole": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "Worker role from the task contract rolePacket."
+    },
+    "pmPhase": {
+      "type": ["string", "null"],
+      "description": "Wave or phase identifier for aggregating assignments across a planning cycle."
+    },
+    "selectionStrategy": {
+      "type": "string",
+      "enum": ["least-loaded", "round-robin", "manual", "failover"],
+      "description": "Algorithm used to select this provider. Matches the provider pool policy selection strategy."
+    },
+    "providerStatus": {
+      "type": "object",
+      "description": "Snapshot of provider state at assignment time.",
+      "additionalProperties": false,
+      "required": ["status", "currentConcurrency", "maxConcurrency"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["available", "exhausted", "disabled"],
+          "description": "Provider status at assignment time."
+        },
+        "currentConcurrency": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of active workers on this provider when assigned."
+        },
+        "maxConcurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum concurrent workers allowed for this provider."
+        },
+        "consecutiveFailures": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Consecutive failure count at assignment time."
+        }
+      }
+    },
+    "globalConcurrency": {
+      "type": ["object", "null"],
+      "description": "Snapshot of global pool state at assignment time.",
+      "additionalProperties": false,
+      "required": ["totalActiveWorkers", "globalMaxWorkers"],
+      "properties": {
+        "totalActiveWorkers": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total workers across all providers when assigned."
+        },
+        "globalMaxWorkers": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Global worker cap from policy."
+        },
+        "availableProviders": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Number of providers with available capacity."
+        }
+      }
+    },
+    "assignmentMethod": {
+      "type": "string",
+      "enum": ["env-var", "config-inject", "manual"],
+      "description": "How the provider id was communicated to the worker. Matches workerIntegration.providerAssignment.method in policy."
+    },
+    "envVarName": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "Environment variable name used for the assignment, e.g. 'LIAN_PROVIDER_ID'. Null when method is not env-var."
+    },
+    "outcome": {
+      "type": ["object", "null"],
+      "description": "Post-execution outcome for this assignment. Null if the task is still running.",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["completed", "failed", "exhausted", "cancelled"],
+          "description": "Final status of the assignment."
+        },
+        "failureClass": {
+          "type": ["string", "null"],
+          "enum": ["exhaustion", "auth", "runtime", null],
+          "description": "If failed, the failure classification from the provider pool taxonomy."
+        },
+        "httpStatus": {
+          "type": ["integer", "null"],
+          "minimum": 100,
+          "maximum": 599,
+          "description": "HTTP status code from the provider API, if applicable."
+        },
+        "detail": {
+          "type": ["string", "null"],
+          "description": "Human-readable outcome detail. Must not contain secrets."
+        }
+      }
+    },
+    "notes": {
+      "type": ["string", "null"],
+      "description": "Free-text annotation. Must not contain secrets, API keys, or tokens."
+    }
+  }
+}
