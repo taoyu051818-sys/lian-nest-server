@@ -14,6 +14,16 @@ Catalog of `npm run ops:*` scripts that expose the final control-loop layer for 
 | `ops:resource-sample:test` | `scripts/ai/test-resource-pressure-sampler.js` | read-only | Fixture tests for green/yellow/red resource pressure classification |
 | `ops:state-reconcile` | `scripts/ai/state-reconciler.ps1` | dry-run | Detects label/PR/worker state drift without mutating |
 | `ops:merge-queue` | `scripts/merge-queue-assistant.js` | dry-run | Lists eligible PRs and prints copyable `gh pr merge` commands |
+| `ops:webui:smoke` | `tools/provider-pool-webui/server.test.js` | read-only | Self-contained smoke test for WebUI server: CLI flags, HTTP endpoints, security headers, action refusal, audit redaction |
+| `ops:webui:console-issue` | `scripts/ai/webui-issue-control.ps1` | dry-run | Preview-first issue close/state-reconcile wrapper for WebUI control console |
+| `ops:webui:console-launch` | `scripts/ai/webui-launch-control.ps1` | dry-run | Preview-first self-cycle launch wrapper for WebUI; gates behind label allowlists, health checks, MaxTasks caps |
+| `ops:webui:console-merge` | `scripts/ai/webui-merge-control.ps1` | dry-run | Preview-first merge control wrapper for WebUI; wraps merge-clean-pr-batch with enforced safety defaults |
+| `ops:webui:dashboard-state` | `scripts/ai/emit-control-plane-dashboard-state.js` | read-only | Combines all control-plane state projections into a single WebUI-safe dashboard state snapshot |
+| `ops:webui:control-workers` | `scripts/ai/control-workers.ps1` | dry-run | Preview-first worker control with explicit PID allowlist; supports LIST, PREVIEW, STOP modes |
+| `ops:webui:worker-metrics` | `scripts/ai/sample-worker-metrics.ps1` | read-only | Samples active worker metrics (pid, cpu, memory) and projects into ai-state for WebUI dashboard |
+| `ops:plan-next-batch` | `scripts/ai/plan-next-batch.ps1` | dry-run | Proposes next worker batch from open issues and migration matrices; never launches workers |
+| `ops:plan:check-duplicates` | `scripts/ai/check-duplicate-route-tasks.js` | read-only | Detects duplicate route conflicts across open issues before batch launch |
+| `ops:plan:write-issues` | `scripts/ai/write-planned-issues.ps1` | dry-run | Turns vetted planner output into GitHub issues; dry-run by default |
 
 ---
 
@@ -27,15 +37,25 @@ All write-capable automation defaults to **dry-run**:
 - `ops:webui` — read-only dashboard; no mutation endpoints. Binds to 127.0.0.1 only.
 - `ops:resource-sample` — read-only by design; no mutation possible.
 - `ops:resource-sample:test` — fixture-based; no external side effects.
+- `ops:webui:smoke` — fixture-based; spawns ephemeral server, no persistent side effects.
+- `ops:webui:console-issue` — preview by default; pass `-Apply` to execute issue state changes.
+- `ops:webui:console-launch` — preview by default; pass `-Execute` to dispatch workers.
+- `ops:webui:console-merge` — preview by default; pass `-Execute` to merge PRs.
+- `ops:webui:dashboard-state` — read-only; emits sanitized state snapshot.
+- `ops:webui:control-workers` — LIST mode by default; PREVIEW and STOP require explicit flags.
+- `ops:webui:worker-metrics` — read-only by design; no mutation possible.
+- `ops:plan-next-batch` — read-only; proposes candidates, never launches workers.
+- `ops:plan:check-duplicates` — read-only; detects conflicts, does not block launches.
+- `ops:plan:write-issues` — dry-run by default; pass `--execute` to create GitHub issues.
 
 ---
 
 ## Prerequisites
 
-- **PowerShell 7+** (`pwsh`) — required by `ops:self-cycle`, `ops:resource-sample`, `ops:state-reconcile`
-- **Node.js >= 20** — required by `ops:resource-sample:test`, `ops:merge-queue`
-- **GitHub CLI** (`gh`) — required by `ops:self-cycle`, `ops:state-reconcile`, `ops:merge-queue` for repository access
-- `GH_REPO` env var or `--repo` flag — required by `ops:merge-queue` when not using a fixture
+- **PowerShell 7+** (`pwsh`) — required by `ops:self-cycle`, `ops:resource-sample`, `ops:state-reconcile`, `ops:webui:console-*`, `ops:webui:control-workers`, `ops:webui:worker-metrics`, `ops:plan-next-batch`, `ops:plan:write-issues`
+- **Node.js >= 20** — required by `ops:resource-sample:test`, `ops:merge-queue`, `ops:webui:smoke`, `ops:webui:dashboard-state`, `ops:plan:check-duplicates`
+- **GitHub CLI** (`gh`) — required by `ops:self-cycle`, `ops:state-reconcile`, `ops:merge-queue`, `ops:plan-next-batch`, `ops:plan:check-duplicates`, `ops:plan:write-issues` for repository access
+- `GH_REPO` env var or `--repo` flag — required by `ops:merge-queue`, `ops:plan-next-batch`, `ops:plan:check-duplicates` when not using a fixture
 
 ---
 
@@ -99,6 +119,75 @@ npm run ops:merge-queue -- --repo owner/name
 npm run ops:merge-queue -- --repo owner/name --execute
 ```
 
+### WebUI smoke test
+
+```bash
+npm run ops:webui:smoke
+```
+
+### WebUI console — issue control (dry-run)
+
+```bash
+npm run ops:webui:console-issue
+```
+
+### WebUI console — launch control (dry-run)
+
+```bash
+npm run ops:webui:console-launch
+```
+
+### WebUI console — merge control (dry-run)
+
+```bash
+npm run ops:webui:console-merge
+```
+
+### WebUI dashboard state
+
+```bash
+npm run ops:webui:dashboard-state
+npm run ops:webui:dashboard-state -- --stdout
+```
+
+### WebUI worker control
+
+```bash
+# List workers (default)
+npm run ops:webui:control-workers
+
+# Preview stop for specific PID
+npm run ops:webui:control-workers -- -Mode PREVIEW -Pid 12345
+```
+
+### WebUI worker metrics
+
+```bash
+npm run ops:webui:worker-metrics
+npm run ops:webui:worker-metrics -- -Json
+```
+
+### Planning — next batch (dry-run)
+
+```bash
+npm run ops:plan-next-batch -- -Repo owner/name
+npm run ops:plan-next-batch -- -Repo owner/name -Json
+```
+
+### Planning — check duplicates
+
+```bash
+npm run ops:plan:check-duplicates -- --repo owner/name
+npm run ops:plan:check-duplicates -- --repo owner/name --json
+```
+
+### Planning — write issues (dry-run)
+
+```bash
+npm run ops:plan:write-issues -- -Repo owner/name
+npm run ops:plan:write-issues -- -Repo owner/name -Execute
+```
+
 ---
 
 ## Adding New Control-Plane Scripts
@@ -119,3 +208,6 @@ npm run ops:merge-queue -- --repo owner/name --execute
 - [local-resource-sampler.md](local-resource-sampler.md) — resource sampling spec
 - [resource-pressure-sampler.md](resource-pressure-sampler.md) — classification thresholds
 - [provider-pool-webui-architecture.md](provider-pool-webui-architecture.md) — planned WebUI architecture
+- [provider-pool-webui-smoke-test.md](provider-pool-webui-smoke-test.md) — smoke test spec
+- [provider-pool-webui-operation-console.md](provider-pool-webui-operation-console.md) — operation console spec
+- [planning-loop.md](planning-loop.md) — planning loop and batch proposal spec
