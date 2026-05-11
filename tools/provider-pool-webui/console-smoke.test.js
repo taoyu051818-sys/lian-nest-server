@@ -317,6 +317,51 @@ function assertNoSecrets(json, label) {
       // No executions in this test, so entries should be empty or from prior runs
     }
 
+    // === 7b. Audit filters ====================================================
+
+    console.log("\n7b. Audit filters\n");
+
+    // actionId filter
+    {
+      const res = await request(base + "/api/audit?actionId=provider-rotation");
+      assert(res.status === 200, "GET /api/audit?actionId returns 200");
+      const data = JSON.parse(res.body);
+      assert(Array.isArray(data.entries), "actionId filter has entries array");
+    }
+
+    // status filter
+    {
+      const res = await request(base + "/api/audit?status=success");
+      assert(res.status === 200, "GET /api/audit?status returns 200");
+      const data = JSON.parse(res.body);
+      assert(Array.isArray(data.entries), "status filter has entries array");
+    }
+
+    // limit filter
+    {
+      const res = await request(base + "/api/audit?limit=5");
+      assert(res.status === 200, "GET /api/audit?limit=5 returns 200");
+      const data = JSON.parse(res.body);
+      assert(Array.isArray(data.entries), "limit filter has entries array");
+    }
+
+    // invalid limit → 400
+    {
+      const res = await request(base + "/api/audit?limit=abc");
+      assert(res.status === 400, "GET /api/audit?limit=abc returns 400");
+    }
+
+    // combined filters
+    {
+      const res = await request(base + "/api/audit?actionId=compile-tasks&status=success&limit=10");
+      assert(res.status === 200, "GET /api/audit combined filters returns 200");
+      const data = JSON.parse(res.body);
+      assert(data.filters !== undefined, "combined filters response includes filters object");
+      assert(data.filters.actionId === "compile-tasks", "combined filters echoes actionId");
+      assert(data.filters.status === "success", "combined filters echoes status");
+      assert(data.filters.limit === 10, "combined filters echoes limit");
+    }
+
     // === 8. Secret isolation ==================================================
 
     console.log("\n8. Secret isolation\n");

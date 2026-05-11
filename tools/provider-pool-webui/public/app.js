@@ -443,6 +443,7 @@ const ACTION_REGISTRY = {
 const auditLog = [];
 let cachedServerActions = [];
 let cachedServerAudit = [];
+const auditFilters = { actionId: '', status: '', limit: '' };
 
 function logAuditEvent(entry) {
   auditLog.push({
@@ -463,9 +464,15 @@ async function fetchServerActions() {
   }
 }
 
-async function fetchServerAudit() {
+async function fetchServerAudit(filters) {
   try {
-    const data = await fetchJSON(SERVER_AUDIT_URL);
+    const params = new URLSearchParams();
+    if (filters?.actionId) params.set('actionId', filters.actionId);
+    if (filters?.status) params.set('status', filters.status);
+    if (filters?.limit) params.set('limit', filters.limit);
+    const qs = params.toString();
+    const url = qs ? `${SERVER_AUDIT_URL}?${qs}` : SERVER_AUDIT_URL;
+    const data = await fetchJSON(url);
     return Array.isArray(data.entries) ? data.entries : [];
   } catch {
     return [];
@@ -1058,6 +1065,98 @@ function renderAuditSection() {
   const section = el('div', { className: 'console-group console-audit' });
   section.append(el('h3', { textContent: 'Audit Log' }));
 
+  // Filter controls
+  const filterBar = el('div', { className: 'audit-filters' });
+
+  // Action filter — text input (or datalist if we know actionIds)
+  const actionFilter = el('div', { className: 'audit-filter' });
+  actionFilter.append(el('label', { className: 'audit-filter__label', textContent: 'Action' }));
+  const actionInput = el('input', {
+    className: 'audit-filter__input',
+    type: 'text',
+    placeholder: 'e.g. provider-rotation',
+    value: auditFilters.actionId,
+    autocomplete: 'off',
+  });
+  actionFilter.append(actionInput);
+  filterBar.append(actionFilter);
+
+  // Status filter
+  const statusFilter = el('div', { className: 'audit-filter' });
+  statusFilter.append(el('label', { className: 'audit-filter__label', textContent: 'Status' }));
+  const statusSelect = el('select', { className: 'audit-filter__select' });
+  statusSelect.append(el('option', { value: '', textContent: 'All' }));
+  statusSelect.append(el('option', { value: 'success', textContent: 'Success' }));
+  statusSelect.append(el('option', { value: 'error', textContent: 'Error' }));
+  statusSelect.append(el('option', { value: 'blocked', textContent: 'Blocked' }));
+  statusSelect.value = auditFilters.status;
+  statusFilter.append(statusSelect);
+  filterBar.append(statusFilter);
+
+  // Limit filter
+  const limitFilter = el('div', { className: 'audit-filter' });
+  limitFilter.append(el('label', { className: 'audit-filter__label', textContent: 'Limit' }));
+  const limitInput = el('input', {
+    className: 'audit-filter__input',
+    type: 'number',
+    min: '1',
+    max: '200',
+    placeholder: 'All',
+    value: auditFilters.limit,
+    style: 'width:72px',
+  });
+  limitFilter.append(limitInput);
+  filterBar.append(limitFilter);
+
+  // Action buttons
+  const btnGroup = el('div', { className: 'audit-filters__actions' });
+  const applyBtn = el('button', {
+    className: 'action-btn action-btn--preview',
+    textContent: 'Apply',
+    onClick: async () => {
+      auditFilters.actionId = actionInput.value.trim();
+      auditFilters.status = statusSelect.value;
+      auditFilters.limit = limitInput.value.trim();
+      cachedServerAudit = await fetchServerAudit(auditFilters);
+      const parent = section.parentElement;
+      if (parent) {
+        const oldAudit = parent.querySelector('.console-audit');
+        if (oldAudit) oldAudit.replaceWith(renderAuditSection());
+      }
+    },
+  });
+  const clearBtn = el('button', {
+    className: 'action-btn',
+    textContent: 'Clear',
+    onClick: async () => {
+      auditFilters.actionId = '';
+      auditFilters.status = '';
+      auditFilters.limit = '';
+      cachedServerAudit = await fetchServerAudit();
+      const parent = section.parentElement;
+      if (parent) {
+        const oldAudit = parent.querySelector('.console-audit');
+        if (oldAudit) oldAudit.replaceWith(renderAuditSection());
+      }
+    },
+  });
+  btnGroup.append(applyBtn, clearBtn);
+  filterBar.append(btnGroup);
+  section.append(filterBar);
+
+  // Active filter summary
+  const hasFilters = auditFilters.actionId || auditFilters.status || auditFilters.limit;
+  if (hasFilters) {
+    const filterParts = [];
+    if (auditFilters.actionId) filterParts.push(`action: ${auditFilters.actionId}`);
+    if (auditFilters.status) filterParts.push(`status: ${auditFilters.status}`);
+    if (auditFilters.limit) filterParts.push(`limit: ${auditFilters.limit}`);
+    section.append(el('p', {
+      className: 'audit-count',
+      textContent: `Filters: ${filterParts.join(' | ')}`,
+    }));
+  }
+
   // Merge client-side and server-side audit entries
   const serverRows = (cachedServerAudit || []).map((entry) =>
     el('tr', { className: 'audit-row--server' }, [
@@ -1112,7 +1211,7 @@ function renderAuditSection() {
     className: 'action-btn action-btn--safe',
     textContent: 'Refresh Server Audit',
     onClick: async () => {
-      cachedServerAudit = await fetchServerAudit();
+      cachedServerAudit = await fetchServerAudit(auditFilters);
       const parent = section.parentElement;
       if (parent) {
         const oldAudit = parent.querySelector('.console-audit');
