@@ -42,8 +42,8 @@ Step 1: State Reconciler
 
 Step 2: Main Health State
     Read the main health marker (green/yellow/red/black)
-    Script: write-main-health-state.ps1 (read mode)
-    Human stop: RED or BLACK blocks the cycle
+    Source: .github/ai-state/main-health.json (written by write-main-health-state.ps1)
+    Human stop: RED or BLACK blocks the cycle, missing marker blocks the cycle
 
         |
         v
@@ -69,6 +69,35 @@ Step 5: Cycle Summary
     Print step-by-step results table
     Recommend next human action
 ```
+
+## Health Marker Workflow
+
+The self-cycle runner depends on `.github/ai-state/main-health.json` existing
+before Step 2. The marker is NOT written by the runner itself — it must be
+produced beforehand:
+
+```
+post-merge-health-gate.js --quick
+        |
+        v
+write-main-health-state.ps1 -State <state> -Checks "..."
+        |
+        v
+.github/ai-state/main-health.json   ◄── runner reads this at Step 2
+```
+
+**Typical sequence:**
+
+1. A PR merges into main.
+2. The health gate runs (`post-merge-health-gate.js --quick`).
+3. The writer records the result (`write-main-health-state.ps1`).
+4. The self-cycle runner starts and reads the marker at Step 2.
+
+If the marker file is missing, the runner stops with an error. The operator
+must run the health gate and writer before starting a cycle.
+
+See [main-health-policy.md](main-health-policy.md) for the full write workflow
+and [ai-state/README.md](../../.github/ai-state/README.md) for the marker schema.
 
 ## Human Decision Stop Points
 
@@ -103,8 +132,8 @@ The runner does NOT replace any existing script. It calls them in sequence:
 | Existing Script | Role in Cycle |
 |-----------------|---------------|
 | `state-reconciler.ps1` | Step 1: Drift detection |
-| `write-main-health-state.ps1` | Step 2: Health marker read (not write) |
-| `check-launch-gate.ps1` | Step 3: Task validation |
+| `write-main-health-state.ps1` | Pre-cycle: Write the marker (called after health gate, before cycle). Step 2 reads the resulting JSON file. |
+| `check-launch-gate.ps1` | Step 3: Task validation (reads the same marker) |
 | `batch-launch.ps1` | Step 4: Worker dispatch |
 
 ## Design Constraints
@@ -128,4 +157,6 @@ The runner does NOT replace any existing script. It calls them in sequence:
 - [Orchestration](orchestration.md) — batch launcher overview
 - [Launch Gate](launch-gate.md) — health policy matrix
 - [State Reconciler](state-reconciler.md) — drift detection rules
-- [Main Health Policy](main-health-policy.md) — health state definitions
+- [Main Health Policy](main-health-policy.md) — health state definitions and writer workflow
+- [write-main-health-state.ps1](../../scripts/ai/write-main-health-state.ps1) — Health marker writer
+- [ai-state/README.md](../../.github/ai-state/README.md) — Marker schema and downstream consumers

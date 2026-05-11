@@ -31,6 +31,32 @@ node scripts/post-merge-health-gate.js --quick
 - Exit 1 with failure category in `runtime compile`, `dependency/generate`, `database foundation`, or `conflict refresh` -> **Red**
 - Script unavailable or crashes -> **Red** (fail-safe)
 
+### Recording the Health Marker
+
+After the health gate completes, the orchestrator MUST write a structured
+marker so downstream consumers (launch gate, merge scripts, self-cycle runner)
+can read the state without re-running the gate.
+
+```powershell
+# Green — all checks passed
+./scripts/ai/write-main-health-state.ps1 -State green -Checks "tsc,build,prisma"
+
+# Yellow — non-critical failure
+./scripts/ai/write-main-health-state.ps1 -State yellow `
+  -Checks "tsc,build,prisma" -FailedChecks "prisma" `
+  -Reason "Prisma schema drift detected"
+
+# Red — critical failure
+./scripts/ai/write-main-health-state.ps1 -State red `
+  -Checks "tsc,build,prisma" -FailedChecks "tsc,build" `
+  -Reason "Type-check and build broken"
+```
+
+The writer produces `.github/ai-state/main-health.json`. See
+[ai-state/README.md](../../.github/ai-state/README.md) for the full schema
+and [write-main-health-state.ps1](../../scripts/ai/write-main-health-state.ps1)
+for parameter reference.
+
 ---
 
 ## Worker Types and Launch Permissions
@@ -97,16 +123,19 @@ Before launching any worker batch:
 
 - [ ] Run `node scripts/post-merge-health-gate.js --quick` (or check latest result).
 - [ ] Determine health state: green / yellow / red.
+- [ ] Write the health marker via `write-main-health-state.ps1` (or confirm it is current).
 - [ ] For each worker in the batch, verify its type is permitted in the current state.
 - [ ] If any worker is blocked, defer it and record the reason.
 - [ ] If state is red, launch a recovery worker first.
-- [ ] After recovery merges, re-run the health gate before resuming deferred workers.
+- [ ] After recovery merges, re-run the health gate and update the marker before resuming deferred workers.
 
 ---
 
 ## References
 
 - [post-merge-health-gate.md](post-merge-health-gate.md) — Health gate runner and failure categories.
+- [write-main-health-state.ps1](../../scripts/ai/write-main-health-state.ps1) — Health marker writer script.
+- [ai-state/README.md](../../.github/ai-state/README.md) — Marker schema and downstream consumers.
 - [worker-task-contract.md](worker-task-contract.md) — Task JSON schema with `conflictGroup` and `allowedFiles`.
 - [parallel-work-policy.md](parallel-work-policy.md) — Conflict groups and parallelism rules.
 - [SOP.md](SOP.md) — Full lifecycle flow.
