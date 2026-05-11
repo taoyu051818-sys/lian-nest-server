@@ -84,6 +84,18 @@ shared files without broader boundary relaxation.
 | `app-module` | `src/app.module.ts` |
 | `docs-index` | `docs/**/*.md` |
 
+### Rule 6: No Collision with Running Workers
+
+A task MUST NOT be launched if its `conflictGroup` matches an already-active
+worker's group. The launch gate enforces this when a running tasks manifest
+(`-RunningTasksFile`) is provided, blocking any task whose group is currently
+in-flight.
+
+This prevents the self-cycle from scheduling work that overlaps with active
+tasks, even when the batch itself has no internal duplicates. The manifest is
+optional — when omitted, the guard operates without live worker state and remains
+non-destructive.
+
 ---
 
 ## Coordinator Responsibilities
@@ -143,6 +155,7 @@ automatically when processing task arrays:
 |------|-------------|
 | Serial within conflict group | Duplicate non-doc `conflictGroup` values are rejected before any worker is dispatched |
 | Docs tasks are low-conflict | Docs-only groups (all `allowedFiles` under `docs/`) are exempt from the duplicate-group rejection |
+| No collision with running workers | When a running tasks manifest is provided, tasks whose `conflictGroup` matches an active worker are blocked |
 | Gate check | The launch gate runs on the full batch; blocked tasks prevent execution |
 
 Workers still must respect `allowedFiles` and rebase before PR — these are not

@@ -21,6 +21,8 @@ The launch gate checker reads a task JSON file and validates every task against:
    `conflictGroup`.
 4. **Shared lock overlap** — tasks declaring the same `sharedLocks` entry are
    flagged as conflicting (when the field is present).
+5. **Running-worker conflict** — tasks whose `conflictGroup` matches an active
+   worker's group are blocked (when a running tasks manifest is provided).
 
 The checker produces a structured report and exits with code 0 (all clear) or
 1 (at least one task blocked or conflict detected).
@@ -56,6 +58,9 @@ can parse stdout without filtering.
 # Override health state (offline / CI testing)
 ./scripts/ai/check-launch-gate.ps1 -TaskFile ./tasks/batch-1.json -MainState red
 
+# Check against running workers manifest
+./scripts/ai/check-launch-gate.ps1 -TaskFile ./tasks/batch-1.json -RunningTasksFile ./active-workers.json
+
 # JSON output for downstream consumers
 ./scripts/ai/check-launch-gate.ps1 -TaskFile ./tasks/batch-1.json -Json
 ```
@@ -67,6 +72,7 @@ can parse stdout without filtering.
 | `TaskFile` | Yes | — | Path to task JSON (single object or array). |
 | `HealthFile` | No | `./.github/ai-state/main-health.json` | Path to main health marker. |
 | `MainState` | No | — | Override health state. Ignored when `HealthFile` exists. |
+| `RunningTasksFile` | No | — | Path to running workers manifest JSON. When provided, tasks whose `conflictGroup` matches an active worker are blocked. |
 | `Json` | No | `$false` | Output report as JSON instead of console text. When set, all diagnostic messages are suppressed on stdout (errors go to stderr). |
 
 ---
@@ -129,6 +135,26 @@ Tasks may declare a `sharedLocks` array (optional field). If two tasks in the
 same batch claim the same lock, the checker flags a conflict. This extends the
 conflict group model to finer-grained resource locks.
 
+### Running-worker conflict
+
+When a `-RunningTasksFile` manifest is provided, the checker blocks any task
+whose `conflictGroup` matches an already-active worker group. This prevents the
+self-cycle from scheduling work that collides with in-flight tasks.
+
+The running tasks file format is a JSON array of objects:
+
+```json
+[
+  { "conflictGroup": "auth-core", "issue": 258, "branch": "claude/wave6-..." },
+  { "conflictGroup": "posts", "issue": 260, "branch": "claude/wave6-..." }
+]
+```
+
+Only the `conflictGroup` field is required; `issue` and `branch` are optional
+metadata included in the report for traceability. When the file is omitted,
+running-worker detection is skipped entirely — the guard remains non-destructive
+and does not require live GitHub state.
+
 ---
 
 ## Report Format
@@ -172,6 +198,7 @@ Gate CHECK FAILED — one or more tasks blocked or conflicts detected.
   ],
   "duplicateConflictGroups": [],
   "sharedLockConflicts": [],
+  "runningWorkerConflicts": [],
   "allAllowed": true
 }
 ```
