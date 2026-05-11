@@ -1,0 +1,123 @@
+{
+  "id": "post-detail-basic",
+  "endpoint": "GET /api/posts/:postId",
+  "description": "Standard post detail with all fields populated — NodeBB topic/reply fields and LIAN metadata fields",
+  "request": {
+    "method": "GET",
+    "path": "/api/posts/<POST_ID>",
+    "params": { "postId": "<POST_ID>" }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "pid": "<POST_ID>",
+      "tid": "<TOPIC_ID>",
+      "title": "<STRING>",
+      "slug": "<STRING>",
+      "content": "<STRING>",
+      "contentHtml": "<STRING>",
+      "author": {
+        "uid": "<POSITIVE_INT>",
+        "username": "<STRING>",
+        "avatar": "<NULLABLE_STRING>",
+        "reputation": "<NON_NEG_INT>"
+      },
+      "timestamp": "<POSITIVE_INT>",
+      "editedTimestamp": null,
+      "editedByUid": null,
+      "voteCount": "<NON_NEG_INT>",
+      "bookmarkCount": "<NON_NEG_INT>",
+      "replyCount": "<NON_NEG_INT>",
+      "viewCount": "<NON_NEG_INT>",
+      "tags": "<ARRAY>",
+      "isPinned": false,
+      "isLocked": false,
+      "isDeleted": false,
+      "topic": {
+        "tid": "<TOPIC_ID>",
+        "title": "<STRING>",
+        "slug": "<STRING>",
+        "cid": "<POSITIVE_INT>",
+        "categoryName": "<STRING>",
+        "tagWhitelist": "<ARRAY>",
+        "postCount": "<NON_NEG_INT>",
+        "viewCount": "<NON_NEG_INT>",
+        "timestamp": "<POSITIVE_INT>",
+        "lastPostTime": "<POSITIVE_INT>",
+        "isPinned": false,
+        "isLocked": false,
+        "isDeleted": false
+      }
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": [
+        "pid", "tid", "title", "slug", "content", "contentHtml",
+        "author", "timestamp", "voteCount", "bookmarkCount",
+        "replyCount", "viewCount", "tags", "isPinned", "isLocked",
+        "isDeleted", "topic"
+      ],
+      "properties": {
+        "pid": { "type": "integer", "minimum": 1 },
+        "tid": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "slug": { "type": "string" },
+        "content": { "type": "string" },
+        "contentHtml": { "type": "string" },
+        "author": { "$ref": "#/$defs/PostAuthor" },
+        "timestamp": { "type": "integer", "minimum": 0 },
+        "editedTimestamp": { "type": ["integer", "null"], "minimum": 0 },
+        "editedByUid": { "type": ["integer", "null"], "minimum": 1 },
+        "voteCount": { "type": "integer" },
+        "bookmarkCount": { "type": "integer", "minimum": 0 },
+        "replyCount": { "type": "integer", "minimum": 0 },
+        "viewCount": { "type": "integer", "minimum": 0 },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "isPinned": { "type": "boolean" },
+        "isLocked": { "type": "boolean" },
+        "isDeleted": { "type": "boolean" },
+        "topic": { "$ref": "#/$defs/TopicSummary" }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "PostAuthor": {
+          "type": "object",
+          "required": ["uid", "username", "avatar", "reputation"],
+          "properties": {
+            "uid": { "type": "integer", "minimum": 1 },
+            "username": { "type": "string" },
+            "avatar": { "type": ["string", "null"] },
+            "reputation": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "TopicSummary": {
+          "type": "object",
+          "required": [
+            "tid", "title", "slug", "cid", "categoryName",
+            "tagWhitelist", "postCount", "viewCount", "timestamp",
+            "lastPostTime", "isPinned", "isLocked", "isDeleted"
+          ],
+          "properties": {
+            "tid": { "type": "integer", "minimum": 1 },
+            "title": { "type": "string" },
+            "slug": { "type": "string" },
+            "cid": { "type": "integer", "minimum": 1 },
+            "categoryName": { "type": "string" },
+            "tagWhitelist": { "type": "array", "items": { "type": "string" } },
+            "postCount": { "type": "integer", "minimum": 0 },
+            "viewCount": { "type": "integer", "minimum": 0 },
+            "timestamp": { "type": "integer", "minimum": 0 },
+            "lastPostTime": { "type": "integer", "minimum": 0 },
+            "isPinned": { "type": "boolean" },
+            "isLocked": { "type": "boolean" },
+            "isDeleted": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "notes": "POST_ID and TOPIC_ID must reference valid seeded NodeBB data during test runs. NodeBB-owned fields (pid, tid, title, slug, content, contentHtml, author, timestamp, voteCount, viewCount, topic.*) must match the NodeBB API response exactly. LIAN metadata fields (bookmarkCount, replyCount, tags, isPinned, isLocked, isDeleted) are sourced from PostMetadata repository."
+}

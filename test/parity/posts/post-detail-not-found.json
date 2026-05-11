@@ -1,0 +1,30 @@
+{
+  "id": "post-detail-not-found",
+  "endpoint": "GET /api/posts/:postId",
+  "description": "Requesting a non-existent post returns 404 with standard error envelope",
+  "request": {
+    "method": "GET",
+    "path": "/api/posts/999999999",
+    "params": { "postId": "999999999" }
+  },
+  "expected": {
+    "status": 404,
+    "contentType": "application/json",
+    "body": {
+      "statusCode": 404,
+      "error": "Not Found",
+      "code": "NOT_FOUND"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["statusCode", "error", "code"],
+      "properties": {
+        "statusCode": { "type": "integer", "const": 404 },
+        "error": { "type": "string" },
+        "code": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "notes": "Post ID 999999999 is chosen to be unreachable. The error envelope follows the GlobalExceptionFilter format. The `message` field is optional in 404 responses."
+}
