@@ -1,0 +1,247 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/provider-webui-dashboard-state.schema.json",
+  "title": "ProviderWebUIDashboardState",
+  "description": "Schema for the combined WebUI dashboard state projection. Aggregates provider pool status, active worker assignments, queue depth, and resource pressure into a single read-model for the dashboard. See docs/ai-native/provider-webui-dashboard-state-schema.md for field-level documentation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "capturedAt",
+    "providers",
+    "global",
+    "workers",
+    "queue",
+    "pressure"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version pinned to 1. Consumers must reject records with a different version."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this projection was last written."
+    },
+    "providers": {
+      "type": "array",
+      "description": "Per-provider status entries. Empty when no providers are registered.",
+      "items": {
+        "$ref": "#/definitions/ProviderStatus"
+      }
+    },
+    "global": {
+      "$ref": "#/definitions/GlobalMetrics",
+      "description": "Aggregate pool metrics across all providers."
+    },
+    "workers": {
+      "type": "array",
+      "description": "Active worker assignments. Empty when no workers are running.",
+      "items": {
+        "$ref": "#/definitions/WorkerAssignment"
+      }
+    },
+    "queue": {
+      "$ref": "#/definitions/QueueDepth",
+      "description": "Pending dispatch queue depth with blocked-reason breakdown."
+    },
+    "pressure": {
+      "$ref": "#/definitions/PressureIndicators",
+      "description": "Resource pressure indicators for the dashboard gauge."
+    }
+  },
+  "definitions": {
+    "ProviderStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "status",
+        "currentConcurrency",
+        "maxConcurrency",
+        "cooldownExpiresAt",
+        "lastFailureClass"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider identifier. Logical id only — never exposes the underlying secret."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable name for WebUI display."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["available", "exhausted", "disabled"],
+          "description": "Current provider status. available = has capacity, exhausted = quota/rate limit hit, disabled = auth failure or manual disable."
+        },
+        "currentConcurrency": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of workers currently assigned to this provider."
+        },
+        "maxConcurrency": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum concurrent workers allowed on this provider."
+        },
+        "cooldownExpiresAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the exhaustion cooldown ends. Null when not in cooldown."
+        },
+        "lastFailureClass": {
+          "type": ["string", "null"],
+          "enum": ["exhaustion", "auth", "runtime", null],
+          "description": "Classification of the most recent failure. Null when no failures recorded."
+        }
+      }
+    },
+    "GlobalMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "totalActiveWorkers",
+        "globalMaxWorkers",
+        "availableProviders",
+        "exhaustedProviders",
+        "disabledProviders"
+      ],
+      "properties": {
+        "totalActiveWorkers": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sum of workers across all providers."
+        },
+        "globalMaxWorkers": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "System-wide concurrency ceiling from provider-pool-policy.json."
+        },
+        "availableProviders": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of providers with status=available."
+        },
+        "exhaustedProviders": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of providers with status=exhausted."
+        },
+        "disabledProviders": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of providers with status=disabled."
+        }
+      }
+    },
+    "WorkerAssignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "issue",
+        "branch",
+        "conflictGroup",
+        "providerId",
+        "startedAt",
+        "status"
+      ],
+      "properties": {
+        "issue": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "GitHub issue number this worker is processing."
+        },
+        "branch": {
+          "type": "string",
+          "description": "Git branch or worktree the worker is operating on."
+        },
+        "conflictGroup": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Conflict group identifier from the task contract."
+        },
+        "providerId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Assigned provider id."
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the worker was dispatched."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["running", "cooling-down", "draining"],
+          "description": "Worker lifecycle status. running = actively executing, cooling-down = provider exhausted mid-task, draining = task complete, tearing down."
+        }
+      }
+    },
+    "QueueDepth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pendingTasks",
+        "blockedByExhaustion",
+        "blockedByConflict",
+        "blockedByCapacity"
+      ],
+      "properties": {
+        "pendingTasks": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total tasks waiting to be dispatched."
+        },
+        "blockedByExhaustion": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Tasks blocked because all providers are exhausted."
+        },
+        "blockedByConflict": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Tasks blocked by active-worker conflict group overlap."
+        },
+        "blockedByCapacity": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Tasks blocked because global max workers has been reached."
+        }
+      }
+    },
+    "PressureIndicators": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "level",
+        "utilizationPct",
+        "nearestCooldownExpiry"
+      ],
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["normal", "elevated", "critical"],
+          "description": "Aggregate pressure level. normal = utilization < 60% and no exhaustion, elevated = utilization >= 60% or any provider exhausted, critical = utilization >= 90% or all providers exhausted/disabled."
+        },
+        "utilizationPct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "totalActiveWorkers / globalMaxWorkers * 100."
+        },
+        "nearestCooldownExpiry": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 timestamp of the earliest upcoming cooldown end. Null when no provider is cooling down."
+        }
+      }
+    }
+  }
+}
