@@ -10,3 +10,22 @@ export interface TagsResponse {
   tags: TagItem[];
   source: 'nodebb' | 'fallback';
 }
+
+/** A single topic returned by GET /api/tags/:tag/topics */
+export interface TagTopicItem {
+  tid: number;
+  uid: number;
+  cid: number;
+  title: string;
+  slug: string;
+  mainPid: number;
+  postcount: number;
+  viewcount: number;
+  timestamp: number;
+}
+
+/** Response shape for GET /api/tags/:tag/topics */
+export interface TagTopicsResponse {
+  topics: TagTopicItem[];
+  source: 'nodebb' | 'fallback';
+}

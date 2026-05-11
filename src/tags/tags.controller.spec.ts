@@ -9,6 +9,7 @@ describe('TagsController', () => {
 
   const mockTagsProvider = {
     list: jest.fn(),
+    listTopics: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -51,6 +52,44 @@ describe('TagsController', () => {
       jest.spyOn(usecase, 'list').mockResolvedValue(mockResponse);
       const result = await controller.list();
       expect(result.tags).toEqual([]);
+      expect(result.source).toBe('fallback');
+    });
+  });
+
+  describe('listTopics', () => {
+    it('should delegate to usecase with tag param', async () => {
+      const mockResponse = {
+        topics: [
+          {
+            tid: 1,
+            uid: 2,
+            cid: 3,
+            title: 'Test Topic',
+            slug: 'test-topic',
+            mainPid: 10,
+            postcount: 5,
+            viewcount: 100,
+            timestamp: 1700000000,
+          },
+        ],
+        source: 'nodebb' as const,
+      };
+      const spy = jest
+        .spyOn(usecase, 'listTopics')
+        .mockResolvedValue(mockResponse);
+      const result = await controller.listTopics('nodebb');
+      expect(spy).toHaveBeenCalledWith('nodebb');
+      expect(result).toEqual(mockResponse);
+    });
+
+    it('should return fallback when usecase returns empty', async () => {
+      const mockResponse = {
+        topics: [],
+        source: 'fallback' as const,
+      };
+      jest.spyOn(usecase, 'listTopics').mockResolvedValue(mockResponse);
+      const result = await controller.listTopics('nonexistent');
+      expect(result.topics).toEqual([]);
       expect(result.source).toBe('fallback');
     });
   });
