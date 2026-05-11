@@ -20,7 +20,9 @@ const {
   extractH1,
   checkDuplicateBasenames,
   checkDuplicateTitles,
+  checkDuplicateTopics,
   checkMissingFrontmatter,
+  checkStaleStatus,
 } = require('./check-docs-authority');
 
 let passed = 0;
@@ -217,6 +219,122 @@ console.log('checkMissingFrontmatter');
     const files = [path.join(tmp, 'docs/a/no-fm.md')];
     const missing = checkMissingFrontmatter(files);
     assert(missing.length === 0, 'skips docs without frontmatter');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// checkDuplicateTopics
+console.log('checkDuplicateTopics');
+{
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, 'docs/a/auth.md', '---\ntopic: auth\n---\n# Auth Plan A');
+    writeFile(tmp, 'docs/b/auth-v2.md', '---\ntopic: auth\n---\n# Auth Plan B');
+    writeFile(tmp, 'docs/c/other.md', '---\ntopic: migration\n---\n# Migration');
+
+    const files = [
+      path.join(tmp, 'docs/a/auth.md'),
+      path.join(tmp, 'docs/b/auth-v2.md'),
+      path.join(tmp, 'docs/c/other.md'),
+    ];
+    const dups = checkDuplicateTopics(files);
+    assert(dups.length === 1, 'finds one duplicate topic group');
+    assert(dups[0].topic === 'auth', 'correct topic flagged');
+    assert(dups[0].files.length === 2, 'two files in duplicate topic group');
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, 'docs/a/one.md', '---\ntopic: auth\n---\n# Auth');
+    writeFile(tmp, 'docs/b/two.md', '---\ntopic: migration\n---\n# Migration');
+
+    const files = [
+      path.join(tmp, 'docs/a/one.md'),
+      path.join(tmp, 'docs/b/two.md'),
+    ];
+    const dups = checkDuplicateTopics(files);
+    assert(dups.length === 0, 'no duplicates when topics differ');
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, 'docs/a/no-fm.md', '# Plain doc\nNo frontmatter');
+    writeFile(tmp, 'docs/b/no-topic.md', '---\nowner: alice\n---\n# No Topic');
+
+    const files = [
+      path.join(tmp, 'docs/a/no-fm.md'),
+      path.join(tmp, 'docs/b/no-topic.md'),
+    ];
+    const dups = checkDuplicateTopics(files);
+    assert(dups.length === 0, 'skips files without topic frontmatter');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// checkStaleStatus
+console.log('checkStaleStatus');
+{
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, 'docs/a/active.md', '---\nstatus: active\n---\n# Active');
+    writeFile(tmp, 'docs/b/superseded.md', '---\nstatus: superseded\n---\n# Old');
+    writeFile(tmp, 'docs/c/archived.md', '---\nstatus: archived\n---\n# Ancient');
+
+    const files = [
+      path.join(tmp, 'docs/a/active.md'),
+      path.join(tmp, 'docs/b/superseded.md'),
+      path.join(tmp, 'docs/c/archived.md'),
+    ];
+    const stale = checkStaleStatus(files);
+    assert(stale.length === 2, 'flags two stale docs');
+    assert(stale[0].status === 'superseded', 'first stale doc is superseded');
+    assert(stale[1].status === 'archived', 'second stale doc is archived');
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, 'docs/a/active.md', '---\nstatus: active\n---\n# Active');
+    writeFile(tmp, 'docs/b/no-fm.md', '# No frontmatter');
+
+    const files = [
+      path.join(tmp, 'docs/a/active.md'),
+      path.join(tmp, 'docs/b/no-fm.md'),
+    ];
+    const stale = checkStaleStatus(files);
+    assert(stale.length === 0, 'no stale docs when all are active or missing frontmatter');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// checkDuplicateBasenames — three files with same basename
+console.log('checkDuplicateBasenames (3+ files)');
+{
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, 'docs/a/readme.md', '# A');
+    writeFile(tmp, 'docs/b/readme.md', '# B');
+    writeFile(tmp, 'docs/c/readme.md', '# C');
+
+    const files = [
+      path.join(tmp, 'docs/a/readme.md'),
+      path.join(tmp, 'docs/b/readme.md'),
+      path.join(tmp, 'docs/c/readme.md'),
+    ];
+    const dups = checkDuplicateBasenames(files);
+    assert(dups.length === 1, 'one duplicate group for three files');
+    assert(dups[0].files.length === 3, 'all three files reported');
   } finally {
     cleanup(tmp);
   }

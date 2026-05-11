@@ -8,7 +8,9 @@
  * Checks:
  *   1. Duplicate basenames across docs folders.
  *   2. Duplicate H1 titles across docs folders.
- *   3. Docs missing optional frontmatter owner/status/topic (where present).
+ *   3. Duplicate topic frontmatter across docs (duplicate current sources).
+ *   4. Docs missing optional frontmatter owner/status/topic (where present).
+ *   5. Docs with stale status (superseded/archived) in frontmatter.
  *
  * Run standalone: node scripts/guards/check-docs-authority.js [--warn-only]
  * Exit codes:
@@ -70,19 +72,19 @@ function extractH1(content) {
 // --- Checks ---
 
 function checkDuplicateBasenames(files) {
-  const seen = new Map();
-  const duplicates = [];
+  const groups = new Map();
 
   for (const file of files) {
     const basename = path.basename(file, '.md');
-    if (seen.has(basename)) {
-      duplicates.push({
-        type: 'duplicate-basename',
-        basename,
-        files: [seen.get(basename), path.relative(ROOT, file)],
-      });
-    } else {
-      seen.set(basename, path.relative(ROOT, file));
+    const rel = path.relative(ROOT, file);
+    if (!groups.has(basename)) groups.set(basename, []);
+    groups.get(basename).push(rel);
+  }
+
+  const duplicates = [];
+  for (const [basename, fileList] of groups) {
+    if (fileList.length > 1) {
+      duplicates.push({ type: 'duplicate-basename', basename, files: fileList });
     }
   }
   return duplicates;
@@ -138,6 +140,50 @@ function checkMissingFrontmatter(files) {
   return missing;
 }
 
+function checkDuplicateTopics(files) {
+  const groups = new Map();
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, 'utf-8');
+    const fm = parseFrontmatter(content);
+    if (!fm || !fm.topic) continue;
+
+    const topic = fm.topic.toLowerCase();
+    const rel = path.relative(ROOT, file);
+    if (!groups.has(topic)) groups.set(topic, []);
+    groups.get(topic).push(rel);
+  }
+
+  const duplicates = [];
+  for (const [topic, fileList] of groups) {
+    if (fileList.length > 1) {
+      duplicates.push({ type: 'duplicate-topic', topic, files: fileList });
+    }
+  }
+  return duplicates;
+}
+
+const STALE_STATUSES = new Set(['superseded', 'archived']);
+
+function checkStaleStatus(files) {
+  const stale = [];
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, 'utf-8');
+    const fm = parseFrontmatter(content);
+    if (!fm || !fm.status) continue;
+
+    if (STALE_STATUSES.has(fm.status.toLowerCase())) {
+      stale.push({
+        type: 'stale-status',
+        file: path.relative(ROOT, file),
+        status: fm.status.toLowerCase(),
+      });
+    }
+  }
+  return stale;
+}
+
 // --- Main ---
 
 function run() {
@@ -165,12 +211,25 @@ function run() {
     (WARN_ONLY ? warnings : errors).push(msg);
   }
 
-  // 3. Missing frontmatter fields (always warn, never block)
+  // 3. Duplicate topics (error in enforce mode)
+  const dupTopics = checkDuplicateTopics(files);
+  for (const d of dupTopics) {
+    const msg = `Duplicate topic "${d.topic}": ${d.files.join(', ')}`;
+    (WARN_ONLY ? warnings : errors).push(msg);
+  }
+
+  // 4. Missing frontmatter fields (always warn, never block)
   const missingFm = checkMissingFrontmatter(files);
   for (const m of missingFm) {
     warnings.push(
       `Missing frontmatter [${m.missing.join(', ')}]: ${m.file}`
     );
+  }
+
+  // 5. Stale status (always warn, never block)
+  const staleDocs = checkStaleStatus(files);
+  for (const s of staleDocs) {
+    warnings.push(`Stale status [${s.status}]: ${s.file}`);
   }
 
   // Output
@@ -213,6 +272,8 @@ module.exports = {
   extractH1,
   checkDuplicateBasenames,
   checkDuplicateTitles,
+  checkDuplicateTopics,
   checkMissingFrontmatter,
+  checkStaleStatus,
   run,
 };
