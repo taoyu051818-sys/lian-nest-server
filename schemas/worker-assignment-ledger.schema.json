@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/taoyu051818-sys/lian-nest-server/schemas/worker-assignment-ledger.schema.json",
+  "title": "WorkerAssignmentLedger",
+  "description": "Append-only NDJSON ledger entry recording a worker assignment lifecycle event. Links task, provider, concurrency slot, and status for capacity tracking and audit.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "entryId",
+    "recordedAt",
+    "taskId",
+    "issueNumber",
+    "providerId",
+    "slotId",
+    "status"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version pinned to 1. Consumers must reject records with a different version."
+    },
+    "entryId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier for this ledger entry (UUID or monotonic ID)."
+    },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this entry was recorded."
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Worker task identifier, matching the heartbeat taskId."
+    },
+    "issueNumber": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "GitHub issue number this assignment targets."
+    },
+    "prNumber": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub pull request number produced by this assignment, if applicable."
+    },
+    "providerId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier of the provider executing the task (e.g. 'claude-opus-4-7', 'codex-mini')."
+    },
+    "slotId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Concurrency slot identifier. Each slot represents one unit of live worker capacity."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["assigned", "started", "completed", "failed", "released"],
+      "description": "Lifecycle status: assigned (slot reserved), started (work begun), completed (success), failed (error), released (slot freed after terminal state)."
+    },
+    "conflictGroup": {
+      "type": ["string", "null"],
+      "description": "Logical conflict group for parallelism control, matching the task contract."
+    },
+    "actorRole": {
+      "type": ["string", "null"],
+      "description": "Role performing the work, from the task contract rolePacket."
+    },
+    "pmPhase": {
+      "type": ["string", "null"],
+      "description": "Wave or phase identifier for aggregation."
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "description": "Human-readable reason for the status transition (e.g. failure message on status=failed)."
+    },
+    "meta": {
+      "type": ["object", "null"],
+      "description": "Arbitrary key-value metadata for downstream analysis. Should not contain secrets or credentials."
+    }
+  }
+}
