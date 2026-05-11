@@ -14,38 +14,49 @@
 
 ## Action Map
 
-### Provider Actions
+Every action module lives in `tools/provider-pool-webui/actions/` and
+exports both `preview()` and `execute()`. Mutating actions default to
+dry-run; the caller must pass `confirm: true` to execute.
 
-| Button | Action ID | Risk | Confirm | Endpoint | Backing Script | Description |
-|--------|-----------|------|---------|----------|----------------|-------------|
-| Retry | `provider.retry` | Low | `RETRY` | `POST /api/actions/execute` | `tools/provider-pool-webui/actions/provider-retry.js` | Re-enable an exhausted or disabled provider |
-| Clear Cooldown | `provider.clearCooldown` | Medium | `CLEAR` | `POST /api/actions/execute` | `tools/provider-pool-webui/actions/provider-clear-cooldown.js` | Remove cooldown timer on a provider |
-| Disable | `provider.disable` | High | `DISABLE` | `POST /api/actions/execute` | `tools/provider-pool-webui/actions/provider-disable.js` | Manual disable; human required |
+### Task Planning
 
-### Queue Actions
+| Action ID | Label | Risk | Endpoint | Backing Script | Description |
+|-----------|-------|------|----------|----------------|-------------|
+| `compile-tasks` | Compile Tasks | Low | `POST /api/actions/execute` | `tools/provider-pool-webui/actions/compile-tasks.js` | Compile issue JSON into worker task contracts; non-destructive |
+| `plan.next.batch` | Plan Next Batch | Low | `POST /api/actions/execute` | `tools/provider-pool-webui/actions/plan-next-batch.js` | Preview next batch: queued issues matched to provider capacity |
 
-| Button | Action ID | Risk | Confirm | Endpoint | Backing Script | Description |
-|--------|-----------|------|---------|----------|----------------|-------------|
-| Retry Blocked | `queue.retryBlocked` | Low | `RETRY` | `POST /api/actions/execute` | `tools/provider-pool-webui/actions/queue-retry-blocked.js` | Re-queue blocked tasks |
-| Clear Stale | `queue.clearStale` | Medium | `CLEAR` | `POST /api/actions/execute` | `tools/provider-pool-webui/actions/queue-clear-stale.js` | Remove stale queue entries (>2 h) |
+### Issue Management
 
-### Global Actions
+| Action ID | Label | Risk | Endpoint | Backing Script | Description |
+|-----------|-------|------|----------|----------------|-------------|
+| `create-issues` | Create Issues | High | `POST /api/actions/execute` | `tools/provider-pool-webui/actions/create-issues.js` | Propose and create GitHub issues from gap analysis |
+| `issue-state` | Issue State Control | High | `POST /api/actions/execute` | `tools/provider-pool-webui/actions/issue-state.js` | Reconcile issue labels/PRs and close done issues |
 
-| Button | Action ID | Risk | Confirm | Endpoint | Backing Script | Description |
-|--------|-----------|------|---------|----------|----------------|-------------|
-| Refresh State | `global.refreshState` | Low | `REFRESH` | `POST /api/actions/execute` | `tools/provider-pool-webui/actions/global-refresh-state.js` | Force state-file refresh |
-| Export Audit | `global.exportAudit` | Low | `EXPORT` | `POST /api/actions/execute` | `tools/provider-pool-webui/actions/global-export-audit.js` | Download audit log as JSON |
+### Batch Execution
 
-### Control-Plane Dashboard Actions
+| Action ID | Label | Risk | Endpoint | Backing Script | Description |
+|-----------|-------|------|----------|----------------|-------------|
+| `launch-batch` | Launch Batch | High | `POST /api/actions/execute` | `tools/provider-pool-webui/actions/launch-batch.js` | Run launch gate and dispatch queued tasks |
+| `merge-prs` | Merge PRs | High | `POST /api/actions/execute` | `tools/provider-pool-webui/actions/merge-prs.js` | Merge explicit PR allowlist with guard checks |
 
-| Action ID | Description | Blocked When |
-|-----------|-------------|--------------|
+### Provider & Worker
+
+| Action ID | Label | Risk | Endpoint | Backing Script | Description |
+|-----------|-------|------|----------|----------------|-------------|
+| `provider-rotation` | Provider Key Rotation | High | `POST /api/actions/execute` | `tools/provider-pool-webui/actions/provider-rotation.js` | Reset provider to available; clears cooldown and failure counters |
+| `worker.control` | Worker Control | High | `POST /api/actions/execute` | `tools/provider-pool-webui/actions/worker-control.js` | List or stop workers with explicit targeting |
+
+### Dashboard Readiness
+
+The `actionReadiness` section of the dashboard state snapshot (schema v2)
+surfaces readiness signals. The WebUI reads these before enabling buttons.
+
+| Readiness ID | Description | Blocked When |
+|--------------|-------------|--------------|
 | `launch-worker` | Dispatch a new Codex worker | Health not green, no available providers, or trust below `minTrustToLaunch` |
 | `merge-pr` | Merge a ready PR | Health not green or risk score > 80 |
 | `retry-failed` | Retry failed queue entries | Health not green or no failed entries |
 | `drain-queue` | Drain the task queue | Health not green, queue empty, or no providers |
-
-These actions surface via the `actionReadiness` section of the dashboard state snapshot (schema v2). The WebUI reads readiness before enabling buttons.
 
 ---
 
@@ -97,7 +108,7 @@ Every `POST /api/actions/execute` writes an audit entry:
 ```json
 {
   "id": "uuid",
-  "actionId": "provider.retry",
+  "actionId": "provider-rotation",
   "startedAt": "2026-05-12T00:30:00Z",
   "completedAt": "2026-05-12T00:30:01Z",
   "status": "success",
@@ -186,10 +197,10 @@ Every action module exports both `preview()` and `execute()`:
 ```js
 // tools/provider-pool-webui/actions/<name>.js
 module.exports = {
-  id: 'provider.retry',
-  label: 'Retry',
-  description: 'Re-enable exhausted provider',
-  dangerous: false,
+  id: 'provider-rotation',
+  label: 'Provider Key Rotation',
+  description: 'Reset provider to available; clears cooldown and failure counters',
+  dangerous: true,
   preview(payload) { /* dry-run, no side effects */ },
   execute(payload) { /* mutates state, writes audit */ }
 };
@@ -217,9 +228,14 @@ The `/api/actions/preview` endpoint calls `preview()` and returns the projected 
 |--------|---------|-------------|---------------|
 | `ops:self-cycle` | dry-run | `-Execute` | Via control-plane dashboard |
 | `ops:webui` | starts server | — | Launches WebUI |
-| `ops:resource-sample` | dry-run | `-Execute` | Refresh State button |
+| `ops:resource-sample` | dry-run | `-Execute` | Resource sampling |
 | `ops:state-reconcile` | dry-run | `--execute` | Automatic on state drift |
-| `ops:merge-queue` | dry-run | `--execute` | drain-queue action |
+| `ops:merge-queue` | dry-run | `--execute` | `drain-queue` readiness action |
+| `ops:webui:console-issue` | dry-run | `--execute` | `issue-state` action module |
+| `ops:webui:console-launch` | dry-run | `-Execute` | `launch-batch` action module |
+| `ops:webui:console-merge` | dry-run | `-Execute` | `merge-prs` action module |
+| `ops:webui:control-workers` | dry-run | `--execute` | `worker.control` action module |
+| `ops:plan-next-batch` | dry-run | `--execute` | `plan.next.batch` action module |
 
 All write-capable scripts default to dry-run. The WebUI never passes mutate flags directly; the server-side action module decides whether to call the script with or without the flag based on the `confirm` field.
 
@@ -230,6 +246,7 @@ All write-capable scripts default to dry-run. The WebUI never passes mutate flag
 - [Provider Pool WebUI Architecture](provider-pool-webui-architecture.md)
 - [WebUI Actions API](provider-pool-webui-actions-api.md)
 - [WebUI Action Styles](provider-pool-webui-action-styles.md)
+- [WebUI Action Registry](webui-action-registry.md)
 - [Operation Console](provider-pool-webui-operation-console.md)
 - [WebUI Security](provider-pool-webui-security.md)
 - [Read-Only Mode](provider-pool-webui-readonly-mode.md)
@@ -240,3 +257,11 @@ All write-capable scripts default to dry-run. The WebUI never passes mutate flag
 - [Planning Loop](planning-loop.md)
 - [Loop Model](loop-model.md)
 - [Orchestration](orchestration.md)
+- [Compile Tasks Action](webui-action-compile-tasks.md)
+- [Create Issues Action](webui-action-create-issues.md)
+- [Issue State Action](webui-action-issue-state.md)
+- [Launch Batch Action](webui-action-launch-batch.md)
+- [Merge PRs Action](webui-action-merge-prs.md)
+- [Plan Next Batch Action](webui-action-plan-next-batch.md)
+- [Provider Rotation Action](webui-action-provider-rotation.md)
+- [Worker Control Action](webui-action-worker-control.md)
