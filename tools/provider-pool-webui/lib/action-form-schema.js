@@ -43,6 +43,24 @@ const FIELD_TYPES = Object.freeze({
     placeholder: "e.g. strategy",
     autocomplete: "off",
   }),
+  title: Object.freeze({
+    type: "text",
+    label: "Issue Title",
+    placeholder: "e.g. feat(module): add feature X",
+    autocomplete: "off",
+  }),
+  gapKey: Object.freeze({
+    type: "text",
+    label: "Gap Key",
+    placeholder: "e.g. auth-slice-2",
+    autocomplete: "off",
+  }),
+  labels: Object.freeze({
+    type: "text",
+    label: "Labels",
+    placeholder: "e.g. wave21, gap-fill (comma-separated)",
+    autocomplete: "off",
+  }),
 });
 
 const DEFAULT_FIELD = Object.freeze({
