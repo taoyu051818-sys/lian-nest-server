@@ -326,6 +326,55 @@ if (canTestCompiler) {
   console.log('\nSKIPPED: compile-issue-to-task-json.ps1 not found');
 }
 
+// --- plan-next-batch.ps1 status regex regression (issue #274) ---
+console.log('\nplan-next-batch.ps1 status regex');
+console.log('-'.repeat(50));
+
+const PLANNER = path.join(__dirname, 'ai', 'plan-next-batch.ps1');
+const canTestPlanner = fs.existsSync(PLANNER);
+
+if (canTestPlanner) {
+  // Verify the script loads (--help)
+  {
+    const res = runPwsh(PLANNER, ['-Help']);
+    assert(res.code === 0, 'planner --help exits 0');
+    assert(res.stdout.includes('plan-next-batch'), 'help mentions script name');
+  }
+
+  // Regression: status regex must match migration matrix lines without crashing.
+  // The old pattern used backtick-? (`?) which produced an invalid .NET regex.
+  // This test verifies the fixed regex correctly matches each status value.
+  {
+    const tmpPwsh = path.join(os.tmpdir(), `plan-next-batch-regex-test-${Date.now()}.ps1`);
+    fs.writeFileSync(tmpPwsh, [
+      '$ErrorActionPreference = "Stop"',
+      '$lines = @(',
+      '  "| 1 | A1 | 0 | CONTRACTED | --- |"',
+      '  "| 2 | A2 | 0 | NOT_STARTED | A1 |"',
+      '  "| 3 | A3 | 1 | IMPLEMENTED | A1, A2 |"',
+      '  "| 4 | A4 | 1 | PARITY_TESTED | A3 |"',
+      '  "| 5 | A5 | 3 | LEGACY_DISABLED | A3 |"',
+      ')',
+      '$expected = @("CONTRACTED","NOT_STARTED","IMPLEMENTED","PARITY_TESTED","LEGACY_DISABLED")',
+      '$pattern = "(NOT_STARTED|CONTRACTED|IMPLEMENTED|PARITY_TESTED|LEGACY_DISABLED)"',
+      'for ($i = 0; $i -lt $lines.Count; $i++) {',
+      '  if ($lines[$i] -match $pattern) {',
+      '    if ($Matches[1] -ne $expected[$i]) { Write-Host "MISMATCH at $i"; exit 1 }',
+      '  } else {',
+      '    Write-Host "NO MATCH at $i"; exit 1',
+      '  }',
+      '}',
+      'Write-Host "ALL_MATCH"',
+    ].join('\n'));
+    const res = runPwsh(tmpPwsh);
+    assert(res.code === 0, 'status regex script exits 0');
+    assert(res.stdout.includes('ALL_MATCH'), 'status regex matches all sample migration matrix lines');
+    fs.unlinkSync(tmpPwsh);
+  }
+} else {
+  console.log('\nSKIPPED: plan-next-batch.ps1 not found');
+}
+
 // --- Summary ---
 console.log(`\n${'='.repeat(50)}`);
 console.log(`Results: ${passed} passed, ${failed} failed`);

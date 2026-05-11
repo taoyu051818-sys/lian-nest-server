@@ -170,7 +170,7 @@ if (Test-Path $MatrixPath) {
         if ($line -match "^\|\s*(\d+)\s*\|\s*([A-Z]\d+|PR\d+)\s*\|") {
             $sliceId = $Matches[2]
             # Extract status from the row (last meaningful column before trailing |)
-            if ($line -match "`?(NOT_STARTED|CONTRACTED|IMPLEMENTED|PARITY_TESTED|LEGACY_DISABLED)`?") {
+            if ($line -match "(NOT_STARTED|CONTRACTED|IMPLEMENTED|PARITY_TESTED|LEGACY_DISABLED)") {
                 $sliceStatuses[$sliceId] = $Matches[1]
             }
         }
