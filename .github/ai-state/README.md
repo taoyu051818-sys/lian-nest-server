@@ -6,6 +6,7 @@ Machine-readable state files consumed by AI automation (scheduler, launch gate, 
 
 ```
 .github/ai-state/
+  launch-locks.json  # Currently held launch locks projection
   main-health.json   # Current main branch health state
   README.md          # This file
 ```
@@ -68,6 +69,56 @@ Worker classes control which automation may target main when health is degraded:
 - **Self-cycle runner**: Reads the marker at Step 2 to gate the cycle. A `red` or `black` state, or a missing marker, stops the cycle.
 - **Merge scripts**: Checks `state` is not `red`/`black` before merging.
 - **Monitoring**: Reads `capturedAt` to detect stale markers.
+
+## launch-locks.json
+
+Projection of currently held launch locks. Read by the batch launcher before
+dispatching workers to detect conflicts with in-flight tasks.
+
+### Schema
+
+```jsonc
+{
+  "markerVersion": 1,
+  "capturedAt": "2026-05-11T12:00:00Z",
+  "locks": [
+    {
+      "conflictGroup": "auth-core",
+      "writeSet": ["src/auth/auth.service.ts"],
+      "sharedLocks": ["app-module"],
+      "ownerTask": {
+        "issue": 258,
+        "branch": "claude/wave6-20260510-091500-issue-258",
+        "workerClass": "runtime-feature"
+      },
+      "acquiredAt": "2026-05-11T10:30:00Z",
+      "expiresAt": "2026-05-11T11:30:00Z"
+    }
+  ]
+}
+```
+
+### Lock Entry Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `conflictGroup` | `string` | Conflict group this lock protects. |
+| `writeSet` | `string[]` | File paths the worker intends to edit. |
+| `sharedLocks` | `string[]` | Shared resource locks claimed (e.g. `app-module`). |
+| `ownerTask.issue` | `number` | GitHub issue number. |
+| `ownerTask.branch` | `string` | Git worktree branch name. |
+| `ownerTask.workerClass` | `string` | Worker classification. |
+| `acquiredAt` | `string` | ISO 8601 lock acquisition time. |
+| `expiresAt` | `string` | ISO 8601 lock expiry time. |
+
+### Downstream Consumers
+
+- **Batch launcher**: Reads before dispatch to detect conflict group and shared lock overlaps.
+- **Launch gate**: Reads to enforce running-worker conflict rules.
+- **State reconciler**: Reads to detect stale locks.
+
+See [launch-locks-state.md](../../docs/ai-native/launch-locks-state.md) for the
+full specification including stale lock detection and lifecycle.
 
 ## Write Workflow
 
