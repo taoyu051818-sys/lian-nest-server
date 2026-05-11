@@ -1,0 +1,159 @@
+{
+  "$schema": "fixture-only",
+  "description": "Fixture data for merge-clean-pr-batch queue control-loop tests",
+  "allowlistSamples": {
+    "valid": "# PR allowlist\n42\n45\n51",
+    "withComments": "# batch 1\n42\n\n# batch 2\n45\n# skipped\n51",
+    "withTrailing": "  42  \n  45  \n",
+    "invalidEntry": "42\nnot-a-number\n51",
+    "empty": "",
+    "singlePr": "99",
+    "duplicates": "42\n42\n45"
+  },
+  "prInfoSamples": {
+    "eligible": {
+      "number": 42,
+      "title": "feat: add TagsModule",
+      "isDraft": false,
+      "state": "OPEN",
+      "mergeable": "MERGEABLE",
+      "headRefName": "feat/tags-module",
+      "statusCheckRollup": [],
+      "files": [],
+      "body": ""
+    },
+    "draft": {
+      "number": 43,
+      "title": "feat: wip feature",
+      "isDraft": true,
+      "state": "OPEN",
+      "mergeable": "MERGEABLE",
+      "headRefName": "feat/wip",
+      "statusCheckRollup": [],
+      "files": [],
+      "body": ""
+    },
+    "closed": {
+      "number": 44,
+      "title": "fix: old bug",
+      "isDraft": false,
+      "state": "CLOSED",
+      "mergeable": "MERGEABLE",
+      "headRefName": "fix/old-bug",
+      "statusCheckRollup": [],
+      "files": [],
+      "body": ""
+    },
+    "notMergeable": {
+      "number": 45,
+      "title": "feat: conflict",
+      "isDraft": false,
+      "state": "OPEN",
+      "mergeable": "CONFLICTING",
+      "headRefName": "feat/conflict",
+      "statusCheckRollup": [],
+      "files": [],
+      "body": ""
+    },
+    "failedCheck": {
+      "number": 46,
+      "title": "feat: broken ci",
+      "isDraft": false,
+      "state": "OPEN",
+      "mergeable": "MERGEABLE",
+      "headRefName": "feat/broken-ci",
+      "statusCheckRollup": [
+        { "name": "build", "state": "SUCCESS", "context": null },
+        { "name": "test", "state": "FAILURE", "context": null }
+      ],
+      "files": [],
+      "body": ""
+    },
+    "cancelledCheck": {
+      "number": 47,
+      "title": "feat: cancelled",
+      "isDraft": false,
+      "state": "OPEN",
+      "mergeable": "MERGEABLE",
+      "headRefName": "feat/cancelled",
+      "statusCheckRollup": [
+        { "name": "deploy", "state": "CANCELLED", "context": null }
+      ],
+      "files": [],
+      "body": ""
+    },
+    "timedOutCheck": {
+      "number": 48,
+      "title": "feat: timeout",
+      "isDraft": false,
+      "state": "OPEN",
+      "mergeable": "MERGEABLE",
+      "headRefName": "feat/timeout",
+      "statusCheckRollup": [
+        { "name": "integration", "state": "TIMED_OUT", "context": null }
+      ],
+      "files": [],
+      "body": ""
+    },
+    "multipleFailures": {
+      "number": 49,
+      "title": "feat: multi-fail",
+      "isDraft": true,
+      "state": "CLOSED",
+      "mergeable": "CONFLICTING",
+      "headRefName": "feat/multi-fail",
+      "statusCheckRollup": [
+        { "name": "build", "state": "FAILURE", "context": null }
+      ],
+      "files": [],
+      "body": ""
+    }
+  },
+  "taskManifest": {
+    "taskId": "592-queue-test",
+    "allowedFiles": [
+      "scripts/ai/merge-clean-pr-batch.queue.test.ps1",
+      "scripts/ai/__fixtures__/merge-queue/allowlist.json"
+    ],
+    "forbiddenFiles": [
+      "src/**",
+      "prisma/**",
+      "src/generated/**",
+      "package.json",
+      "package-lock.json"
+    ]
+  },
+  "prBodies": {
+    "complete": "## Summary\nAdd queue control-loop tests.\n\n## Changed files\n- scripts/ai/merge-clean-pr-batch.queue.test.ps1\n\n## Linked issues\nCloses #592\n\n## Validation\n- pwsh test: PASS\n\n## Non-goals\n- No src changes\n\n## Risk / rollback\nLow — test-only. Revert to roll back.\n\n## Follow-up handoff\nNone required.",
+    "missingSummary": "## Changed files\n- scripts/ai/test.ps1\n\n## Linked issues\nCloses #592\n\n## Validation\n- pwsh test: PASS\n\n## Non-goals\n- None\n\n## Risk / rollback\nLow\n\n## Follow-up handoff\nNone",
+    "missingHandoff": "## Summary\nTest.\n\n## Changed files\n- scripts/ai/test.ps1\n\n## Linked issues\nCloses #592\n\n## Validation\n- pwsh test: PASS\n\n## Non-goals\n- None\n\n## Risk / rollback\nLow",
+    "empty": "",
+    "whitespaceOnly": "   \n  \n   "
+  },
+  "changedFilesSets": {
+    "safeOnly": [
+      "scripts/ai/merge-clean-pr-batch.queue.test.ps1",
+      "scripts/ai/__fixtures__/merge-queue/allowlist.json"
+    ],
+    "includesForbiddenSrc": [
+      "scripts/ai/test.ps1",
+      "src/modules/auth/auth.module.ts"
+    ],
+    "includesForbiddenPrisma": [
+      "scripts/ai/test.ps1",
+      "prisma/schema.prisma"
+    ],
+    "outsideAllowed": [
+      "scripts/ai/test.ps1",
+      "docs/unexpected.md"
+    ],
+    "generatedPrismaOnly": [
+      "src/generated/prisma/client.js"
+    ],
+    "schemaAndGenerated": [
+      "prisma/schema.prisma",
+      "src/generated/prisma/client.js"
+    ],
+    "empty": []
+  }
+}
