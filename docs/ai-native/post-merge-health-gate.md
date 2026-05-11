@@ -38,11 +38,31 @@ When checks fail, the script groups failures by worker category:
 
 | Category | Meaning |
 |---|---|
-| `dependency/generate` | Missing or stale dependencies, Prisma generate needed |
+| `dependency/generate` | Missing or stale dependencies, Prisma generate needed, unresolved `@prisma/client` or `prisma/config` modules |
+| `database foundation` | Prisma schema/migration issues, missing database baseline |
 | `boundary guard` | Repository boundary violations (data-store imports outside `src/repositories/`) |
 | `test env` | Test failures, missing environment variables |
 | `conflict refresh` | TypeScript conflicts after merge, rebase needed |
 | `runtime compile` | Build or compilation errors in source files |
+
+### Prisma Generated-Client Error Detection
+
+The script inspects check output for known Prisma client error patterns and
+re-classifies failures as `dependency/generate` regardless of which check
+originally produced them. Detected patterns include:
+
+- `@prisma/client has no exported member PrismaClient`
+- `Cannot find module '@prisma/client'`
+- `Cannot find module 'prisma/config'`
+- `Property '$connect' does not exist` / `Property '$disconnect' does not exist`
+- Type mismatches involving `PrismaClient`
+
+When `dependency/generate` is detected, the suggested next steps are:
+
+1. `npm install`
+2. `npx prisma generate`
+3. `npx prisma validate`
+4. If `PrismaClient` is still unresolved, issue or fix a database baseline migration
 
 ## Exit Codes
 
