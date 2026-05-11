@@ -19,6 +19,7 @@ const DEFAULT_PORT = 4179;
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const POLICY_PATH = path.join(REPO_ROOT, ".github/ai-policy/provider-pool-policy.json");
 const STATE_PATH = path.join(REPO_ROOT, ".github/ai-state/provider-pool.json");
+const QUEUE_STATE_PATH = path.join(REPO_ROOT, ".github/ai-state/webui-queue-state.json");
 
 // --- CLI -------------------------------------------------------------------
 
@@ -37,6 +38,9 @@ ENDPOINTS
   GET /                   Dashboard (HTML)
   GET /api/state          Sanitized provider pool state (JSON)
   GET /api/policy         Provider pool policy (JSON, secrets stripped)
+  GET /api/workers        Active worker slots derived from provider state
+  GET /api/resources      Concurrency utilization and headroom
+  GET /api/queue          Queue state projection (empty if no file)
   GET /api/health         Server health check
 
 DESCRIPTION
@@ -214,6 +218,97 @@ function handleRequest(req, res) {
     return;
   }
 
+  if (route === "/api/workers") {
+    const state = readJsonFile(STATE_PATH);
+    if (!state) {
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "State file not available" }));
+      return;
+    }
+    const workers = [];
+    for (const p of state.providers || []) {
+      for (let i = 0; i < (p.currentConcurrency || 0); i++) {
+        workers.push({
+          workerId: `${p.id}-slot-${i}`,
+          providerId: p.id,
+          status: "running",
+          startedAt: state.global?.capturedAt || null,
+        });
+      }
+    }
+    const byProvider = {};
+    const byStatus = {};
+    for (const w of workers) {
+      byProvider[w.providerId] = (byProvider[w.providerId] || 0) + 1;
+      byStatus[w.status] = (byStatus[w.status] || 0) + 1;
+    }
+    const payload = {
+      workers,
+      summary: {
+        totalActive: workers.length,
+        byProvider,
+        byStatus,
+      },
+    };
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  if (route === "/api/resources") {
+    const state = readJsonFile(STATE_PATH);
+    const policy = readJsonFile(POLICY_PATH);
+    if (!state || !policy) {
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "State or policy file not available" }));
+      return;
+    }
+    const globalMax = state.global?.globalMaxWorkers || policy.concurrency?.globalMaxWorkers || 0;
+    const active = state.global?.totalActiveWorkers || 0;
+    const providers = (state.providers || []).map((p) => {
+      const max = p.maxConcurrency || 0;
+      const cur = p.currentConcurrency || 0;
+      return {
+        id: p.id,
+        maxConcurrency: max,
+        currentConcurrency: cur,
+        headroom: Math.max(0, max - cur),
+        status: p.status || "unknown",
+      };
+    });
+    const pct = globalMax > 0 ? Math.round((active / globalMax) * 100) : 0;
+    const level = pct >= 90 ? "critical" : pct >= 70 ? "elevated" : "normal";
+    const payload = {
+      concurrency: {
+        globalMaxWorkers: globalMax,
+        currentActiveWorkers: active,
+        headroom: Math.max(0, globalMax - active),
+      },
+      providers,
+      utilization: { percentage: pct, level },
+    };
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  if (route === "/api/queue") {
+    const queue = readJsonFile(QUEUE_STATE_PATH);
+    if (!queue) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        schemaVersion: 1,
+        capturedAt: null,
+        entries: [],
+        summary: { queued: 0, launching: 0, running: 0, prCreated: 0, blocked: 0, done: 0 },
+      }));
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(queue, null, 2));
+    return;
+  }
+
   res.writeHead(404, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ error: "Not found" }));
 }
@@ -228,10 +323,13 @@ server.listen(args.port, "127.0.0.1", () => {
   const addr = server.address();
   process.stdout.write(
     `Provider Pool WebUI listening on http://127.0.0.1:${addr.port}\n` +
-    `  Dashboard:  http://127.0.0.1:${addr.port}/\n` +
-    `  State API:  http://127.0.0.1:${addr.port}/api/state\n` +
-    `  Policy API: http://127.0.0.1:${addr.port}/api/policy\n` +
-    `  Health:     http://127.0.0.1:${addr.port}/api/health\n`
+    `  Dashboard:   http://127.0.0.1:${addr.port}/\n` +
+    `  State API:   http://127.0.0.1:${addr.port}/api/state\n` +
+    `  Policy API:  http://127.0.0.1:${addr.port}/api/policy\n` +
+    `  Workers API: http://127.0.0.1:${addr.port}/api/workers\n` +
+    `  Resources:   http://127.0.0.1:${addr.port}/api/resources\n` +
+    `  Queue:       http://127.0.0.1:${addr.port}/api/queue\n` +
+    `  Health:      http://127.0.0.1:${addr.port}/api/health\n`
   );
 });
 
