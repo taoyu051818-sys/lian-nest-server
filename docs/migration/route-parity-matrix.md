@@ -127,8 +127,8 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 
 | Status | Count | Percentage |
 |--------|-------|------------|
-| `NOT_STARTED` | 18 | 45% |
-| `CONTRACTED` | 18 | 45% |
+| `NOT_STARTED` | 22 | 55% |
+| `CONTRACTED` | 14 | 35% |
 | `IMPLEMENTED` | 4 | 10% |
 | `PARITY_TESTED` | 0 | 0% |
 | `LEGACY_DISABLED` | 0 | 0% |
