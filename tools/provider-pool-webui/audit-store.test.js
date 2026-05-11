@@ -26,8 +26,10 @@ const {
   buildEntry,
   readEntries,
   countEntries,
+  trimEntries,
   AUDIT_VERSION,
   MAX_STRING_LENGTH,
+  MAX_ENTRIES,
 } = require('./lib/audit-store');
 
 let passed = 0;
@@ -339,6 +341,84 @@ console.log('\nAppend-only invariant');
   cleanup(tmp);
 }
 
+// --- trimEntries ---
+
+console.log('\ntrimEntries');
+
+{
+  const tmp = tmpDir();
+
+  // Non-existent file is a no-op
+  assert(trimEntries(path.join(tmp, 'missing.jsonl'), 10) === 0, 'missing file returns 0 removed');
+
+  // File under limit is a no-op
+  const underPath = path.join(tmp, 'under.jsonl');
+  fs.writeFileSync(underPath, '{"a":1}\n{"b":2}\n{"c":3}\n', 'utf8');
+  assert(trimEntries(underPath, 10) === 0, 'under limit returns 0 removed');
+  assert(readEntries(underPath).length === 3, 'under limit preserves all entries');
+
+  // File at exact limit is a no-op
+  const exactPath = path.join(tmp, 'exact.jsonl');
+  fs.writeFileSync(exactPath, '{"a":1}\n{"b":2}\n{"c":3}\n', 'utf8');
+  assert(trimEntries(exactPath, 3) === 0, 'at limit returns 0 removed');
+  assert(readEntries(exactPath).length === 3, 'at limit preserves all entries');
+
+  // File over limit trims oldest entries
+  const overPath = path.join(tmp, 'over.jsonl');
+  fs.writeFileSync(overPath, '{"i":1}\n{"i":2}\n{"i":3}\n{"i":4}\n{"i":5}\n', 'utf8');
+  assert(trimEntries(overPath, 3) === 2, 'over limit returns 2 removed');
+  const kept = readEntries(overPath);
+  assert(kept.length === 3, 'trimmed to 3 entries');
+  assert(kept[0].i === 3, 'keeps most recent (first kept is entry 3)');
+  assert(kept[1].i === 4, 'keeps most recent (second kept is entry 4)');
+  assert(kept[2].i === 5, 'keeps most recent (third kept is entry 5)');
+
+  // File with blank lines handles correctly
+  const blankPath = path.join(tmp, 'blank.jsonl');
+  fs.writeFileSync(blankPath, '{"i":1}\n\n{"i":2}\n  \n{"i":3}\n', 'utf8');
+  assert(trimEntries(blankPath, 2) === 1, 'blank lines not counted, trims 1');
+  assert(readEntries(blankPath).length === 2, 'trimmed entry count correct');
+
+  cleanup(tmp);
+}
+
+// --- trimEntries via store ---
+
+console.log('\ntrimEntries via createAuditStore');
+
+{
+  const tmp = tmpDir();
+  const auditPath = path.join(tmp, 'audit.jsonl');
+  const store = createAuditStore({ filePath: auditPath, dryRun: false, maxEntries: 3 });
+
+  assert(store.getMaxEntries() === 3, 'maxEntries configurable');
+
+  // Write 5 entries — auto-trim should keep only last 3
+  store.record({ action: 'a1' });
+  store.record({ action: 'a2' });
+  store.record({ action: 'a3' });
+  store.record({ action: 'a4' });
+  store.record({ action: 'a5' });
+
+  const entries = store.read();
+  assert(entries.length === 3, 'auto-trimmed to 3 entries');
+  assert(entries[0].action === 'a3', 'oldest kept is a3');
+  assert(entries[1].action === 'a4', 'next kept is a4');
+  assert(entries[2].action === 'a5', 'newest kept is a5');
+
+  // Manual trim is a no-op when already at limit
+  assert(store.trim() === 0, 'manual trim is no-op when at limit');
+
+  // Manual trim works on pre-existing oversized file
+  const overPath = path.join(tmp, 'over.jsonl');
+  fs.writeFileSync(overPath, '{"i":1}\n{"i":2}\n{"i":3}\n{"i":4}\n', 'utf8');
+  const overStore = createAuditStore({ filePath: overPath, dryRun: false, maxEntries: 2 });
+  assert(overStore.trim() === 2, 'manual trim removes excess');
+  assert(overStore.read().length === 2, 'manual trim leaves 2 entries');
+
+  cleanup(tmp);
+}
+
 // --- CLI self-test ---
 
 console.log('\nCLI self-test');
@@ -356,6 +436,8 @@ console.log('\nCLI self-test');
   assert(typeof mod.countEntries === 'function', 'exports countEntries');
   assert(mod.AUDIT_VERSION === 1, 'exports AUDIT_VERSION');
   assert(typeof mod.MAX_STRING_LENGTH === 'number', 'exports MAX_STRING_LENGTH');
+  assert(typeof mod.MAX_ENTRIES === 'number', 'exports MAX_ENTRIES');
+  assert(typeof mod.trimEntries === 'function', 'exports trimEntries');
   assert(Array.isArray(mod.SECRET_PATTERNS), 'exports SECRET_PATTERNS');
 }
 

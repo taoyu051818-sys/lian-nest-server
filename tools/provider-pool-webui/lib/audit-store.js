@@ -22,6 +22,7 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const DEFAULT_AUDIT_PATH = path.join(REPO_ROOT, '.github', 'ai-state', 'webui-action-audit.jsonl');
 const AUDIT_VERSION = 1;
 const MAX_STRING_LENGTH = 500;
+const MAX_ENTRIES = 5000;
 
 // ── Sanitization ─────────────────────────────────────────────────────────────
 
@@ -178,11 +179,12 @@ function buildEntry({ action, actor, target, details, outcome }) {
  * Append a single JSONL line to the audit file.
  * Creates the directory if needed. Never modifies existing content.
  */
-function appendEntry(filePath, entry) {
+function appendEntry(filePath, entry, maxEntries = MAX_ENTRIES) {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
   const line = JSON.stringify(entry) + '\n';
   fs.appendFileSync(filePath, line, 'utf8');
+  trimEntries(filePath, maxEntries);
 }
 
 /**
@@ -227,6 +229,30 @@ function countEntries(filePath) {
   }
 }
 
+/**
+ * Trim the audit file to at most maxEntries lines, keeping the most recent.
+ * If the file has fewer lines than maxEntries, this is a no-op.
+ * Returns the number of entries removed.
+ */
+function trimEntries(filePath, maxEntries = MAX_ENTRIES) {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const lines = content.split('\n');
+    const nonEmpty = [];
+    for (const line of lines) {
+      if (line.trim()) nonEmpty.push(line);
+    }
+    if (nonEmpty.length <= maxEntries) return 0;
+    const removed = nonEmpty.length - maxEntries;
+    const kept = nonEmpty.slice(-maxEntries);
+    fs.writeFileSync(filePath, kept.join('\n') + '\n', 'utf8');
+    return removed;
+  } catch (err) {
+    if (err.code === 'ENOENT') return 0;
+    throw err;
+  }
+}
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -235,11 +261,13 @@ function countEntries(filePath) {
  * @param {object} options
  * @param {string} [options.filePath] - Path to the JSONL audit file
  * @param {boolean} [options.dryRun] - If true, preview without writing (default: true)
+ * @param {number} [options.maxEntries] - Max entries to retain (default: 5000)
  * @returns {object} Audit store instance
  */
 function createAuditStore(options = {}) {
   const filePath = options.filePath || DEFAULT_AUDIT_PATH;
   const dryRun = options.dryRun !== false; // Default to dry-run
+  const maxEntries = options.maxEntries || MAX_ENTRIES;
 
   return {
     /**
@@ -266,7 +294,7 @@ function createAuditStore(options = {}) {
       }
 
       try {
-        appendEntry(filePath, sanitized);
+        appendEntry(filePath, sanitized, maxEntries);
         return { ok: true, entry: sanitized, dryRun: false };
       } catch (err) {
         return { ok: false, error: `write failed: ${err.message}`, dryRun: false };
@@ -298,6 +326,22 @@ function createAuditStore(options = {}) {
     },
 
     /**
+     * Trim the audit file to the configured maxEntries limit.
+     * @returns {number} Number of entries removed
+     */
+    trim() {
+      return trimEntries(filePath, maxEntries);
+    },
+
+    /**
+     * Get the configured max entries limit.
+     * @returns {number}
+     */
+    getMaxEntries() {
+      return maxEntries;
+    },
+
+    /**
      * Check if running in dry-run mode.
      * @returns {boolean}
      */
@@ -320,8 +364,10 @@ module.exports = {
   appendEntry,
   readEntries,
   countEntries,
+  trimEntries,
   AUDIT_VERSION,
   DEFAULT_AUDIT_PATH,
   MAX_STRING_LENGTH,
+  MAX_ENTRIES,
   SECRET_PATTERNS,
 };
