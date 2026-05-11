@@ -1,0 +1,111 @@
+{
+  "policyVersion": 1,
+  "description": "Controls how Claude Code workers select and rotate API providers for quota-aware concurrency. Secrets are never stored here — only provider identifiers, concurrency limits, and cooldown rules.",
+
+  "providers": [
+    {
+      "id": "provider-default",
+      "label": "Default Claude Code credential",
+      "source": "local-claude-settings",
+      "sourcePath": "C:\\Users\\LENOVO\\.claude (local-only, never committed)",
+      "capabilities": ["claude-code", "print-mode", "batch-mode"],
+      "maxConcurrency": 1,
+      "notes": "The original single-provider setup. Treated as the baseline."
+    }
+  ],
+
+  "concurrency": {
+    "globalMaxWorkers": 3,
+    "providerSelectionStrategy": "least-loaded",
+    "fallbackStrategy": "fail-closed",
+    "notes": "Global cap is the hard ceiling. Per-provider maxConcurrency is the soft cap. When all providers are exhausted or at capacity, new worker launches are blocked (fail-closed)."
+  },
+
+  "exhaustion": {
+    "triggers": [
+      {
+        "condition": "http-429",
+        "action": "mark-exhausted",
+        "cooldownMinutes": 15,
+        "notes": "HTTP 429 from the provider API. Provider is marked exhausted and cooldown starts."
+      },
+      {
+        "condition": "quota-exhausted",
+        "action": "mark-exhausted",
+        "cooldownMinutes": 60,
+        "notes": "Provider reports quota exhaustion (distinct from rate-limit 429). Longer cooldown because quota resets are slower."
+      },
+      {
+        "condition": "auth-failure",
+        "action": "mark-disabled",
+        "cooldownMinutes": null,
+        "notes": "Credential rejected. Provider is disabled until manual intervention. Never auto-recovers."
+      }
+    ],
+    "recovery": {
+      "autoRecoverAfterCooldown": true,
+      "healthCheckOnRecovery": true,
+      "notes": "After cooldown expires, the next selection attempt probes the provider before routing a real worker to it."
+    }
+  },
+
+  "failureClassification": {
+    "quotaExhaustion": {
+      "patterns": ["http 429", "quota exceeded", "rate limit", "too many requests"],
+      "category": "exhaustion",
+      "severity": "yellow",
+      "notes": "Distinguished from runtime/validation failures. Exhaustion is a resource constraint, not a code bug."
+    },
+    "authFailure": {
+      "patterns": ["http 401", "http 403", "invalid api key", "unauthorized"],
+      "category": "auth",
+      "severity": "red",
+      "notes": "Credential is invalid or revoked. Requires manual fix."
+    },
+    "runtimeFailure": {
+      "patterns": ["timeout", "connection refused", "500", "502", "503"],
+      "category": "runtime",
+      "severity": "yellow",
+      "notes": "Transient provider-side errors. Does not mark provider exhausted."
+    }
+  },
+
+  "workerIntegration": {
+    "providerAssignment": {
+      "method": "env-var",
+      "envVarName": "LIAN_PROVIDER_ID",
+      "secretInjection": "local-only",
+      "notes": "Workers receive a provider id via environment variable. The actual secret (API key) is injected from local-only sources (credential manager, env vars, local config). The secret never flows through task JSON, issue bodies, or git."
+    },
+    "telemetry": {
+      "logProviderId": true,
+      "logQuotaState": true,
+      "logSecrets": false,
+      "logTo": "worker-telemetry.ndjson",
+      "notes": "Workers record which provider they used and the quota state at task start/end. Secrets are explicitly excluded from telemetry."
+    }
+  },
+
+  "launchGateIntegration": {
+    "blockWhenAllExhausted": true,
+    "blockWhenAtCapacity": true,
+    "preLaunchCheck": true,
+    "notes": "The launch gate reads provider-pool.json state before dispatching. If no provider is available (all exhausted or at capacity), the batch is blocked."
+  },
+
+  "secretSources": {
+    "allowed": [
+      "C:\\Users\\LENOVO\\.claude (local settings, never committed)",
+      "Windows Credential Manager",
+      "Environment variables (ANTHROPIC_API_KEY, etc.)"
+    ],
+    "forbidden": [
+      "Repository files (any path)",
+      "GitHub secrets (for local orchestration)",
+      "Task JSON",
+      "Issue bodies or comments",
+      "PR bodies or comments",
+      "Telemetry logs"
+    ]
+  }
+}

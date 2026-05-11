@@ -7,6 +7,7 @@ Machine-readable state files consumed by AI automation (scheduler, launch gate, 
 ```
 .github/ai-state/
   main-health.json   # Current main branch health state
+  provider-pool.json # API provider pool availability state (no secrets)
   README.md          # This file
 ```
 
@@ -86,6 +87,62 @@ write-main-health-state.ps1 -State <state> -Checks "..."
 The self-cycle runner reads this file at Step 2. See
 [main-health-policy.md](../../docs/ai-native/main-health-policy.md) for the
 full state detection and recording workflow.
+
+## provider-pool.json
+
+Sanitized projection of API provider pool availability. Written by
+`scripts/ai/update-provider-state.ps1` when quota events occur.
+
+### Schema
+
+```jsonc
+{
+  "stateVersion": 1,
+  "providers": [
+    {
+      "id": "provider-default",
+      "status": "available | exhausted | disabled",
+      "currentConcurrency": 0,
+      "maxConcurrency": 1,
+      "lastHealthCheckAt": "ISO-8601 | null",
+      "lastFailureClass": "exhaustion | auth | runtime | null",
+      "cooldownExpiresAt": "ISO-8601 | null",
+      "consecutiveFailures": 0,
+      "totalQuotaEvents": 0
+    }
+  ],
+  "global": {
+    "totalActiveWorkers": 0,
+    "globalMaxWorkers": 3,
+    "availableProviders": 1,
+    "exhaustedProviders": 0,
+    "disabledProviders": 0,
+    "lastUpdatedBy": "string",
+    "capturedAt": "ISO-8601"
+  }
+}
+```
+
+### Provider Statuses
+
+| Status | Meaning |
+|--------|---------|
+| `available` | Provider has capacity and no active cooldown. |
+| `exhausted` | Quota or rate limit hit. Cooling down; will auto-recover after `cooldownExpiresAt`. |
+| `disabled` | Auth failure or manual disable. Requires intervention; no auto-recovery. |
+
+### Downstream Consumers
+
+- **Launch gate**: Reads `providers[].status` and `global` to determine if workers can be dispatched.
+- **Worker launcher**: Assigns a provider id to the worker via `LIAN_PROVIDER_ID` env var.
+- **State reconciler**: Reads `lastFailureClass` to distinguish exhaustion from runtime failures.
+
+### Design
+
+- No secrets in this file — provider ids are opaque labels, not keys.
+- `stateVersion` enables schema evolution.
+- Each write replaces the entire file (idempotent snapshot, not append-only log).
+- See [provider-pool.md](../../docs/ai-native/provider-pool.md) for the full architecture.
 
 ## Design Decisions
 
