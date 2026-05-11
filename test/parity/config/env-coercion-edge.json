@@ -1,0 +1,182 @@
+{
+  "id": "env-coercion-edge",
+  "module": "ConfigModule",
+  "description": "Env variable coercion edge cases for the Joi validation schema in env.validation.ts",
+  "cases": [
+    {
+      "label": "PORT numeric string coerced to number",
+      "field": "PORT",
+      "input": "4000",
+      "expected": { "valid": true, "value": 4000 }
+    },
+    {
+      "label": "PORT defaults to 3000 when absent",
+      "field": "PORT",
+      "input": null,
+      "expected": { "valid": true, "value": 3000 }
+    },
+    {
+      "label": "PORT rejects non-numeric string",
+      "field": "PORT",
+      "input": "abc",
+      "expected": { "valid": false }
+    },
+    {
+      "label": "PORT rejects empty string",
+      "field": "PORT",
+      "input": "",
+      "expected": { "valid": false }
+    },
+    {
+      "label": "PORT coerces float (Joi.number allows floats)",
+      "field": "PORT",
+      "input": "3000.5",
+      "expected": { "valid": true, "value": 3000.5 }
+    },
+    {
+      "label": "PORT coerces negative number",
+      "field": "PORT",
+      "input": "-1",
+      "expected": { "valid": true, "value": -1 }
+    },
+    {
+      "label": "PORT rejects hex literal string",
+      "field": "PORT",
+      "input": "0x10",
+      "expected": { "valid": false }
+    },
+    {
+      "label": "PORT trims whitespace-padded string",
+      "field": "PORT",
+      "input": "  3000  ",
+      "expected": { "valid": true, "value": 3000 }
+    },
+    {
+      "label": "PORT rejects NaN string",
+      "field": "PORT",
+      "input": "NaN",
+      "expected": { "valid": false }
+    },
+    {
+      "label": "PORT rejects Infinity string",
+      "field": "PORT",
+      "input": "Infinity",
+      "expected": { "valid": false }
+    },
+    {
+      "label": "NODE_ENV accepts development",
+      "field": "NODE_ENV",
+      "input": "development",
+      "expected": { "valid": true, "value": "development" }
+    },
+    {
+      "label": "NODE_ENV accepts production",
+      "field": "NODE_ENV",
+      "input": "production",
+      "expected": { "valid": true, "value": "production" }
+    },
+    {
+      "label": "NODE_ENV accepts test",
+      "field": "NODE_ENV",
+      "input": "test",
+      "expected": { "valid": true, "value": "test" }
+    },
+    {
+      "label": "NODE_ENV defaults to development when absent",
+      "field": "NODE_ENV",
+      "input": null,
+      "expected": { "valid": true, "value": "development" }
+    },
+    {
+      "label": "NODE_ENV rejects invalid enum value",
+      "field": "NODE_ENV",
+      "input": "staging",
+      "expected": { "valid": false }
+    },
+    {
+      "label": "NODE_ENV rejects empty string",
+      "field": "NODE_ENV",
+      "input": "",
+      "expected": { "valid": false }
+    },
+    {
+      "label": "NODE_ENV rejects numeric string",
+      "field": "NODE_ENV",
+      "input": "123",
+      "expected": { "valid": false }
+    },
+    {
+      "label": "LOG_LEVEL accepts all valid levels",
+      "field": "LOG_LEVEL",
+      "input": ["error", "warn", "info", "debug", "verbose"],
+      "expected": { "valid": true }
+    },
+    {
+      "label": "LOG_LEVEL defaults to info when absent",
+      "field": "LOG_LEVEL",
+      "input": null,
+      "expected": { "valid": true, "value": "info" }
+    },
+    {
+      "label": "LOG_LEVEL rejects invalid level",
+      "field": "LOG_LEVEL",
+      "input": "trace",
+      "expected": { "valid": false }
+    },
+    {
+      "label": "DATABASE_URL required – fails when missing",
+      "field": "DATABASE_URL",
+      "input": null,
+      "expected": { "valid": false }
+    },
+    {
+      "label": "DATABASE_URL rejects non-URI string",
+      "field": "DATABASE_URL",
+      "input": "not-a-uri",
+      "expected": { "valid": false }
+    },
+    {
+      "label": "REDIS_URL accepts redis:// scheme",
+      "field": "REDIS_URL",
+      "input": "redis://localhost:6379",
+      "expected": { "valid": true, "value": "redis://localhost:6379" }
+    },
+    {
+      "label": "REDIS_URL accepts rediss:// scheme (TLS)",
+      "field": "REDIS_URL",
+      "input": "rediss://localhost:6380",
+      "expected": { "valid": true, "value": "rediss://localhost:6380" }
+    },
+    {
+      "label": "REDIS_URL rejects http:// scheme",
+      "field": "REDIS_URL",
+      "input": "http://localhost:6379",
+      "expected": { "valid": false }
+    },
+    {
+      "label": "REDIS_URL defaults when absent",
+      "field": "REDIS_URL",
+      "input": null,
+      "expected": { "valid": true, "value": "redis://localhost:6379" }
+    },
+    {
+      "label": "NODEBB_AUTH_MODE rejects invalid mode",
+      "field": "NODEBB_AUTH_MODE",
+      "input": "oauth",
+      "expected": { "valid": false }
+    },
+    {
+      "label": "NODEBB_AUTH_MODE defaults to api_token",
+      "field": "NODEBB_AUTH_MODE",
+      "input": null,
+      "expected": { "valid": true, "value": "api_token" }
+    },
+    {
+      "label": "multiple invalid fields reported together",
+      "field": "_aggregate",
+      "input": { "PORT": "abc", "NODE_ENV": "staging", "LOG_LEVEL": "trace" },
+      "expected": { "valid": false, "errorFields": ["PORT", "NODE_ENV", "LOG_LEVEL"] }
+    }
+  ],
+  "notes": "PORT uses Joi.number() which coerces string env vars. Edge cases include float, negative, hex, whitespace, NaN, and Infinity. NODE_ENV and LOG_LEVEL use Joi.string().valid() which rejects non-enumerated values. DATABASE_URL is required with no default."
+}
