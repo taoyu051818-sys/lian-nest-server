@@ -1,16 +1,19 @@
 /**
- * Provider Pool WebUI — client script skeleton.
+ * Provider Pool WebUI — client script.
  *
- * Renders provider/resource/worker JSON snapshots from the sanitized
- * state and policy files. No secrets are ever loaded or displayed.
+ * Renders provider, worker, queue, and resource-pressure JSON snapshots
+ * from the sanitized state and policy files. No secrets are ever loaded
+ * or displayed.
  *
  * Expected data sources (relative to the HTML page):
- *   ../../../../.github/ai-state/provider-pool.json
- *   ../../../../.github/ai-policy/provider-pool-policy.json
+ *   ../../../../.github/ai-state/provider-pool.json          (provider pool)
+ *   ../../../../.github/ai-policy/provider-pool-policy.json   (policy)
+ *   ../../../../.github/ai-state/provider-pool-webui.json     (worker view)
  */
 
 const STATE_URL = '../../../../.github/ai-state/provider-pool.json';
 const POLICY_URL = '../../../../.github/ai-policy/provider-pool-policy.json';
+const WEBUI_STATE_URL = '../../../../.github/ai-state/provider-pool-webui.json';
 const REFRESH_INTERVAL_MS = 30_000;
 
 // ── helpers ──────────────────────────────────────────────────────────
@@ -124,6 +127,184 @@ function renderError(message) {
   return el('div', { className: 'error-banner', textContent: `Error: ${message}` });
 }
 
+// ── worker view renderers ────────────────────────────────────────────
+
+function pressureLevelClass(level) {
+  switch (level) {
+    case 'normal': return 'status-available';
+    case 'elevated': return 'status-exhausted';
+    case 'critical': return 'status-disabled';
+    default: return '';
+  }
+}
+
+function workerStatusClass(status) {
+  switch (status) {
+    case 'running': return 'status-available';
+    case 'cooling-down': return 'status-exhausted';
+    case 'draining': return 'status-disabled';
+    default: return '';
+  }
+}
+
+function queueStateClass(state) {
+  switch (state) {
+    case 'running': return 'status-available';
+    case 'queued':
+    case 'launching': return 'status-exhausted';
+    case 'blocked': return 'status-disabled';
+    case 'pr-created': return 'status-available';
+    case 'done': return '';
+    default: return '';
+  }
+}
+
+function formatElapsed(startedAt) {
+  if (!startedAt) return '—';
+  const ms = Date.now() - new Date(startedAt).getTime();
+  if (ms < 0) return '—';
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ${mins % 60}m`;
+}
+
+function renderPressureSection(pressure) {
+  if (!pressure) return null;
+  const levelClass = pressureLevelClass(pressure.level);
+  const pct = pressure.utilizationPct ?? 0;
+  const barClass = pct < 60 ? 'bar-fill--green' : pct < 90 ? 'bar-fill--yellow' : 'bar-fill--red';
+  const children = [
+    el('h2', { textContent: 'Resource Pressure' }),
+    el('div', { className: 'summary-grid' }, [
+      metricCard('Pressure Level', pressure.level ?? '—'),
+      metricCard('Utilization', `${pct.toFixed(1)}%`),
+      metricCard('Nearest Cooldown', pressure.nearestCooldownExpiry
+        ? formatTimestamp(pressure.nearestCooldownExpiry)
+        : 'none'),
+    ]),
+    el('div', { className: 'bar-track' }, [
+      el('div', { className: `bar-fill ${barClass}`, style: `width:${Math.min(pct, 100)}%` }),
+    ]),
+  ];
+  return el('div', { className: 'pressure-section' }, children);
+}
+
+function renderQueueSection(queue, queueEntries) {
+  if (!queue && !queueEntries) return null;
+  const children = [el('h2', { textContent: 'Queue' })];
+
+  if (queue) {
+    children.push(
+      el('div', { className: 'summary-grid' }, [
+        metricCard('Pending', queue.pendingTasks ?? 0),
+        metricCard('Blocked (Exhaustion)', queue.blockedByExhaustion ?? 0),
+        metricCard('Blocked (Conflict)', queue.blockedByConflict ?? 0),
+        metricCard('Blocked (Capacity)', queue.blockedByCapacity ?? 0),
+      ]),
+    );
+  }
+
+  if (queueEntries && queueEntries.length > 0) {
+    const rows = queueEntries.map(entry =>
+      el('tr', null, [
+        el('td', { textContent: entry.issueNumber ? `#${entry.issueNumber}` : '—' }),
+        el('td', null, [
+          el('span', { className: `queue-state ${queueStateClass(entry.state)}`, textContent: entry.state }),
+        ]),
+        el('td', { textContent: entry.conflictGroup ?? '—' }),
+        el('td', { textContent: entry.actorRole ?? '—' }),
+        el('td', { textContent: entry.reason ?? '—' }),
+        el('td', { textContent: formatTimestamp(entry.updatedAt) }),
+      ]),
+    );
+    children.push(
+      el('table', { className: 'queue-table' }, [
+        el('thead', null, [
+          el('tr', null, [
+            el('th', { textContent: 'Issue' }),
+            el('th', { textContent: 'State' }),
+            el('th', { textContent: 'Conflict Group' }),
+            el('th', { textContent: 'Role' }),
+            el('th', { textContent: 'Reason' }),
+            el('th', { textContent: 'Updated' }),
+          ]),
+        ]),
+        el('tbody', null, rows),
+      ]),
+    );
+  }
+
+  return el('div', { className: 'queue-section' }, children);
+}
+
+function renderWorkersSection(workers, assignmentData) {
+  const hasWebUIWorkers = workers && workers.length > 0;
+  const hasAssignments = assignmentData && assignmentData.assignments
+    && assignmentData.assignments.length > 0;
+  if (!hasWebUIWorkers && !hasAssignments) return null;
+
+  const children = [el('h2', { textContent: 'Workers' })];
+
+  // Prefer the WebUI state contract workers array
+  if (hasWebUIWorkers) {
+    const rows = workers.map(w =>
+      el('tr', null, [
+        el('td', { textContent: w.issue ? `#${w.issue}` : '—' }),
+        el('td', { textContent: w.branch ?? '—' }),
+        el('td', { textContent: w.conflictGroup ?? '—' }),
+        el('td', { textContent: w.providerId ?? '—' }),
+        el('td', null, [
+          el('span', { className: `worker-status ${workerStatusClass(w.status)}`, textContent: w.status }),
+        ]),
+        el('td', { textContent: formatElapsed(w.startedAt) }),
+      ]),
+    );
+    children.push(
+      el('table', { className: 'workers-table' }, [
+        el('thead', null, [
+          el('tr', null, [
+            el('th', { textContent: 'Issue' }),
+            el('th', { textContent: 'Branch' }),
+            el('th', { textContent: 'Conflict Group' }),
+            el('th', { textContent: 'Provider' }),
+            el('th', { textContent: 'Status' }),
+            el('th', { textContent: 'Elapsed' }),
+          ]),
+        ]),
+        el('tbody', null, rows),
+      ]),
+    );
+  } else if (hasAssignments) {
+    // Fallback: use assignment state data
+    const rows = assignmentData.assignments.map(a =>
+      el('tr', null, [
+        el('td', { textContent: a.issueNumber ? `#${a.issueNumber}` : a.taskId }),
+        el('td', { textContent: a.providerId }),
+        el('td', { textContent: a.taskType ?? '—' }),
+        el('td', { textContent: a.actorRole ?? '—' }),
+        el('td', { textContent: formatTimestamp(a.assignedAt) }),
+      ]),
+    );
+    children.push(
+      el('table', { className: 'workers-table' }, [
+        el('thead', null, [
+          el('tr', null, [
+            el('th', { textContent: 'Task' }),
+            el('th', { textContent: 'Provider' }),
+            el('th', { textContent: 'Type' }),
+            el('th', { textContent: 'Role' }),
+            el('th', { textContent: 'Assigned' }),
+          ]),
+        ]),
+        el('tbody', null, rows),
+      ]),
+    );
+  }
+
+  return el('div', { className: 'workers-section' }, children);
+}
+
 // ── main app ─────────────────────────────────────────────────────────
 
 async function fetchJSON(url) {
@@ -133,12 +314,19 @@ async function fetchJSON(url) {
 }
 
 async function refresh(root) {
-  let state, policy;
+  let state, policy, webuiState;
   try {
     [state, policy] = await Promise.all([fetchJSON(STATE_URL), fetchJSON(POLICY_URL)]);
   } catch (err) {
     root.replaceChildren(renderError(err.message));
     return;
+  }
+
+  // WebUI state is optional — the reconciler may not have written it yet
+  try {
+    webuiState = await fetchJSON(WEBUI_STATE_URL);
+  } catch {
+    webuiState = null;
   }
 
   const policyMap = Object.fromEntries(
@@ -152,6 +340,24 @@ async function refresh(root) {
 
   for (const provider of state.providers ?? []) {
     children.push(renderProviderCard(provider, policyMap[provider.id]));
+  }
+
+  // Worker view sections from the WebUI state projection
+  if (webuiState) {
+    const pressureEl = renderPressureSection(webuiState.pressure);
+    if (pressureEl) children.push(pressureEl);
+
+    const queueEl = renderQueueSection(
+      webuiState.queue,
+      webuiState.queueEntries,
+    );
+    if (queueEl) children.push(queueEl);
+
+    const workersEl = renderWorkersSection(
+      webuiState.workers,
+      webuiState.assignments,
+    );
+    if (workersEl) children.push(workersEl);
   }
 
   root.replaceChildren(...children);
