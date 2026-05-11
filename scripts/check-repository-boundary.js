@@ -29,6 +29,18 @@ const FORBIDDEN_PACKAGES = [
 
 const FORBIDDEN_NODE_MODULES = ['fs', 'fs/promises'];
 
+// Feature slices: business modules that must use repository interfaces,
+// never data-store drivers directly. Keep this list in sync with
+// docs/ai-native/backend-worker-layers.md § Feature Slices.
+const FEATURE_SLICES = [
+  'auth',
+  'feed',
+  'messages',
+  'posts',
+  'profile',
+  'tags',
+];
+
 // Narrow infrastructure allowlist: specific packages permitted in specific directories.
 // Business modules remain forbidden from importing these directly.
 const INFRA_ALLOWLIST = [
@@ -65,6 +77,12 @@ function isAllowedByInfraAllowlist(filePath, pkg) {
   );
 }
 
+function featureSliceFor(filePath) {
+  const rel = path.relative(SRC_ROOT, filePath);
+  const topDir = rel.split(path.sep)[0];
+  return FEATURE_SLICES.includes(topDir) ? topDir : null;
+}
+
 function check() {
   const exclude = new Set([REPOSITORIES_DIR]);
   const files = collectTsFiles(SRC_ROOT, exclude);
@@ -75,7 +93,11 @@ function check() {
     for (const pkg of [...FORBIDDEN_PACKAGES, ...FORBIDDEN_NODE_MODULES]) {
       if (packageImportPattern(pkg).test(content)) {
         if (!isAllowedByInfraAllowlist(file, pkg)) {
-          violations.push(path.relative(ROOT, file) + ' imports ' + pkg);
+          const slice = featureSliceFor(file);
+          const label = slice
+            ? 'feature-slice/' + slice + '/' + path.basename(file)
+            : path.relative(ROOT, file);
+          violations.push(label + ' imports ' + pkg);
         }
       }
     }
@@ -100,6 +122,7 @@ for (const v of violations) {
 console.error(
   '\nStorage drivers must be imported only inside src/repositories/,\n' +
   'src/database/ (Prisma), or src/redis/ (ioredis).\n' +
+  'Feature slices (' + FEATURE_SLICES.join(', ') + ') must use repository interfaces.\n' +
   'See docs/architecture/repository-boundary-guard.md'
 );
 process.exit(1);

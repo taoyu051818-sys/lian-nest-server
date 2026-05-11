@@ -28,6 +28,43 @@ stable (merged or confirmed green).
 
 ---
 
+## Feature Slices
+
+Feature slices are Layer 4 business modules under `src/<slice>/`. Each slice
+owns its controllers, services, and DTOs but **must never import data-store
+drivers directly** — all persistence goes through `src/repositories/` interfaces.
+
+| Slice | Directory | Status |
+|-------|-----------|--------|
+| **auth** | `src/auth/` | Active |
+| **feed** | `src/feed/` | Active |
+| **messages** | `src/messages/` | Active |
+| **posts** | `src/posts/` | Active |
+| **profile** | `src/profile/` | Active |
+| **tags** | `src/tags/` | Planned |
+
+### Boundary rules
+
+1. Feature slices import repository interfaces via `REPOSITORY_TOKENS` injection,
+   never concrete repository implementations or driver packages.
+2. Forbidden imports in feature slices: `@prisma/client`, `prisma`, `ioredis`,
+   `redis`, `pg`, `mysql2`, `better-sqlite3`, `fs`, `fs/promises`.
+3. The repository boundary guard (`scripts/check-repository-boundary.js`) and
+   its test (`src/repositories/repository-boundary.spec.ts`) enforce this
+   programmatically. Both carry a `FEATURE_SLICES` constant that must be kept
+   in sync with this table.
+
+### Adding a new feature slice
+
+1. Create `src/<name>/` with controllers, services, and DTOs.
+2. Add the slice name to `FEATURE_SLICES` in:
+   - `scripts/check-repository-boundary.js`
+   - `src/repositories/repository-boundary.spec.ts`
+3. Update the table above.
+4. Run `npm run guard:repository-boundary && npm run test:boundary`.
+
+---
+
 ## Launch Order
 
 ```
