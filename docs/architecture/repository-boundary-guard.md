@@ -248,7 +248,61 @@ implementations on day one. Two concerns:
 | **Validation** | `npm run test:boundary` runs both boundary specs and exits non-zero on any violation. |
 | **Acceptance** | Single command validates all module boundaries. Documented in CI config and worker contracts. |
 
-## 6. Implemented commands (issue #27)
+## 6. Module-import regression guard (issue #295)
+
+Feature modules must consume repository data through **NestJS dependency injection**
+(`@Inject(REPOSITORY_TOKENS.*)`) — never by importing provider classes directly
+from `src/repositories/providers/`.
+
+### Why this matters
+
+Direct provider imports bypass the module boundary:
+
+- They bypass NestJS DI, making the service untestable with mocks.
+- They create tight coupling to concrete implementations instead of interfaces.
+- They defeat the swap-safety guarantee of the repository layer.
+
+### What the guard checks
+
+The `check-repository-boundary.js` script scans every `.ts` file outside
+`src/repositories/` for imports matching `*/repositories/providers/*`.
+Infrastructure directories (`database`, `redis`, `nodebb`, `common`) are excluded
+since they legitimately interact with provider wiring.
+
+### Correct pattern
+
+```typescript
+// src/feature/feature.service.ts  ← CORRECT
+import { Inject } from '@nestjs/common';
+import { REPOSITORY_TOKENS } from '../repositories/tokens';
+import type { IAuthRepository } from '../repositories/interfaces';
+
+@Injectable()
+export class FeatureService {
+  constructor(
+    @Inject(REPOSITORY_TOKENS.AUTH_REPOSITORY)
+    private readonly authRepo: IAuthRepository,
+  ) {}
+}
+```
+
+### Forbidden pattern
+
+```typescript
+// src/feature/feature.service.ts  ← FORBIDDEN
+import { AuthRepository } from '../repositories/providers/auth.repository';
+
+@Injectable()
+export class FeatureService {
+  constructor(private readonly authRepo: AuthRepository) {}  // direct import
+}
+```
+
+### Feature slices covered
+
+`auth`, `categories`, `feed`, `messages`, `posts`, `profile`, `tags`, `topics`, `users`
+
+## 7. Implemented commands (issue #27)
 
 | Command | What it does |
 |---|---|
@@ -278,5 +332,6 @@ These modules (`PrismaService`, `RedisService`) own the driver connection lifecy
 and expose it via NestJS providers. Repository implementations import from these
 services, not from the raw driver packages.
 
-**Forbidden:** Any business module (auth, feed, posts, messages, profile) importing
-`@prisma/client`, `ioredis`, `fs`, or other driver packages directly.
+**Forbidden:** Any business module (auth, categories, feed, messages, posts, profile, tags, topics, users) importing
+`@prisma/client`, `ioredis`, `fs`, or other driver packages directly, or importing
+repository provider classes from `src/repositories/providers/` directly.
