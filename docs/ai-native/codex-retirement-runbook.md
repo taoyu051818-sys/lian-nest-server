@@ -170,6 +170,99 @@ The self-cycle runner is considered failed when any of the following occur:
 
 ---
 
+## Startup Handoff (Codex → Self-Cycle Runner)
+
+This section defines the operational handoff from Codex orchestration to the
+self-cycle runner. It is the transition from a human-in-the-loop orchestrator
+to an autonomous loop with human oversight only.
+
+### Pre-Handoff Checklist
+
+Before handing off to the self-cycle runner, verify all prerequisites:
+
+| # | Prerequisite | How to Verify | Failure Consequence |
+|---|-------------|---------------|---------------------|
+| 1 | Main health is GREEN | `node scripts/post-merge-health-gate.js --quick` exits 0 | Runner blocks at Step 2 |
+| 2 | Health marker exists | `.github/ai-state/main-health.json` present and valid | Runner blocks at Step 2 |
+| 3 | No red-state recovery pending | No open `foundation-fix` or `health-repair` issues | Runner may launch conflicting workers |
+| 4 | Provider pool has capacity | WebUI Resources tab shows headroom > 0 | Runner blocks at Step 4 |
+| 5 | No stale worktrees | `git worktree list` shows no `stale` entries | Runner may fail to create new worktrees |
+| 6 | Open issues labeled correctly | Issues have `agent:codex-action-needed` label | Runner discovers no tasks |
+| 7 | CONTROL APPENDIX present in issues | Issue bodies include task metadata | Runner applies conservative defaults |
+
+### Handoff Sequence
+
+```
+1. Codex completes its final wave.
+   - All PRs from the final wave are merged or explicitly held.
+   - Health gate runs and writes green marker.
+
+2. Operator runs pre-handoff validation.
+   ```powershell
+   # Dry-run to verify the pipeline sees all prerequisites
+   ./scripts/ai/run-self-cycle.ps1 -PlanFirst -IssueLabel "agent:codex-action-needed" -Repo owner/name
+   ```
+   - Review the proposed batch output.
+   - Confirm no blocked tasks or health warnings.
+
+3. Operator launches the first autonomous cycle.
+   ```powershell
+   ./scripts/ai/run-self-cycle.ps1 -IssueLabel "agent:codex-action-needed" -Repo owner/name -Execute
+   ```
+   - Confirm the worker launch at the human gate.
+
+4. Operator verifies the first cycle completed successfully.
+   - Check that a PR was opened for the worker task.
+   - Check that health remained green after the cycle.
+   - Review the PR using the standard acceptance checklist.
+
+5. Codex orchestrator role is formally retired.
+   - Mark the retirement checklist item as complete.
+   - Update roles.md to remove the Codex orchestrator role.
+```
+
+### Validation
+
+After the first self-cycle completes, verify:
+
+| Check | Command | Expected Result |
+|-------|---------|-----------------|
+| Worker PR opened | `gh pr list --head claude/issue-<N>` | PR exists |
+| Health still green | `node scripts/post-merge-health-gate.js --quick` | Exit 0, green state |
+| No fallback triggered | Fallback Log in this runbook | No new entries |
+| Worker exited cleanly | Worker process exit code | 0 |
+
+### WebUI Startup Visibility
+
+The Planning Console and Operation Console provide real-time visibility
+during the handoff:
+
+| Handoff Stage | WebUI Surface | What to Watch |
+|---------------|---------------|---------------|
+| Pre-flight | Planning Console → Provider tab | Provider headroom > 0 |
+| Batch proposal | Planning Console → Queue tab | Proposed tasks visible, no conflicts |
+| Health check | Operation Console → Health indicator | Green badge |
+| Worker dispatch | Operation Console → Workers tab | New worker entry with `running` status |
+| PR review | Operation Console → Queue tab | Task moves from `running` to `awaiting-review` |
+
+All WebUI mutations remain preview-first and confirmation-gated during the
+handoff. The operator can inspect any action before execution via the
+`/api/actions/preview` endpoint.
+
+### Rollback to Codex Orchestration
+
+If the self-cycle runner fails during the first cycle after handoff:
+
+1. Follow the [Safe Fallback](#safe-fallback) procedure.
+2. Re-enable Codex orchestration by resuming the manual continuation SOP.
+3. File a follow-up issue for the runner failure.
+4. Do not re-attempt handoff until the root cause is resolved.
+
+The handoff is not considered complete until at least one full cycle
+(discovery → launch → PR → merge → health gate) runs without fallback.
+
+---
+
 ## Daily Workflow (Self-Cycle Active)
 
 The self-cycle runner and supporting scripts are operational. The daily workflow

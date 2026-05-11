@@ -191,6 +191,58 @@ The runner does NOT replace any existing script. It calls them in sequence:
 - **Idempotent** — running the same cycle twice produces the same result.
 - **Autopilot plan mode** — `-AutopilotPlan` chains all dry-run steps without human stops, but never launches workers. See [self-cycle-autopilot-plan-mode.md](self-cycle-autopilot-plan-mode.md).
 
+## Startup Handoff (Post-Codex Retirement)
+
+When Codex orchestration is retired, the self-cycle runner becomes the primary
+loop executor. The startup handoff is the process of transferring control from
+the Codex orchestrator to the self-cycle runner.
+
+### Handoff Entry Point
+
+The handoff begins when an operator runs the self-cycle runner in plan-first
+mode to validate that the pipeline can see all prerequisites:
+
+```powershell
+./scripts/ai/run-self-cycle.ps1 -PlanFirst -IssueLabel "agent:codex-action-needed" -Repo owner/name
+```
+
+This dry-run verifies:
+- Health marker exists and is green.
+- Issues are discoverable by label.
+- CONTROL APPENDIX metadata is parseable.
+- Launch gate passes for the proposed batch.
+
+### First Autonomous Cycle
+
+After plan-first validation, the operator launches the first autonomous cycle:
+
+```powershell
+./scripts/ai/run-self-cycle.ps1 -IssueLabel "agent:codex-action-needed" -Repo owner/name -Execute
+```
+
+The runner executes the full pipeline (Steps 0–5) and launches a worker. The
+operator confirms at the human gate. After the worker completes and its PR is
+merged, the handoff is considered successful.
+
+### Handoff Completion Criteria
+
+| Criterion | Verification |
+|-----------|--------------|
+| First cycle completed without fallback | No new entries in the Fallback Log |
+| Worker PR opened and reviewed | `gh pr list` shows the PR |
+| Health remained green after cycle | Health gate passes |
+| Runner exited with code 0 | Process exit code |
+
+If any criterion fails, follow the safe fallback procedure in
+[codex-retirement-runbook.md](codex-retirement-runbook.md#safe-fallback).
+
+### Relationship to Retirement Runbook
+
+The full handoff procedure, pre-flight checklist, rollback steps, and WebUI
+visibility details are in the
+[Startup Handoff](codex-retirement-runbook.md#startup-handoff-codex--self-cycle-runner)
+section of the Codex Retirement Runbook.
+
 ## Max-Task Safety Contract
 
 High parallelism increases the blast radius of misconfigured or conflicting tasks.
