@@ -242,6 +242,163 @@ describe('PostsService', () => {
       expect(result.perPage).toBe(100);
     });
 
+    it('should coerce page=0 to 1', async () => {
+      mockTopicsProvider.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { topics: [] },
+        error: null,
+      });
+
+      const result = await service.listPosts({ page: 0, perPage: 20 });
+
+      expect(result.page).toBe(1);
+      expect(result.perPage).toBe(20);
+    });
+
+    it('should coerce perPage=0 to default 20', async () => {
+      mockTopicsProvider.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { topics: [] },
+        error: null,
+      });
+
+      const result = await service.listPosts({ page: 1, perPage: 0 });
+
+      expect(result.page).toBe(1);
+      expect(result.perPage).toBe(20);
+    });
+
+    it('should coerce non-numeric string params to defaults', async () => {
+      mockTopicsProvider.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { topics: [] },
+        error: null,
+      });
+
+      const result = await service.listPosts({ page: 'abc' as any, perPage: 'xyz' as any });
+
+      expect(result.page).toBe(1);
+      expect(result.perPage).toBe(20);
+    });
+
+    it('should floor decimal pagination values', async () => {
+      mockTopicsProvider.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { topics: [] },
+        error: null,
+      });
+
+      const result = await service.listPosts({ page: 2.9, perPage: 15.7 });
+
+      expect(result.page).toBe(2);
+      expect(result.perPage).toBe(15);
+    });
+
+    it('should clamp perPage=101 to 100', async () => {
+      mockTopicsProvider.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { topics: [] },
+        error: null,
+      });
+
+      const result = await service.listPosts({ page: 1, perPage: 101 });
+
+      expect(result.perPage).toBe(100);
+    });
+
+    it('should allow perPage=1 at minimum boundary', async () => {
+      mockTopicsProvider.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { topics: [] },
+        error: null,
+      });
+
+      const result = await service.listPosts({ page: 1, perPage: 1 });
+
+      expect(result.perPage).toBe(1);
+    });
+
+    it('should coerce negative perPage to 1', async () => {
+      mockTopicsProvider.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { topics: [] },
+        error: null,
+      });
+
+      const result = await service.listPosts({ page: 1, perPage: -10 });
+
+      expect(result.perPage).toBe(1);
+    });
+
+    it('should normalize empty list when upstream returns null data with OK status', async () => {
+      mockTopicsProvider.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: null,
+        error: null,
+      });
+
+      const result = await service.listPosts({ page: 1, perPage: 20 });
+
+      expect(result.items).toHaveLength(0);
+      expect(result.totalCount).toBe(0);
+      expect(result.page).toBe(1);
+      expect(result.perPage).toBe(20);
+    });
+
+    it('should normalize empty list when topics array is undefined', async () => {
+      mockTopicsProvider.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: {},
+        error: null,
+      });
+
+      const result = await service.listPosts({ page: 1, perPage: 20 });
+
+      expect(result.items).toHaveLength(0);
+      expect(result.totalCount).toBe(0);
+    });
+
+    it('should return empty items when topics array is empty', async () => {
+      mockTopicsProvider.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { topics: [] },
+        error: null,
+      });
+
+      const result = await service.listPosts({ page: 1, perPage: 20 });
+
+      expect(result.items).toHaveLength(0);
+      expect(result.totalCount).toBe(0);
+      expect(result.page).toBe(1);
+      expect(result.perPage).toBe(20);
+    });
+
+    it('should preserve normalized page/perPage in empty list response', async () => {
+      mockTopicsProvider.list.mockResolvedValue({
+        status: BodyStatus.NOT_FOUND,
+        statusCode: 404,
+        data: null,
+        error: 'not found',
+      });
+
+      const result = await service.listPosts({ page: -3, perPage: 500 });
+
+      expect(result.items).toHaveLength(0);
+      expect(result.totalCount).toBe(0);
+      expect(result.page).toBe(1);
+      expect(result.perPage).toBe(100);
+    });
+
     it('should format createdAt as ISO string', async () => {
       mockTopicsProvider.list.mockResolvedValue({
         status: BodyStatus.OK,
