@@ -29,6 +29,13 @@ const FORBIDDEN_PACKAGES = [
 
 const FORBIDDEN_NODE_MODULES = ['fs', 'fs/promises'];
 
+// Narrow infrastructure allowlist: specific packages permitted in specific directories.
+// Business modules remain forbidden from importing these directly.
+const INFRA_ALLOWLIST = [
+  { dir: path.join(SRC_ROOT, 'database'), packages: ['@prisma/client', 'prisma'] },
+  { dir: path.join(SRC_ROOT, 'redis'), packages: ['ioredis', 'redis'] },
+];
+
 function packageImportPattern(pkg) {
   const escaped = pkg.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
   return new RegExp(
@@ -52,6 +59,12 @@ function collectTsFiles(dir, excludeDirs) {
   return results;
 }
 
+function isAllowedByInfraAllowlist(filePath, pkg) {
+  return INFRA_ALLOWLIST.some(
+    (entry) => entry.packages.includes(pkg) && filePath.startsWith(entry.dir + path.sep)
+  );
+}
+
 function check() {
   const exclude = new Set([REPOSITORIES_DIR]);
   const files = collectTsFiles(SRC_ROOT, exclude);
@@ -61,7 +74,9 @@ function check() {
     const content = fs.readFileSync(file, 'utf-8');
     for (const pkg of [...FORBIDDEN_PACKAGES, ...FORBIDDEN_NODE_MODULES]) {
       if (packageImportPattern(pkg).test(content)) {
-        violations.push(path.relative(ROOT, file) + ' imports ' + pkg);
+        if (!isAllowedByInfraAllowlist(file, pkg)) {
+          violations.push(path.relative(ROOT, file) + ' imports ' + pkg);
+        }
       }
     }
   }
@@ -83,7 +98,8 @@ for (const v of violations) {
   console.error('  - ' + v);
 }
 console.error(
-  '\nStorage drivers must be imported only inside src/repositories/.\n' +
+  '\nStorage drivers must be imported only inside src/repositories/,\n' +
+  'src/database/ (Prisma), or src/redis/ (ioredis).\n' +
   'See docs/architecture/repository-boundary-guard.md'
 );
 process.exit(1);

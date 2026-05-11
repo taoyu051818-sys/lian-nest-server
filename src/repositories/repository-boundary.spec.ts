@@ -16,6 +16,18 @@ const FORBIDDEN_NODE_MODULES = ['fs', 'fs/promises'];
 const SRC_ROOT = path.resolve(__dirname, '..');
 const REPOSITORIES_DIR = path.resolve(__dirname);
 
+// Narrow infrastructure allowlist: specific packages permitted in specific directories.
+const INFRA_ALLOWLIST: { dir: string; packages: string[] }[] = [
+  { dir: path.join(SRC_ROOT, 'database'), packages: ['@prisma/client', 'prisma'] },
+  { dir: path.join(SRC_ROOT, 'redis'), packages: ['ioredis', 'redis'] },
+];
+
+function isAllowedByInfraAllowlist(filePath: string, pkg: string): boolean {
+  return INFRA_ALLOWLIST.some(
+    (entry) => entry.packages.includes(pkg) && filePath.startsWith(entry.dir + path.sep),
+  );
+}
+
 function packageImportPattern(pkg: string): RegExp {
   const escaped = pkg.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&');
   return new RegExp(`(?:from\\s+|import\\s+|require\\s*\\()\\s*['"]${escaped}['"]`);
@@ -50,7 +62,7 @@ describe('repository boundary', () => {
     for (const file of outsideFiles) {
       const content = fs.readFileSync(file, 'utf-8');
       for (const pkg of FORBIDDEN_PACKAGES) {
-        if (packageImportPattern(pkg).test(content)) {
+        if (packageImportPattern(pkg).test(content) && !isAllowedByInfraAllowlist(file, pkg)) {
           violations.push(`${path.relative(SRC_ROOT, file)} imports ${pkg}`);
         }
       }
@@ -63,7 +75,7 @@ describe('repository boundary', () => {
     for (const file of outsideFiles) {
       const content = fs.readFileSync(file, 'utf-8');
       for (const mod of FORBIDDEN_NODE_MODULES) {
-        if (packageImportPattern(mod).test(content)) {
+        if (packageImportPattern(mod).test(content) && !isAllowedByInfraAllowlist(file, mod)) {
           violations.push(`${path.relative(SRC_ROOT, file)} imports ${mod}`);
         }
       }
