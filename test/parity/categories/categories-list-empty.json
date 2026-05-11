@@ -1,0 +1,30 @@
+{
+  "id": "categories-list-empty",
+  "endpoint": "GET /api/categories",
+  "description": "Categories list returns empty categories with fallback source when upstream has no categories or returns an error",
+  "request": {
+    "method": "GET",
+    "path": "/api/categories"
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "categories": [],
+      "source": "fallback"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["categories", "source"],
+      "properties": {
+        "categories": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "notes": "Empty state must return 200, not 404. Source is 'fallback' when NodeBB is unreachable or returns an error. When NodeBB responds successfully with no categories, source remains 'nodebb' and categories is empty."
+}
