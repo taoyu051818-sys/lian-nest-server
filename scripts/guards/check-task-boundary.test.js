@@ -10,7 +10,7 @@
  * functions — no child_process spawn of the CLI.
  */
 
-const { checkBoundary, matchesAny, globToRegex } = require('./check-task-boundary');
+const { checkBoundary, matchesAny, globToRegex, SHARED_LOCK_MAP } = require('./check-task-boundary');
 
 let passed = 0;
 let failed = 0;
@@ -165,6 +165,124 @@ console.log('\n-- checkBoundary: wildcard allowed');
 
   const result = checkBoundary(changed, allowed, forbidden);
   assert(result.pass === true, 'wildcard allowed matches both guard files');
+}
+
+// ---- SHARED_LOCK_MAP keys ---------------------------------------------------
+console.log('\n-- SHARED_LOCK_MAP');
+
+{
+  const keys = Object.keys(SHARED_LOCK_MAP);
+  assert(keys.includes('package'), 'SHARED_LOCK_MAP has "package" lock');
+  assert(keys.includes('prisma-schema'), 'SHARED_LOCK_MAP has "prisma-schema" lock');
+  assert(keys.includes('app-module'), 'SHARED_LOCK_MAP has "app-module" lock');
+  assert(keys.includes('docs-index'), 'SHARED_LOCK_MAP has "docs-index" lock');
+}
+
+// ---- checkBoundary: sharedLocks allows normally-forbidden file ---------------
+console.log('\n-- checkBoundary: sharedLocks allows forbidden file');
+
+{
+  const changed = ['package.json'];
+  const allowed = ['scripts/**'];
+  const forbidden = ['package.json', 'package-lock.json'];
+
+  // Without sharedLocks → forbidden
+  const noLock = checkBoundary(changed, allowed, forbidden);
+  assert(noLock.pass === false, 'package.json forbidden without sharedLocks');
+
+  // With sharedLocks → allowed
+  const withLock = checkBoundary(changed, allowed, forbidden, { sharedLocks: ['package'] });
+  assert(withLock.pass === true, 'package.json allowed with "package" sharedLock');
+  assertEq(withLock.sharedLocks, ['package'], 'sharedLocks echoed in result');
+}
+
+// ---- checkBoundary: undeclared lock does not exempt -------------------------
+console.log('\n-- checkBoundary: undeclared lock does not exempt');
+
+{
+  const changed = ['prisma/schema.prisma'];
+  const allowed = ['scripts/**'];
+  const forbidden = ['prisma/**'];
+
+  const result = checkBoundary(changed, allowed, forbidden, { sharedLocks: ['package'] });
+  assert(result.pass === false, 'prisma file still forbidden when only "package" lock declared');
+  assertEq(result.violations[0].reason, 'forbidden', 'reason is forbidden');
+}
+
+// ---- checkBoundary: multiple sharedLocks ------------------------------------
+console.log('\n-- checkBoundary: multiple sharedLocks');
+
+{
+  const changed = ['package.json', 'prisma/schema.prisma'];
+  const allowed = ['scripts/**'];
+  const forbidden = ['package.json', 'prisma/**'];
+
+  const result = checkBoundary(changed, allowed, forbidden, { sharedLocks: ['package', 'prisma-schema'] });
+  assert(result.pass === true, 'both files allowed with two sharedLocks');
+  assertEq(result.sharedLocks, ['package', 'prisma-schema'], 'both locks in result');
+}
+
+// ---- checkBoundary: sharedLocks absent (backward compat) --------------------
+console.log('\n-- checkBoundary: sharedLocks absent');
+
+{
+  const changed = ['scripts/guards/check-task-boundary.js'];
+  const allowed = ['scripts/guards/**'];
+  const forbidden = ['src/**'];
+
+  // Call with 3 args (no options) — must not throw
+  const result = checkBoundary(changed, allowed, forbidden);
+  assert(result.pass === true, 'works without options argument');
+  assertEq(result.sharedLocks, [], 'sharedLocks defaults to empty array');
+}
+
+// ---- checkBoundary: sharedLocks empty array ---------------------------------
+console.log('\n-- checkBoundary: sharedLocks empty array');
+
+{
+  const changed = ['package.json'];
+  const allowed = ['scripts/**'];
+  const forbidden = ['package.json'];
+
+  const result = checkBoundary(changed, allowed, forbidden, { sharedLocks: [] });
+  assert(result.pass === false, 'empty sharedLocks does not exempt forbidden files');
+  assertEq(result.sharedLocks, [], 'sharedLocks is empty array');
+}
+
+// ---- checkBoundary: app-module lock allows app.module.ts ---------------------
+console.log('\n-- checkBoundary: app-module lock');
+
+{
+  const changed = ['src/app.module.ts'];
+  const allowed = ['scripts/**'];
+  const forbidden = ['src/**'];
+
+  const result = checkBoundary(changed, allowed, forbidden, { sharedLocks: ['app-module'] });
+  assert(result.pass === true, 'app.module.ts allowed with "app-module" sharedLock');
+}
+
+// ---- checkBoundary: docs-index lock allows docs markdown --------------------
+console.log('\n-- checkBoundary: docs-index lock');
+
+{
+  const changed = ['docs/ai-native/parallel-work-policy.md'];
+  const allowed = ['scripts/**'];
+  const forbidden = ['docs/**'];
+
+  const result = checkBoundary(changed, allowed, forbidden, { sharedLocks: ['docs-index'] });
+  assert(result.pass === true, 'docs md allowed with "docs-index" sharedLock');
+}
+
+// ---- checkBoundary: unknown lock name has no effect -------------------------
+console.log('\n-- checkBoundary: unknown lock name');
+
+{
+  const changed = ['package.json'];
+  const allowed = ['scripts/**'];
+  const forbidden = ['package.json'];
+
+  const result = checkBoundary(changed, allowed, forbidden, { sharedLocks: ['nonexistent-lock'] });
+  assert(result.pass === false, 'unknown lock name does not exempt forbidden files');
 }
 
 // ---- Summary ----------------------------------------------------------------

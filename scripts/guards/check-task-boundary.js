@@ -90,34 +90,63 @@ function matchesAny(filePath, patterns) {
 }
 
 // ---------------------------------------------------------------------------
+// Shared lock definitions
+// ---------------------------------------------------------------------------
+
+/**
+ * Map of shared lock names to the file patterns they protect.
+ * A task that declares a sharedLock is permitted to touch the corresponding
+ * files even when they appear in forbiddenFiles.
+ */
+const SHARED_LOCK_MAP = {
+  'package': ['package.json', 'package-lock.json'],
+  'prisma-schema': ['prisma/**'],
+  'app-module': ['src/app.module.ts'],
+  'docs-index': ['docs/**/*.md'],
+};
+
+// ---------------------------------------------------------------------------
 // Core logic
 // ---------------------------------------------------------------------------
 
 /**
  * Check changed files against allowed/forbidden boundaries.
  *
- * @param {string[]} changedFiles  – list of changed file paths (posix or OS)
- * @param {string[]} allowedFiles  – glob patterns; file must match at least one
+ * @param {string[]} changedFiles   – list of changed file paths (posix or OS)
+ * @param {string[]} allowedFiles   – glob patterns; file must match at least one
  * @param {string[]} forbiddenFiles – glob patterns; file must match none
- * @returns {{ pass: boolean, violations: object[] }}
+ * @param {object}   [options]
+ * @param {string[]} [options.sharedLocks] – lock names declared by this task
+ * @returns {{ pass: boolean, violations: object[], sharedLocks: string[] }}
  */
-function checkBoundary(changedFiles, allowedFiles, forbiddenFiles) {
+function checkBoundary(changedFiles, allowedFiles, forbiddenFiles, options = {}) {
   const violations = [];
+  const declaredLocks = Array.isArray(options.sharedLocks) ? options.sharedLocks : [];
+
+  // Build the set of file patterns unlocked by declared sharedLocks
+  const unlockedPatterns = [];
+  for (const lock of declaredLocks) {
+    const patterns = SHARED_LOCK_MAP[lock];
+    if (patterns) {
+      unlockedPatterns.push(...patterns);
+    }
+  }
 
   for (const file of changedFiles) {
     const normed = normalise(file);
 
     const forbiddenHit = matchesAny(normed, forbiddenFiles);
     const allowedHit = matchesAny(normed, allowedFiles);
+    const unlocked = unlockedPatterns.length > 0 && matchesAny(normed, unlockedPatterns);
 
-    if (forbiddenHit) {
+    if (forbiddenHit && !unlocked) {
       violations.push({ file: normed, reason: 'forbidden', matched: forbiddenFiles.filter((p) => globToRegex(p).test(normed)) });
-    } else if (!allowedHit) {
+    } else if (!allowedHit && !unlocked) {
       violations.push({ file: normed, reason: 'outside-allowed' });
     }
   }
 
-  return { pass: violations.length === 0, violations };
+  return { pass: violations.length === 0, violations, sharedLocks: declaredLocks };
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +158,8 @@ function usage() {
 
 Options:
   -m, --manifest <path>   Path to task manifest JSON (required).
-                           Shape: { "allowedFiles": [...], "forbiddenFiles": [...] }
+                           Shape: { "allowedFiles": [...], "forbiddenFiles": [...],
+                           "sharedLocks": [...] }
   -f, --files <path>      Path to file containing changed files (one per line).
                            If omitted, reads from stdin.
   -h, --help              Show this help.
@@ -206,13 +236,15 @@ function main() {
 
   const changedFiles = readChangedFiles(args.files);
 
-  const result = checkBoundary(changedFiles, manifest.allowedFiles, manifest.forbiddenFiles);
+  const sharedLocks = Array.isArray(manifest.sharedLocks) ? manifest.sharedLocks : [];
+  const result = checkBoundary(changedFiles, manifest.allowedFiles, manifest.forbiddenFiles, { sharedLocks });
 
   const summary = {
     tool: 'check-task-boundary',
     pass: result.pass,
     totalChanged: changedFiles.length,
     violations: result.violations,
+    sharedLocks: result.sharedLocks,
   };
 
   console.log(JSON.stringify(summary, null, 2));
@@ -221,7 +253,7 @@ function main() {
 }
 
 // Export for testing
-module.exports = { checkBoundary, matchesAny, globToRegex };
+module.exports = { checkBoundary, matchesAny, globToRegex, SHARED_LOCK_MAP };
 
 if (require.main === module) {
   main();
