@@ -3,16 +3,21 @@
     Detects state drift between issues, PRs, and worker labels without mutating by default.
 .DESCRIPTION
     Reads issue/PR state from `gh` JSON or fixture files and detects obvious drift:
-    - Running issue with no open PR
-    - Done label on issue with no merged/closing PR
-    - Merged PR with still-open issue
+    - Running issue with no open PR (stale-running)
+    - Done label on issue with no merged/closing PR (done-without-merge)
+    - Merged PR with still-open issue (merged-pr-open-issue)
     - Stale running issue (no activity within threshold)
+    - Blocked issue with open PR (blocked-with-open-pr)
+    - Merged PR but stale agent label (merged-pr-stale-label)
+    - Done label but PR closed without merge (done-with-closed-pr)
+    - Multiple agent labels on one issue (multiple-agent-labels)
     Dry-run by default; pass -Apply to suggest label transitions (still no auto-mutation).
     Evidence precedence: worker evidence > PR state > issue labels.
 .EXAMPLE
     ./scripts/ai/state-reconciler.ps1 -Repo "o/r"
     ./scripts/ai/state-reconciler.ps1 -Repo "o/r" -IssueNumbers 113,114
     ./scripts/ai/state-reconciler.ps1 -FixturePath ./state-snapshot.json
+    ./scripts/ai/state-reconciler.ps1 -FixtureDir ./tests/fixtures/state-reconciler/
 #>
 
 [CmdletBinding()]
@@ -30,7 +35,10 @@ param(
     [int]$StaleHours = 72,
 
     [Parameter(Mandatory = $false)]
-    [switch]$Apply
+    [switch]$Apply,
+
+    [Parameter(Mandatory = $false)]
+    [string]$FixtureDir
 )
 
 Set-StrictMode -Version Latest
@@ -55,7 +63,11 @@ function Get-IssuesFromFixture {
         exit 1
     }
     $data = Get-Content $Path -Raw | ConvertFrom-Json
-    return $data
+    # Support both formats: bare array or { "issues": [...] } wrapper
+    if ($data.issues) {
+        return @($data.issues)
+    }
+    return @($data)
 }
 
 function Get-IssuesFromGitHub {
@@ -123,9 +135,9 @@ function Find-StateDrift {
         # Fetch linked PRs (skip in fixture mode if PRs embedded)
         $linkedPRs = @()
         if (-not $FixturePath -and $RepoName) {
-            $linkedPRs = Get-PullsForIssue -RepoName $RepoName -IssueNum $num
+            $linkedPRs = @(Get-PullsForIssue -RepoName $RepoName -IssueNum $num)
         } elseif ($issue.linkedPRs) {
-            $linkedPRs = $issue.linkedPRs
+            $linkedPRs = @($issue.linkedPRs)
         }
 
         $openPRs   = @($linkedPRs | Where-Object { $_.state -eq "OPEN" })
@@ -194,6 +206,52 @@ function Find-StateDrift {
                 Detail    = "agent:blocked but PR #$($openPRs[0].number) is open"
                 Suggest   = "agent:blocked -> agent:running (resume) or agent:done (if PR ready)"
                 Severity  = "info"
+            }
+        }
+
+        # Rule 6: Merged PR but issue label is not agent:done (label drift)
+        if ($mergedPRs.Count -gt 0 -and $agentLabel -and $agentLabel -ne "agent:done") {
+            $drifts += [PSCustomObject]@{
+                Issue     = $num
+                Title     = $title
+                Rule      = "merged-pr-stale-label"
+                Detail    = "PR #$($mergedPRs[0].number) merged but issue still has $agentLabel"
+                Suggest   = "$agentLabel -> agent:done"
+                Severity  = "error"
+            }
+        }
+
+        # Rule 7: agent:done but PR closed without merge
+        if ($agentLabel -eq "agent:done") {
+            $closedNotMerged = @($linkedPRs | Where-Object { $_.state -eq "CLOSED" -and -not $_.mergedAt })
+
+            if ($closedNotMerged.Count -gt 0 -and $mergedPRs.Count -eq 0) {
+                $drifts += [PSCustomObject]@{
+                    Issue     = $num
+                    Title     = $title
+                    Rule      = "done-with-closed-pr"
+                    Detail    = "agent:done but PR #$($closedNotMerged[0].number) closed without merge"
+                    Suggest   = "agent:done -> agent:running (re-open work) or close issue"
+                    Severity  = "error"
+                }
+            }
+        }
+
+        # Rule 8: Multiple agent labels on one issue
+        $foundLabels = @()
+        foreach ($al in $AGENT_LABELS) {
+            if (Test-HasLabel -Issue $issue -LabelName $al) {
+                $foundLabels += $al
+            }
+        }
+        if ($foundLabels.Count -gt 1) {
+            $drifts += [PSCustomObject]@{
+                Issue     = $num
+                Title     = $title
+                Rule      = "multiple-agent-labels"
+                Detail    = "Issue has multiple agent labels: $($foundLabels -join ', ')"
+                Suggest   = "Remove incorrect labels, keep only: $($foundLabels[-1])"
+                Severity  = "warning"
             }
         }
     }
@@ -266,12 +324,101 @@ function Build-MarkdownReport {
 }
 
 # ---------------------------------------------------------------------------
+# Fixture validation
+# ---------------------------------------------------------------------------
+
+function Invoke-FixtureValidation {
+    param([string]$Dir, [int]$StaleThresholdHours)
+
+    if (-not (Test-Path $Dir)) {
+        Write-Error "Fixture directory not found: $Dir"
+        return 1
+    }
+
+    $files = Get-ChildItem -Path $Dir -Filter "*.json" -File | Sort-Object Name
+    if ($files.Count -eq 0) {
+        Write-Error "No fixture JSON files found in: $Dir"
+        return 1
+    }
+
+    $totalPass = 0
+    $totalFail = 0
+    $results = @()
+
+    foreach ($file in $files) {
+        $data = Get-Content $file.FullName -Raw | ConvertFrom-Json
+        $issues = $data.issues
+        $expectedRules = $data.expectedRules
+        $expectedCount = $data.expectedCount
+
+        if (-not $issues) {
+            Write-Warning "Skipping $($file.Name): no 'issues' field"
+            continue
+        }
+
+        $drifts = @(Find-StateDrift -Issues $issues -RepoName "" -StaleThresholdHours $StaleThresholdHours)
+        $actualRules = @($drifts | ForEach-Object { $_.Rule })
+        $actualCount = $drifts.Count
+
+        $pass = $true
+        $reasons = @()
+
+        if ($null -ne $expectedCount -and $actualCount -ne $expectedCount) {
+            $pass = $false
+            $reasons += "expected $expectedCount drifts, got $actualCount"
+        }
+
+        if ($expectedRules) {
+            foreach ($rule in $expectedRules) {
+                if ($actualRules -notcontains $rule) {
+                    $pass = $false
+                    $reasons += "missing expected rule: $rule"
+                }
+            }
+        }
+
+        $status = if ($pass) { "PASS" } else { "FAIL" }
+        if ($pass) { $totalPass++ } else { $totalFail++ }
+
+        $results += [PSCustomObject]@{
+            File   = $file.Name
+            Status = $status
+            Drifts = $actualCount
+            Rules  = ($actualRules -join ", ")
+            Reason = ($reasons -join "; ")
+        }
+    }
+
+    Write-Host "=== FIXTURE VALIDATION ==="
+    Write-Host ""
+    Write-Host "  Files:   $($files.Count)"
+    Write-Host "  Passed:  $totalPass"
+    Write-Host "  Failed:  $totalFail"
+    Write-Host ""
+
+    foreach ($r in $results) {
+        $icon = if ($r.Status -eq "PASS") { "OK" } else { "!!" }
+        Write-Host "  [$icon] $($r.File) -- $($r.Status) ($($r.Drifts) drifts)"
+        if ($r.Rules) { Write-Host "       Rules: $($r.Rules)" }
+        if ($r.Reason) { Write-Host "       Reason: $($r.Reason)" }
+        Write-Host ""
+    }
+
+    Write-Host "=== END FIXTURE VALIDATION ==="
+
+    if ($totalFail -gt 0) {
+        return 1
+    }
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 # Validate inputs
-if (-not $FixturePath -and -not $Repo) {
-    Write-Error "Either -Repo or -FixturePath is required."
+if (-not $FixturePath -and -not $Repo -and -not $FixtureDir) {
+    Write-Error "One of -Repo, -FixturePath, or -FixtureDir is required."
     exit 1
 }
 
@@ -279,14 +426,20 @@ Write-Output "State Reconciler (dry-run by default)"
 Write-Output "======================================"
 Write-Output ""
 
+# Fixture directory validation mode
+if ($FixtureDir) {
+    $exitCode = Invoke-FixtureValidation -Dir $FixtureDir -StaleThresholdHours $StaleHours
+    exit $exitCode
+}
+
 # Load issues
 $issues = $null
 if ($FixturePath) {
     Write-Output "Loading from fixture: $FixturePath"
-    $issues = Get-IssuesFromFixture -Path $FixturePath
+    $issues = @(Get-IssuesFromFixture -Path $FixturePath)
 } else {
     Write-Output "Querying GitHub: $Repo"
-    $issues = Get-IssuesFromGitHub -RepoName $Repo -Numbers $IssueNumbers
+    $issues = @(Get-IssuesFromGitHub -RepoName $Repo -Numbers $IssueNumbers)
 }
 
 if (-not $issues -or $issues.Count -eq 0) {

@@ -1,0 +1,15 @@
+{
+  "description": "agent:queued for >72h without pickup",
+  "expectedRules": ["stale-queued"],
+  "expectedCount": 1,
+  "issues": [
+    {
+      "number": 206,
+      "title": "Stale queued issue",
+      "state": "OPEN",
+      "labels": [{"name": "agent:queued"}],
+      "updatedAt": "2026-05-01T00:00:00Z",
+      "linkedPRs": []
+    }
+  ]
+}

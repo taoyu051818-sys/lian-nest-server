@@ -1,0 +1,22 @@
+{
+  "description": "agent:done with merged PR -- merged-pr-open-issue still flags as issue should be closed",
+  "expectedRules": ["merged-pr-open-issue"],
+  "expectedCount": 1,
+  "issues": [
+    {
+      "number": 204,
+      "title": "Clean completed issue",
+      "state": "OPEN",
+      "labels": [{"name": "agent:done"}],
+      "updatedAt": "2026-05-10T12:00:00Z",
+      "linkedPRs": [
+        {
+          "number": 252,
+          "title": "Completed work",
+          "state": "MERGED",
+          "mergedAt": "2026-05-10T11:00:00Z"
+        }
+      ]
+    }
+  ]
+}

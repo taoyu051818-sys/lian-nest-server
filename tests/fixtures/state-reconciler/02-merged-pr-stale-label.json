@@ -1,0 +1,22 @@
+{
+  "description": "Merged PR exists but issue still has agent:running instead of agent:done",
+  "expectedRules": ["merged-pr-stale-label", "merged-pr-open-issue"],
+  "expectedCount": 2,
+  "issues": [
+    {
+      "number": 201,
+      "title": "Merged PR with stale label",
+      "state": "OPEN",
+      "labels": [{"name": "agent:running"}],
+      "updatedAt": "2026-05-10T12:00:00Z",
+      "linkedPRs": [
+        {
+          "number": 250,
+          "title": "Implement feature",
+          "state": "MERGED",
+          "mergedAt": "2026-05-10T10:00:00Z"
+        }
+      ]
+    }
+  ]
+}

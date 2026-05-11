@@ -1,0 +1,22 @@
+{
+  "description": "agent:blocked with an open PR suggests blocker may be resolved",
+  "expectedRules": ["blocked-with-open-pr"],
+  "expectedCount": 1,
+  "issues": [
+    {
+      "number": 205,
+      "title": "Blocked but PR open",
+      "state": "OPEN",
+      "labels": [{"name": "agent:blocked"}],
+      "updatedAt": "2026-05-10T12:00:00Z",
+      "linkedPRs": [
+        {
+          "number": 253,
+          "title": "Partial implementation",
+          "state": "OPEN",
+          "mergedAt": null
+        }
+      ]
+    }
+  ]
+}

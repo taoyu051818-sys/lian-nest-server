@@ -1,0 +1,15 @@
+{
+  "description": "Issue has both agent:running and agent:done labels simultaneously",
+  "expectedRules": ["multiple-agent-labels"],
+  "expectedCount": 1,
+  "issues": [
+    {
+      "number": 203,
+      "title": "Conflicting agent labels",
+      "state": "OPEN",
+      "labels": [{"name": "agent:running"}, {"name": "agent:done"}],
+      "updatedAt": "2026-05-10T12:00:00Z",
+      "linkedPRs": []
+    }
+  ]
+}
