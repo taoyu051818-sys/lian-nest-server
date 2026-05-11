@@ -1,0 +1,56 @@
+{
+  "id": "tag-topics-encoded-tag",
+  "endpoint": "GET /api/tags/:tag/topics",
+  "description": "Tag topics endpoint correctly handles encoded tag names with special characters",
+  "request": {
+    "method": "GET",
+    "path": "/api/tags/<ENCODED_TAG>/topics",
+    "params": { "tag": "<ENCODED_TAG>" },
+    "query": { "page": 1, "perPage": 20 }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "topics": "<ARRAY>",
+      "source": "nodebb",
+      "totalCount": "<NON_NEG_INT>",
+      "page": 1,
+      "perPage": 20
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["topics", "source", "totalCount", "page", "perPage"],
+      "properties": {
+        "topics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TagTopicItem" }
+        },
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] },
+        "totalCount": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "minimum": 1 },
+        "perPage": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "TagTopicItem": {
+          "type": "object",
+          "required": ["tid", "uid", "cid", "title", "slug", "mainPid", "postcount", "viewcount", "timestamp"],
+          "properties": {
+            "tid": { "type": "integer", "minimum": 1 },
+            "uid": { "type": "integer", "minimum": 1 },
+            "cid": { "type": "integer", "minimum": 1 },
+            "title": { "type": "string" },
+            "slug": { "type": "string" },
+            "mainPid": { "type": "integer", "minimum": 1 },
+            "postcount": { "type": "integer", "minimum": 0 },
+            "viewcount": { "type": "integer", "minimum": 0 },
+            "timestamp": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "notes": "Verifies that tag names with special characters (c++, c#/.net, hello world) are correctly passed through to the provider and return valid response envelopes."
+}
