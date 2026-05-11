@@ -60,7 +60,9 @@ param(
 
     [int]$MaxTasks = 5,
 
-    [switch]$Json
+    [switch]$Json,
+
+    [string]$MetaSignalsPath = ".github/ai-state/meta-signals.json"
 )
 
 Set-StrictMode -Version Latest
@@ -82,6 +84,7 @@ if ($Help -or (-not $Repo -and -not $env:GH_REPO)) {
     Write-Host "  -Repo <owner/name>    GitHub repository (or set GH_REPO env var)"
     Write-Host "  -MatrixPath <path>    Migration matrix path (default: docs/migration/migration-matrix.md)"
     Write-Host "  -MaxTasks <n>         Max tasks in proposed batch (default: 5)"
+    Write-Host "  -MetaSignalsPath <p>  Path to meta-signals JSON (default: .github/ai-state/meta-signals.json)"
     Write-Host "  -Json                 Output as JSON"
     Write-Host "  -Help                 Show this help"
     Write-Host ""
@@ -179,6 +182,24 @@ if (Test-Path $MatrixPath) {
     Write-Ok "Parsed $($sliceStatuses.Count) slice status(es)"
 } else {
     Write-Warn "Migration matrix not found at $MatrixPath — proceeding without slice context"
+}
+
+# ---------------------------------------------------------------------------
+# Step 2b: Load meta-signals for ranking enrichment
+# ---------------------------------------------------------------------------
+
+$metaSignals = $null
+
+if (Test-Path $MetaSignalsPath) {
+    Write-Step "Reading meta-signals: $MetaSignalsPath"
+    try {
+        $metaSignals = Get-Content $MetaSignalsPath -Raw | ConvertFrom-Json
+        Write-Ok "Meta-signals loaded: trust=$($metaSignals.signals.trust) topPain=$($metaSignals.signals.topPain)"
+    } catch {
+        Write-Warn "Failed to parse meta-signals: $_ — proceeding without signals"
+    }
+} else {
+    Write-Warn "Meta-signals not found at $MetaSignalsPath — ranking will not use signals"
 }
 
 # ---------------------------------------------------------------------------
@@ -286,6 +307,12 @@ foreach ($issueEntry in $issues) {
         }
     }
 
+    # Compute composite score for signal-aware ranking
+    $trustVal = if ($metaSignals -and $metaSignals.signals) { [int]$metaSignals.signals.trust } else { 100 }
+    $riskRank = switch ($risk) { "low" { 0 } "medium" { 1 } "high" { 2 } }
+    $trustPenalty = [math]::Round((100 - $trustVal) / 50, 2)
+    $compositeScore = $riskRank + $trustPenalty
+
     $candidate = [ordered]@{
         issueNumber     = $issueNum
         title           = $title
@@ -300,6 +327,7 @@ foreach ($issueEntry in $issues) {
         sliceStatus     = $sliceStatus
         readiness       = $readiness
         readinessNote   = $readinessNote
+        compositeScore  = $compositeScore
     }
     $candidates += $candidate
 }
@@ -315,12 +343,29 @@ Write-Step "Prioritizing candidates..."
 # Filter out done candidates
 $activeCandidates = @($candidates | Where-Object { $_.readiness -ne "done" })
 
-# Sort: ready first, then blocked; within each group, lower risk first
-$riskOrder = @{ "low" = 0; "medium" = 1; "high" = 2 }
+# Sort: ready first, then by composite score (risk + trust penalty + pain demotion),
+# then by issue number as tiebreaker.
+$topPainStr = if ($metaSignals -and $metaSignals.signals) { $metaSignals.signals.topPain } else { "none" }
+$painKeywords = if ($topPainStr -and $topPainStr -ne "none") {
+    @($topPainStr -split '[\s/]+') | Where-Object { $_.Length -gt 0 }
+} else { @() }
+
 $sorted = @($activeCandidates | Sort-Object -Property @{
     Expression = { if ($_.readiness -eq "ready") { 0 } else { 1 } }
 }, @{
-    Expression = { $riskOrder[$_.risk] }
+    Expression = {
+        $score = $_.compositeScore
+        if ($painKeywords.Count -gt 0) {
+            $text = "$($_.conflictGroup) $($_.title)".ToLower()
+            foreach ($kw in $painKeywords) {
+                if ($text.Contains($kw.ToLower())) {
+                    $score += 2
+                    break
+                }
+            }
+        }
+        $score
+    }
 }, @{
     Expression = { $_.issueNumber }
 })
@@ -368,6 +413,8 @@ if ($Json) {
         conflictWarnings = $conflictWarnings
         matrixPath       = $MatrixPath
         sliceStatuses    = $sliceStatuses
+        metaSignals      = if ($metaSignals) { $metaSignals.signals } else { $null }
+        painKeywords     = $painKeywords
     }
     $output | ConvertTo-Json -Depth 10
     exit 0
@@ -386,6 +433,16 @@ Write-Host "  Open:     $($issues.Count)" -ForegroundColor White
 Write-Host "  Active:   $($activeCandidates.Count)" -ForegroundColor White
 Write-Host "  Proposed: $($proposed.Count)" -ForegroundColor White
 Write-Host ""
+
+if ($metaSignals -and $metaSignals.signals) {
+    $sig = $metaSignals.signals
+    Write-Host "  Meta-Signals:" -ForegroundColor White
+    Write-Host "    trust: $($sig.trust)  failure: $($sig.failureScore)  friction: $($sig.frictionScore)  topPain: $($sig.topPain)" -ForegroundColor DarkGray
+    if ($painKeywords.Count -gt 0) {
+        Write-Host "    pain keywords: $($painKeywords -join ', ') — matching tasks demoted" -ForegroundColor Yellow
+    }
+    Write-Host ""
+}
 
 foreach ($c in $proposed) {
     $riskColor = switch ($c.risk) {
@@ -421,6 +478,7 @@ foreach ($c in $proposed) {
     }
 
     Write-Host "    allowed: $($c.allowedFiles -join ', ')" -ForegroundColor DarkGray
+    Write-Host "    compositeScore: $($c.compositeScore)" -ForegroundColor DarkGray
     Write-Host ""
 }
 
