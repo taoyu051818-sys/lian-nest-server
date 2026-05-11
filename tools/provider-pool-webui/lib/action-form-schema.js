@@ -43,6 +43,19 @@ const FIELD_TYPES = Object.freeze({
     placeholder: "e.g. strategy",
     autocomplete: "off",
   }),
+  allowlist: Object.freeze({
+    type: "textarea",
+    label: "Allowlist",
+    placeholder: "e.g. 700, 701, 702",
+    hint: "Comma-separated issue numbers",
+    parse: "csv-number",
+  }),
+  reason: Object.freeze({
+    type: "text",
+    label: "Reason",
+    placeholder: "Why this action?",
+    autocomplete: "off",
+  }),
 });
 
 const DEFAULT_FIELD = Object.freeze({
@@ -183,6 +196,54 @@ function formSchemaMeta() {
   };
 }
 
+// --- Server action form fields -----------------------------------------------
+// Maps server action module ids to their required field names.
+// Server actions live in tools/provider-pool-webui/actions/ and are loaded
+// dynamically by the server. They are not in the client-side action registry,
+// so they need their own form field mapping here.
+
+const SERVER_ACTION_FIELDS = Object.freeze({
+  "plan.next.batch": Object.freeze(["reason", "allowlist"]),
+});
+
+/**
+ * Build form field descriptors for a server action module.
+ *
+ * @param {string} actionId
+ * @returns {object[]}
+ */
+function buildServerActionFormFields(actionId) {
+  const fields = SERVER_ACTION_FIELDS[actionId];
+  if (!fields) return [];
+  return buildFormFields(fields);
+}
+
+/**
+ * Build a complete form schema for a server action module.
+ *
+ * @param {string} actionId
+ * @param {object} meta - Server action metadata { id, label, description, dangerous }
+ * @returns {object|null}
+ */
+function buildServerActionFormSchema(actionId, meta) {
+  if (!meta || meta.id !== actionId) return null;
+  const fields = buildServerActionFormFields(actionId);
+  return Object.freeze({
+    actionId,
+    title: meta.label || actionId,
+    description: meta.description || "",
+    risk: meta.dangerous ? "high" : "low",
+    riskBadge: meta.dangerous ? RISK_BADGE.high : RISK_BADGE.low,
+    privileged: false,
+    readOnly: false,
+    defaultPreview: true,
+    fields,
+    hasConfirmMessage: false,
+    submitLabel: meta.dangerous ? "Execute (Dangerous)" : "Execute",
+    previewLabel: "Preview",
+  });
+}
+
 // --- Internal helpers --------------------------------------------------------
 
 function humanizeFieldName(name) {
@@ -201,8 +262,11 @@ module.exports = {
   buildFormSchema,
   buildFormSchemas,
   buildFormSchemasByCategory,
+  buildServerActionFormFields,
+  buildServerActionFormSchema,
   formSchemaMeta,
   riskBadge,
   FIELD_TYPES,
   RISK_BADGE,
+  SERVER_ACTION_FIELDS,
 };

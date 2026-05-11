@@ -15,10 +15,13 @@ const {
   buildFormSchema,
   buildFormSchemas,
   buildFormSchemasByCategory,
+  buildServerActionFormFields,
+  buildServerActionFormSchema,
   formSchemaMeta,
   riskBadge,
   FIELD_TYPES,
   RISK_BADGE,
+  SERVER_ACTION_FIELDS,
 } = require("./lib/action-form-schema");
 
 const { ACTIONS, RISK, listActionIds } = require("./lib/action-registry");
@@ -554,6 +557,161 @@ console.log("\nbuildFormSchemasByCategory coverage\n");
     assert(grouped[cat].every((s) => s.category === cat),
       `all schemas in ${cat} have category ${cat}`);
     assert(grouped[cat].length > 0, `category ${cat} is non-empty`);
+  }
+}
+
+// --- FIELD_TYPES: allowlist and reason ----------------------------------------
+
+console.log("\nFIELD_TYPES: allowlist and reason\n");
+
+{
+  assert(FIELD_TYPES.allowlist !== undefined, "allowlist field type exists");
+  assert(FIELD_TYPES.allowlist.type === "textarea", "allowlist type is textarea");
+  assert(typeof FIELD_TYPES.allowlist.label === "string", "allowlist has label");
+  assert(typeof FIELD_TYPES.allowlist.placeholder === "string", "allowlist has placeholder");
+  assert(FIELD_TYPES.allowlist.parse === "csv-number", "allowlist parse is csv-number");
+  assert(typeof FIELD_TYPES.allowlist.hint === "string", "allowlist has hint");
+  assert(Object.isFrozen(FIELD_TYPES.allowlist), "allowlist field type is frozen");
+
+  assert(FIELD_TYPES.reason !== undefined, "reason field type exists");
+  assert(FIELD_TYPES.reason.type === "text", "reason type is text");
+  assert(typeof FIELD_TYPES.reason.label === "string", "reason has label");
+  assert(typeof FIELD_TYPES.reason.placeholder === "string", "reason has placeholder");
+  assert(Object.isFrozen(FIELD_TYPES.reason), "reason field type is frozen");
+}
+
+// --- buildFieldDescriptor for allowlist and reason ----------------------------
+
+console.log("\nbuildFieldDescriptor: allowlist and reason\n");
+
+{
+  const f1 = buildFieldDescriptor("allowlist");
+  assert(f1.name === "allowlist", "allowlist field name correct");
+  assert(f1.type === "textarea", "allowlist type is textarea");
+  assert(f1.required === true, "allowlist is required");
+  assert(f1.label === "Allowlist", "allowlist label matches");
+  assert(f1.parse === "csv-number", "allowlist parse is csv-number");
+  assert(f1.hint === "Comma-separated issue numbers", "allowlist hint matches");
+  assert(Object.isFrozen(f1), "allowlist descriptor is frozen");
+
+  const f2 = buildFieldDescriptor("reason");
+  assert(f2.name === "reason", "reason field name correct");
+  assert(f2.type === "text", "reason type is text");
+  assert(f2.required === true, "reason is required");
+  assert(f2.label === "Reason", "reason label matches");
+  assert(Object.isFrozen(f2), "reason descriptor is frozen");
+}
+
+// --- SERVER_ACTION_FIELDS ----------------------------------------------------
+
+console.log("\nSERVER_ACTION_FIELDS\n");
+
+{
+  assert(typeof SERVER_ACTION_FIELDS === "object", "SERVER_ACTION_FIELDS is an object");
+  assert(Object.isFrozen(SERVER_ACTION_FIELDS), "SERVER_ACTION_FIELDS is frozen");
+  assert(Array.isArray(SERVER_ACTION_FIELDS["plan.next.batch"]), "plan.next.batch has fields");
+  assert(SERVER_ACTION_FIELDS["plan.next.batch"].length === 2, "plan.next.batch has 2 fields");
+  assert(SERVER_ACTION_FIELDS["plan.next.batch"][0] === "reason", "first field is reason");
+  assert(SERVER_ACTION_FIELDS["plan.next.batch"][1] === "allowlist", "second field is allowlist");
+  assert(Object.isFrozen(SERVER_ACTION_FIELDS["plan.next.batch"]), "plan.next.batch fields are frozen");
+}
+
+// --- buildServerActionFormFields ---------------------------------------------
+
+console.log("\nbuildServerActionFormFields\n");
+
+{
+  const fields = buildServerActionFormFields("plan.next.batch");
+  assert(Array.isArray(fields), "returns an array");
+  assert(fields.length === 2, "returns 2 fields");
+  assert(fields[0].name === "reason", "first field is reason");
+  assert(fields[0].type === "text", "reason type is text");
+  assert(fields[0].required === true, "reason is required");
+  assert(fields[1].name === "allowlist", "second field is allowlist");
+  assert(fields[1].type === "textarea", "allowlist type is textarea");
+  assert(fields[1].required === true, "allowlist is required");
+  assert(fields[1].parse === "csv-number", "allowlist parse is csv-number");
+  assert(Object.isFrozen(fields[0]), "reason descriptor is frozen");
+  assert(Object.isFrozen(fields[1]), "allowlist descriptor is frozen");
+
+  // Unknown action returns empty array
+  const empty = buildServerActionFormFields("nonexistent.action");
+  assert(Array.isArray(empty), "unknown action returns array");
+  assert(empty.length === 0, "unknown action returns empty array");
+
+  const nullFields = buildServerActionFormFields(null);
+  assert(nullFields.length === 0, "null returns empty array");
+}
+
+// --- buildServerActionFormSchema ---------------------------------------------
+
+console.log("\nbuildServerActionFormSchema\n");
+
+{
+  const meta = {
+    id: "plan.next.batch",
+    label: "Plan Next Batch",
+    description: "Preview the next worker batch",
+    dangerous: false,
+  };
+
+  const schema = buildServerActionFormSchema("plan.next.batch", meta);
+  assert(schema !== null, "returns non-null for valid meta");
+  assert(schema.actionId === "plan.next.batch", "actionId is correct");
+  assert(schema.title === "Plan Next Batch", "title matches label");
+  assert(schema.description === "Preview the next worker batch", "description matches");
+  assert(schema.risk === "low", "risk is low for non-dangerous");
+  assert(schema.riskBadge.color === "green", "riskBadge is green for low risk");
+  assert(schema.privileged === false, "not privileged");
+  assert(schema.readOnly === false, "not readOnly");
+  assert(schema.defaultPreview === true, "defaults to preview");
+  assert(schema.fields.length === 2, "has 2 fields");
+  assert(schema.fields[0].name === "reason", "first field is reason");
+  assert(schema.fields[1].name === "allowlist", "second field is allowlist");
+  assert(schema.hasConfirmMessage === false, "no confirm message");
+  assert(schema.submitLabel === "Execute", "submit label is Execute");
+  assert(schema.previewLabel === "Preview", "preview label is Preview");
+  assert(Object.isFrozen(schema), "schema is frozen");
+
+  // Dangerous action
+  const dangerMeta = {
+    id: "plan.next.batch",
+    label: "Plan Next Batch",
+    description: "Preview the next worker batch",
+    dangerous: true,
+  };
+  const dangerSchema = buildServerActionFormSchema("plan.next.batch", dangerMeta);
+  assert(dangerSchema !== null, "dangerous action returns schema");
+  assert(dangerSchema.risk === "high", "risk is high for dangerous action");
+  assert(dangerSchema.riskBadge.color === "orange", "riskBadge is orange for high risk");
+  assert(dangerSchema.submitLabel === "Execute (Dangerous)", "submit label includes Dangerous");
+
+  // Unknown action returns null
+  assert(buildServerActionFormSchema("nonexistent", meta) === null, "mismatched id returns null");
+  assert(buildServerActionFormSchema("plan.next.batch", null) === null, "null meta returns null");
+  assert(buildServerActionFormSchema(null, meta) === null, "null actionId returns null");
+
+  // Action without server fields returns empty fields array
+  const noFieldsMeta = { id: "some.other.action", label: "Other", description: "", dangerous: false };
+  const noFieldsSchema = buildServerActionFormSchema("some.other.action", noFieldsMeta);
+  assert(noFieldsSchema !== null, "action without known fields returns schema");
+  assert(noFieldsSchema.fields.length === 0, "unknown action has 0 fields");
+}
+
+// --- buildServerActionFormFields consistency with buildFormFields ------------
+
+console.log("\nbuildServerActionFormFields consistency\n");
+
+{
+  // Server action fields should produce the same quality descriptors as buildFormFields
+  const serverFields = buildServerActionFormFields("plan.next.batch");
+  const directFields = buildFormFields(["reason", "allowlist"]);
+
+  assert(serverFields.length === directFields.length, "same number of fields");
+  for (let i = 0; i < serverFields.length; i++) {
+    assert(serverFields[i].name === directFields[i].name, `field ${i} name matches`);
+    assert(serverFields[i].type === directFields[i].type, `field ${i} type matches`);
+    assert(serverFields[i].required === directFields[i].required, `field ${i} required matches`);
   }
 }
 

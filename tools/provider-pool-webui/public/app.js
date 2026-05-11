@@ -444,6 +444,16 @@ const auditLog = [];
 let cachedServerActions = [];
 let cachedServerAudit = [];
 
+// Client-side server action form field definitions.
+// Mirrors SERVER_ACTION_FIELDS from lib/action-form-schema.js.
+// Each entry maps a server action id to an array of field descriptors.
+const SERVER_ACTION_FORM_FIELDS = {
+  'plan.next.batch': [
+    { name: 'reason', type: 'text', label: 'Reason', placeholder: 'Why this batch plan?', required: true },
+    { name: 'allowlist', type: 'textarea', label: 'Allowlist (Issue #s)', placeholder: 'e.g. 700, 701, 702', hint: 'Comma-separated issue numbers', parse: 'csv-number', required: true },
+  ],
+};
+
 function logAuditEvent(entry) {
   auditLog.push({
     ...entry,
@@ -784,7 +794,42 @@ function buildPayloadForm(actionMeta, allData) {
     form.append(selectWrap);
   }
 
-  // Generic JSON payload editor for advanced params
+  // Structured form fields for known server actions
+  const knownFields = SERVER_ACTION_FORM_FIELDS[actionMeta.id];
+  if (knownFields && knownFields.length > 0) {
+    for (const field of knownFields) {
+      const fieldWrap = el('div', { className: 'action-form__field' });
+      fieldWrap.append(el('label', { className: 'action-form__label', textContent: field.label }));
+
+      if (field.type === 'textarea') {
+        const textarea = el('textarea', {
+          className: 'action-form__textarea',
+          'data-field': field.name,
+          'data-parse': field.parse || '',
+          placeholder: field.placeholder || '',
+          rows: '3',
+        });
+        fieldWrap.append(textarea);
+      } else {
+        const input = el('input', {
+          className: 'action-form__input',
+          'data-field': field.name,
+          type: field.type || 'text',
+          placeholder: field.placeholder || '',
+          autocomplete: field.autocomplete || 'off',
+        });
+        fieldWrap.append(input);
+      }
+
+      if (field.hint) {
+        fieldWrap.append(el('p', { className: 'action-form__hint', textContent: field.hint }));
+      }
+
+      form.append(fieldWrap);
+    }
+  }
+
+  // Generic JSON payload editor for advanced params (always available as fallback)
   const jsonWrap = el('div', { className: 'action-form__field' });
   jsonWrap.append(el('label', { className: 'action-form__label', textContent: 'Payload (JSON)' }));
   const textarea = el('textarea', {
@@ -812,11 +857,30 @@ function collectFormPayload(form) {
     if (input.value) payload[input.dataset.field] = input.value;
   }
 
+  // Collect structured textarea fields (not the generic jsonPayload)
+  for (const textarea of form.querySelectorAll('textarea[data-field]')) {
+    if (textarea.dataset.field === 'jsonPayload') continue;
+    const value = textarea.value.trim();
+    if (!value) continue;
+
+    if (textarea.dataset.parse === 'csv-number') {
+      // Parse comma-separated numbers into an array
+      const nums = value.split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+        .map(Number)
+        .filter((n) => !isNaN(n));
+      if (nums.length > 0) payload[textarea.dataset.field] = nums;
+    } else {
+      payload[textarea.dataset.field] = value;
+    }
+  }
+
   // Merge JSON payload if provided
-  const textarea = form.querySelector('textarea[data-field="jsonPayload"]');
-  if (textarea && textarea.value.trim()) {
+  const jsonTextarea = form.querySelector('textarea[data-field="jsonPayload"]');
+  if (jsonTextarea && jsonTextarea.value.trim()) {
     try {
-      const jsonPayload = JSON.parse(textarea.value.trim());
+      const jsonPayload = JSON.parse(jsonTextarea.value.trim());
       Object.assign(payload, jsonPayload);
     } catch {
       // ignore invalid JSON — server will handle it
@@ -1661,6 +1725,9 @@ function injectConsoleStyles() {
     .action-form__input:focus,
     .action-form__textarea:focus {
       outline: none; border-color: var(--accent-blue, #60a5fa);
+    }
+    .action-form__hint {
+      font-size: 10px; color: var(--text-muted, #565b72); margin-top: 3px;
     }
     .action-form__select option {
       background: var(--surface-bg, #0f1117); color: var(--text-primary, #e2e4ea);
