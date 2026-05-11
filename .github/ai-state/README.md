@@ -6,8 +6,10 @@ Machine-readable state files consumed by AI automation (scheduler, launch gate, 
 
 ```
 .github/ai-state/
+  launch-locks.json  # Currently held launch locks projection
   main-health.json   # Current main branch health state
   provider-pool.json # API provider pool availability state (no secrets)
+  worker-trust.json  # Worker trust state projection seed
   README.md          # This file
 ```
 
@@ -69,6 +71,56 @@ Worker classes control which automation may target main when health is degraded:
 - **Self-cycle runner**: Reads the marker at Step 2 to gate the cycle. A `red` or `black` state, or a missing marker, stops the cycle.
 - **Merge scripts**: Checks `state` is not `red`/`black` before merging.
 - **Monitoring**: Reads `capturedAt` to detect stale markers.
+
+## launch-locks.json
+
+Projection of currently held launch locks. Read by the batch launcher before
+dispatching workers to detect conflicts with in-flight tasks.
+
+### Schema
+
+```jsonc
+{
+  "markerVersion": 1,
+  "capturedAt": "2026-05-11T12:00:00Z",
+  "locks": [
+    {
+      "conflictGroup": "auth-core",
+      "writeSet": ["src/auth/auth.service.ts"],
+      "sharedLocks": ["app-module"],
+      "ownerTask": {
+        "issue": 258,
+        "branch": "claude/wave6-20260510-091500-issue-258",
+        "workerClass": "runtime-feature"
+      },
+      "acquiredAt": "2026-05-11T10:30:00Z",
+      "expiresAt": "2026-05-11T11:30:00Z"
+    }
+  ]
+}
+```
+
+### Lock Entry Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `conflictGroup` | `string` | Conflict group this lock protects. |
+| `writeSet` | `string[]` | File paths the worker intends to edit. |
+| `sharedLocks` | `string[]` | Shared resource locks claimed (e.g. `app-module`). |
+| `ownerTask.issue` | `number` | GitHub issue number. |
+| `ownerTask.branch` | `string` | Git worktree branch name. |
+| `ownerTask.workerClass` | `string` | Worker classification. |
+| `acquiredAt` | `string` | ISO 8601 lock acquisition time. |
+| `expiresAt` | `string` | ISO 8601 lock expiry time. |
+
+### Downstream Consumers
+
+- **Batch launcher**: Reads before dispatch to detect conflict group and shared lock overlaps.
+- **Launch gate**: Reads to enforce running-worker conflict rules.
+- **State reconciler**: Reads to detect stale locks.
+
+See [launch-locks-state.md](../../docs/ai-native/launch-locks-state.md) for the
+full specification including stale lock detection and lifecycle.
 
 ## Write Workflow
 
@@ -151,3 +203,79 @@ Sanitized projection of API provider pool availability. Written by
 - `markerVersion` enables schema evolution without breaking consumers.
 - `DryRun` is a switch parameter; omitting it writes the file.
 - The self-cycle runner and launch gate consume the marker; CI workflow integration is future work.
+
+## worker-trust.json
+
+Defines per-worker-class trust defaults and scheduling implications for the orchestrator. Read by the launcher before dispatching workers.
+
+### Schema
+
+```jsonc
+{
+  "markerVersion": 1,
+  "capturedAt": "2026-05-11T12:00:00Z",
+  "workerClasses": {
+    "<class-name>": {
+      "defaultTrustScore": 0.0-1.0,
+      "allowedHealthStates": ["green", "yellow", "red", "black"],
+      "riskTier": "low | medium | high",
+      "layer": "contract-planning | runtime-foundation | health-diagnostic | feature-repository | review-audit | merge-release",
+      "note": "Human-readable rationale"
+    }
+  },
+  "trustScore": {
+    "inputs": [
+      {
+        "name": "input-name",
+        "type": "enum | float | integer",
+        "weight": 0.0-1.0,
+        "description": "What this input measures"
+      }
+    ],
+    "formula": "weightedSum(inputs) clamped to [0.0, 1.0]"
+  },
+  "scheduling": {
+    "minTrustToLaunch": 0.3,
+    "highTrustThreshold": 0.7,
+    "rules": [
+      {
+        "condition": "trustScore expression",
+        "action": "block_launch | launch_with_monitoring | launch_standard",
+        "description": "What happens"
+      }
+    ]
+  }
+}
+```
+
+### Worker Classes
+
+| Class | Default Trust | Risk | Layer |
+|-------|:-------------:|:----:|-------|
+| `runtime-feature` | 0.5 | high | feature-repository |
+| `foundation-fix` | 0.8 | medium | runtime-foundation |
+| `docs-contract` | 0.9 | low | contract-planning |
+| `health-gate` | 0.9 | low | health-diagnostic |
+| `test-only` | 0.7 | medium | feature-repository |
+| `refactor` | 0.4 | high | feature-repository |
+| `review-audit` | 0.85 | low | review-audit |
+| `merge-release` | 0.6 | high | merge-release |
+
+### Scheduling Rules
+
+| Trust Score | Action |
+|:-----------:|--------|
+| < 0.3 | Block launch |
+| 0.3 – 0.7 | Launch with monitoring |
+| >= 0.7 | Standard launch |
+
+### Downstream Consumers
+
+- **Orchestrator/launcher**: Reads `workerClasses` and `scheduling` to determine dispatch policy.
+- **Launch gate**: Checks `allowedHealthStates` as a hard prerequisite.
+- **State reconciler**: Provides `historicalSuccessRate` input.
+
+### See Also
+
+- [worker-trust.md](../../docs/ai-native/worker-trust.md) — Full documentation
+- [main-health-policy.md](../../docs/ai-native/main-health-policy.md) — Health state definitions

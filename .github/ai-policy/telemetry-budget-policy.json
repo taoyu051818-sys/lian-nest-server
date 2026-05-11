@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "policyId": "telemetry-budget-policy",
+  "version": "1.0.0",
+  "description": "Defines wall-clock limits, token budgets, estimated cost fields, confidence/source rules, timeout handling, and cost-overrun escalation for AI worker telemetry.",
+
+  "wallClock": {
+    "softLimitMinutes": {
+      "description": "Target completion time. Worker should self-report progress at this boundary.",
+      "default": 30,
+      "docs": 15,
+      "execution": 45,
+      "review": 20
+    },
+    "hardLimitMinutes": {
+      "description": "Absolute cutoff. Worker MUST publish partial progress before this boundary.",
+      "default": 60,
+      "docs": 30,
+      "execution": 90,
+      "review": 40
+    },
+    "extensionMinutes": {
+      "description": "Additional time granted if progress is being made at hard limit.",
+      "default": 15,
+      "max": 30
+    }
+  },
+
+  "tokenBudget": {
+    "fields": {
+      "estimatedInputTokens": {
+        "type": "integer",
+        "description": "Estimated input token count for the worker session. Set at launch time.",
+        "minimum": 0
+      },
+      "estimatedOutputTokens": {
+        "type": "integer",
+        "description": "Estimated output token count for the worker session. Set at launch time.",
+        "minimum": 0
+      },
+      "actualInputTokens": {
+        "type": "integer",
+        "description": "Actual input token count captured after worker completion.",
+        "minimum": 0
+      },
+      "actualOutputTokens": {
+        "type": "integer",
+        "description": "Actual output token count captured after worker completion.",
+        "minimum": 0
+      }
+    },
+    "defaultBudgets": {
+      "docs": {
+        "maxInputTokens": 200000,
+        "maxOutputTokens": 50000
+      },
+      "execution": {
+        "maxInputTokens": 500000,
+        "maxOutputTokens": 150000
+      },
+      "review": {
+        "maxInputTokens": 300000,
+        "maxOutputTokens": 80000
+      }
+    }
+  },
+
+  "estimatedCost": {
+    "fields": {
+      "estimatedCostUsd": {
+        "type": "number",
+        "description": "Estimated cost in USD for the worker session. Derived from token estimates and model pricing.",
+        "minimum": 0
+      },
+      "actualCostUsd": {
+        "type": "number",
+        "description": "Actual cost in USD captured after worker completion.",
+        "minimum": 0
+      },
+      "costSource": {
+        "type": "string",
+        "enum": ["api-header", "manual-estimate", "token-calculation"],
+        "description": "How the cost was derived."
+      }
+    },
+    "pricingReference": {
+      "description": "Model pricing used for token-to-cost calculation. Update when Anthropic changes pricing.",
+      "inputPerMillionTokens": 3.00,
+      "outputPerMillionTokens": 15.00,
+      "currency": "USD",
+      "lastUpdated": "2026-05-11"
+    }
+  },
+
+  "confidenceAndSource": {
+    "confidenceLevels": {
+      "high": {
+        "description": "3+ telemetry signals agree (heartbeat, token count, wall-clock).",
+        "minSignals": 3
+      },
+      "medium": {
+        "description": "2 telemetry signals agree.",
+        "minSignals": 2
+      },
+      "low": {
+        "description": "1 telemetry signal only. Requires manual verification.",
+        "minSignals": 1
+      }
+    },
+    "sourceHierarchy": [
+      {
+        "source": "api-response-header",
+        "precedence": 1,
+        "description": "Token/cost data from Anthropic API response headers. Most authoritative."
+      },
+      {
+        "source": "heartbeat-snapshot",
+        "precedence": 2,
+        "description": "Wall-clock and state data from the heartbeat monitor."
+      },
+      {
+        "source": "worker-self-report",
+        "precedence": 3,
+        "description": "Token/cost estimates from the worker's own telemetry output."
+      },
+      {
+        "source": "launcher-estimate",
+        "precedence": 4,
+        "description": "Pre-launch estimates based on task complexity. Least authoritative."
+      }
+    ]
+  },
+
+  "timeoutHandling": {
+    "onSoftLimit": {
+      "action": "warn",
+      "description": "Worker logs a warning and self-reports progress. No forced action."
+    },
+    "onHardLimit": {
+      "action": "publish-partial",
+      "description": "Worker commits partial progress and opens a PR or comments a blocker on the issue."
+    },
+    "onExtensionExpiry": {
+      "action": "force-publish",
+      "description": "Worker MUST publish whatever is available. No further extensions."
+    },
+    "staleDetection": {
+      "noOutputThresholdMs": 60000,
+      "staleThresholdMs": 300000,
+      "description": "Mirrors heartbeat monitor thresholds. See worker-heartbeat.md."
+    }
+  },
+
+  "costOverrunEscalation": {
+    "thresholds": {
+      "warningAtPercent": {
+        "description": "Emit warning when actual cost reaches this percentage of budget.",
+        "default": 80
+      },
+      "criticalAtPercent": {
+        "description": "Emit critical alert and consider pausing worker.",
+        "default": 100
+      },
+      "hardStopAtPercent": {
+        "description": "Force-stop worker if cost exceeds this percentage of budget.",
+        "default": 150
+      }
+    },
+    "escalationActions": [
+      {
+        "threshold": "warning",
+        "action": "log-warning",
+        "description": "Log a structured warning. Worker continues."
+      },
+      {
+        "threshold": "critical",
+        "action": "notify-orchestrator",
+        "description": "Notify orchestrator. Worker may be paused or have budget increased."
+      },
+      {
+        "threshold": "hardStop",
+        "action": "force-publish-and-stop",
+        "description": "Worker publishes partial progress and terminates."
+      }
+    ],
+    "overridePolicy": {
+      "description": "Human operators may override cost limits per-task via the task JSON budgets field.",
+      "fields": ["maxCostUsd", "costOverrideReason"]
+    }
+  },
+
+  "telemetrySnapshot": {
+    "description": "Fields added to the heartbeat monitor snapshot for budget telemetry.",
+    "additionalFields": {
+      "tokenBudgetUsedPercent": {
+        "type": "number",
+        "description": "Percentage of token budget consumed.",
+        "minimum": 0
+      },
+      "costEstimateUsd": {
+        "type": "number",
+        "description": "Running cost estimate based on actual tokens consumed.",
+        "minimum": 0
+      },
+      "wallClockUsedPercent": {
+        "type": "number",
+        "description": "Percentage of hard wall-clock limit consumed.",
+        "minimum": 0
+      },
+      "budgetConfidence": {
+        "type": "string",
+        "enum": ["high", "medium", "low"],
+        "description": "Confidence level of the budget telemetry data."
+      }
+    }
+  }
+}
