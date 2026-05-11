@@ -64,6 +64,15 @@ to aid debugging.
 
 ## Sanitization
 
+### Runner Output Warning
+
+`run-claude-print.ps1` prints raw stdout/stderr from the Claude process for
+local debugging. This output is **not sanitized** and may contain secrets,
+tokens, or raw LLM transcripts. The runner emits a console warning after
+output reminding operators to never paste raw logs into issues, PRs, or
+comments. Always use `publish-agent-result.ps1` which enforces redaction
+before publishing.
+
 ### ANSI Escape Stripping
 
 Validation evidence is stripped of ANSI escape sequences (terminal colors,
