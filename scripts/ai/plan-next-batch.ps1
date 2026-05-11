@@ -13,7 +13,11 @@
     This script NEVER launches workers. It is a read-only planning tool.
 
 .PARAMETER IssueLabel
-    GitHub issue label to discover open issues (e.g. "agent:codex-action-needed").
+    GitHub issue label to discover open issues.
+    Defaults to "agent:codex-action-needed" when omitted.
+
+.PARAMETER Help
+    Show usage examples and exit.
 
 .PARAMETER Repo
     GitHub repository in OWNER/NAME format. Defaults to GH_REPO env var.
@@ -28,22 +32,27 @@
     Output the plan as JSON instead of console text.
 
 .EXAMPLE
-    # Propose next batch from labeled issues
+    # Propose next batch (uses default label)
+    ./scripts/ai/plan-next-batch.ps1 -Repo owner/name
+
+.EXAMPLE
+    # Propose next batch with explicit label
     ./scripts/ai/plan-next-batch.ps1 -IssueLabel "agent:codex-action-needed" -Repo owner/name
 
 .EXAMPLE
     # JSON output for CI consumption
-    ./scripts/ai/plan-next-batch.ps1 -IssueLabel "agent:codex-action-needed" -Repo owner/name -Json
+    ./scripts/ai/plan-next-batch.ps1 -Repo owner/name -Json
 
 .EXAMPLE
-    # Limit to 3 tasks
-    ./scripts/ai/plan-next-batch.ps1 -IssueLabel "agent:codex-action-needed" -Repo owner/name -MaxTasks 3
+    # Show help
+    ./scripts/ai/plan-next-batch.ps1 -Help
 #>
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$IssueLabel,
+    [string]$IssueLabel = "agent:codex-action-needed",
+
+    [switch]$Help,
 
     [string]$Repo = $env:GH_REPO,
 
@@ -56,6 +65,41 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# ---------------------------------------------------------------------------
+# Help
+# ---------------------------------------------------------------------------
+
+if ($Help -or (-not $Repo -and -not $env:GH_REPO)) {
+    Write-Host ""
+    Write-Host "plan-next-batch.ps1 — dry-run planner for next worker batch" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "USAGE" -ForegroundColor Yellow
+    Write-Host "  pwsh -NoProfile -File scripts/ai/plan-next-batch.ps1 [options]"
+    Write-Host ""
+    Write-Host "OPTIONS" -ForegroundColor Yellow
+    Write-Host "  -IssueLabel <label>   GitHub label to filter issues (default: agent:codex-action-needed)"
+    Write-Host "  -Repo <owner/name>    GitHub repository (or set GH_REPO env var)"
+    Write-Host "  -MatrixPath <path>    Migration matrix path (default: docs/migration/migration-matrix.md)"
+    Write-Host "  -MaxTasks <n>         Max tasks in proposed batch (default: 5)"
+    Write-Host "  -Json                 Output as JSON"
+    Write-Host "  -Help                 Show this help"
+    Write-Host ""
+    Write-Host "EXAMPLES" -ForegroundColor Yellow
+    Write-Host "  # Default label, explicit repo"
+    Write-Host "  ./scripts/ai/plan-next-batch.ps1 -Repo owner/name"
+    Write-Host ""
+    Write-Host "  # Custom label"
+    Write-Host "  ./scripts/ai/plan-next-batch.ps1 -IssueLabel my-label -Repo owner/name"
+    Write-Host ""
+    Write-Host "  # CI JSON output"
+    Write-Host "  ./scripts/ai/plan-next-batch.ps1 -Repo owner/name -Json"
+    Write-Host ""
+    Write-Host "  # Use GH_REPO env var (no -Repo needed)"
+    Write-Host '  $env:GH_REPO = "owner/name"; ./scripts/ai/plan-next-batch.ps1'
+    Write-Host ""
+    exit 0
+}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -76,7 +120,7 @@ function Write-Fail {
 # ---------------------------------------------------------------------------
 
 if (-not $Repo) {
-    Write-Fail "Repo is required. Pass -Repo OWNER/NAME or set GH_REPO env var."
+    Write-Fail "Repo is required. Pass -Repo OWNER/NAME or set GH_REPO env var. Use -Help for full usage."
 }
 
 Write-Host ""
