@@ -23,3 +23,22 @@ Role prompts for AI workers and reviewers live in [ops/agent-prompts/](ops/agent
 - [ORM Recommendation](docs/architecture/orm-recommendation.md) — Prisma vs Drizzle vs TypeORM evaluation
 - [Schema Slices](docs/architecture/schema-slices.md) — Initial Prisma schema for users, sessions, posts, recommendations, AI records, and audit
 - [Implementation Sequence](docs/architecture/implementation-sequence.md) — Phased rollout plan after bootstrap
+
+## Migration & Route Parity
+
+- **Route inventory:** `docs/contracts/route-inventory.md` -- all legacy route families.
+- **Parity tracker:** `docs/migration/route-parity-tracker.md` -- migrated vs unmigrated status.
+- **Acceptance criteria:** `docs/migration/acceptance-criteria.md` -- what "done" means per family.
+- **Legacy freeze rules:** `docs/migration/legacy-freeze-rules.md` -- constraints on legacy code usage.
+
+### Check Parity
+
+```sh
+node scripts/check-route-parity.js
+```
+
+### Run Contract Tests
+
+```sh
+node test/route-parity.test.js
+```
