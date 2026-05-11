@@ -1,10 +1,10 @@
 # Provider Pool WebUI
 
-Local-only dashboard for monitoring the API provider pool used by parallel
-Claude Code workers.
+Local-only dashboard for monitoring the API provider pool and executing
+controlled operations for parallel Claude Code workers.
 
-> **Status:** Planning — no runtime code yet. This README defines scope and
-> security boundaries for a future WebUI slice.
+> **Status:** Operational — server, action modules, audit, and console
+> are live. See [Operation Console](#operation-console) for entry points.
 
 ---
 
@@ -15,7 +15,7 @@ can route across them. When one credential hits a quota or rate limit (HTTP
 429), the system marks it exhausted with a cooldown, then routes subsequent
 workers to other available credentials.
 
-This WebUI will provide a local-only view of:
+This WebUI provides a local-only view of:
 
 - Provider availability and status (available / exhausted / disabled)
 - Active worker counts per provider
@@ -71,17 +71,16 @@ architecture:
 | `.github/ai-policy/provider-pool-policy.json` | Provider definitions, concurrency limits, exhaustion rules |
 | `.github/ai-state/provider-pool.json` | Current provider status, cooldowns, active worker counts |
 
-To run locally (once implemented):
+To run locally:
 
 ```bash
 # From the repo root
-cd tools/provider-pool-webui
-npm install
-npm start
-# Opens at http://localhost:3001 (or configured port)
+npm run ops:webui
+# Opens at http://localhost:3000 (localhost-only)
 ```
 
-The dashboard should only read state files — it must never write to them.
+The dashboard reads state files and executes controlled actions via the
+Operation Console. All mutating actions require preview + typed confirmation.
 
 ---
 
@@ -101,6 +100,63 @@ The dashboard should only read state files — it must never write to them.
 | Quota exhausted | `mark-exhausted` | 60 min |
 | Auth failure (401/403) | `mark-disabled` | None (manual fix required) |
 | Transient error (5xx) | No state change | — |
+
+---
+
+## Operation Console
+
+The Operation Console tab exposes action modules for controlled mutations.
+Every action follows the **preview-first, confirmation-gated** lifecycle:
+
+```
+Preview  →  Confirm  →  Execute  →  Audit
+```
+
+### Available Actions
+
+| Action ID | Label | Risk | Description |
+|-----------|-------|------|-------------|
+| `compile-tasks` | Compile Tasks | Low | Compile issue JSON into worker task contracts |
+| `plan.next.batch` | Plan Next Batch | Low | Preview next batch matched to provider capacity |
+| `create-issues` | Create Issues | High | Propose and create GitHub issues from gap analysis |
+| `issue-state` | Issue State Control | High | Reconcile issue labels/PRs and close done issues |
+| `launch-batch` | Launch Batch | High | Run launch gate and dispatch queued tasks |
+| `merge-prs` | Merge PRs | High | Merge explicit PR allowlist with guard checks |
+| `provider-rotation` | Provider Key Rotation | High | Reset provider to available; clears cooldown |
+| `worker.control` | Worker Control | High | List or stop workers with explicit targeting |
+
+### Confirmation Phrases
+
+| Action | Phrase |
+|--------|--------|
+| `provider-rotation` | `RETRY` |
+| `queue.retryBlocked` | `RETRY` |
+| `queue.clearStale` | `CLEAR` |
+| `provider.disable` | `DISABLE` |
+| `global.refreshState` | `REFRESH` |
+| `global.exportAudit` | `EXPORT` |
+
+### Visual Signals
+
+| Signal | Meaning |
+|--------|---------|
+| Blue border/badge | Preview mode — no mutation |
+| Red border/badge | Execute mode — state will change |
+| Green border/badge | Safe / read-only action |
+| 45% opacity | Disabled — action unavailable |
+| Pulsing red dot | Confirmation needed |
+
+### Safety Guarantees
+
+- **Preview-first:** All actions dry-run before mutation via `/api/actions/preview`.
+- **Typed confirmation:** High-risk actions require exact phrase match before execute.
+- **Sanitized payloads:** `sanitizeObject` scrubs secret-shaped fields on all I/O.
+- **Audit trail:** Every execute writes a persistent audit entry via `GET /api/audit`.
+- **Localhost-only:** Server binds to `127.0.0.1`; no remote access.
+
+For the full action map, risk gate chain, and rollback procedures, see:
+- [WebUI Control Map](../../docs/ai-native/webui-control-map.md)
+- [WebUI Operation Runbook](../../docs/ai-native/webui-operation-runbook.md)
 
 ---
 
@@ -134,3 +190,5 @@ The WebUI visualizes this flow but does not participate in it.
 - [Provider Pool Guard](../../docs/ai-native/provider-pool-guard.md) — CI validation
 - [Provider Pool Policy](../../.github/ai-policy/provider-pool-policy.json) — provider config
 - [Provider Pool State](../../.github/ai-state/provider-pool.json) — runtime state
+- [WebUI Control Map](../../docs/ai-native/webui-control-map.md) — action-to-endpoint mapping
+- [WebUI Operation Runbook](../../docs/ai-native/webui-operation-runbook.md) — step-by-step operator guide
