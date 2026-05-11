@@ -1,0 +1,137 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/taoyu051818-sys/lian-nest-server/schemas/provider-pool.schema.json",
+  "title": "ProviderPoolState",
+  "description": "Schema for .github/ai-state/provider-pool.json — sanitized projection of API provider pool availability. Written by update-provider-state.ps1 when quota events occur. See docs/ai-native/provider-pool.md for architecture and docs/ai-native/provider-pool-schema.md for field-level documentation. Never contains secrets.",
+  "type": "object",
+  "required": ["stateVersion", "providers", "global"],
+  "additionalProperties": false,
+  "properties": {
+    "stateVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1. Increment when the schema shape changes."
+    },
+    "providers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/provider"
+      },
+      "description": "Per-provider status, concurrency, cooldown, and failure tracking. Each entry corresponds to a provider defined in provider-pool-policy.json."
+    },
+    "global": {
+      "$ref": "#/$defs/globalSummary"
+    }
+  },
+  "$defs": {
+    "provider": {
+      "type": "object",
+      "description": "A single provider's sanitized runtime state. No secrets — ids are opaque labels.",
+      "required": [
+        "id",
+        "status",
+        "currentConcurrency",
+        "maxConcurrency"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider identifier. Must match an id in provider-pool-policy.json."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["available", "exhausted", "disabled"],
+          "description": "Provider availability status. available = has capacity and no cooldown. exhausted = quota/rate limit hit, cooling down. disabled = auth failure or manual disable."
+        },
+        "currentConcurrency": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of workers currently assigned to this provider."
+        },
+        "maxConcurrency": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum concurrent workers this provider can serve. Must match the corresponding policy entry."
+        },
+        "lastHealthCheckAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 timestamp of the last health probe against this provider. Null if never checked."
+        },
+        "lastFailureClass": {
+          "type": ["string", "null"],
+          "enum": ["exhaustion", "auth", "runtime", null],
+          "description": "Classification of the last failure. null if no failures recorded. exhaustion = quota/rate limit, auth = credential rejected, runtime = transient provider error."
+        },
+        "cooldownExpiresAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the cooldown period ends. Null when status is not exhausted or cooldown does not apply."
+        },
+        "consecutiveFailures": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of consecutive failures for this provider. Reset to 0 on successful recovery."
+        },
+        "totalQuotaEvents": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of quota exhaustion events recorded for this provider across all time."
+        }
+      }
+    },
+    "globalSummary": {
+      "type": "object",
+      "description": "Aggregate provider pool metrics for launch gate consumption.",
+      "required": [
+        "totalActiveWorkers",
+        "globalMaxWorkers",
+        "availableProviders",
+        "exhaustedProviders",
+        "disabledProviders",
+        "lastUpdatedBy",
+        "capturedAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "totalActiveWorkers": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sum of currentConcurrency across all providers."
+        },
+        "globalMaxWorkers": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Hard ceiling on total concurrent workers. Must match concurrency.globalMaxWorkers in provider-pool-policy.json."
+        },
+        "availableProviders": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of providers with status=available."
+        },
+        "exhaustedProviders": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of providers with status=exhausted."
+        },
+        "disabledProviders": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of providers with status=disabled."
+        },
+        "lastUpdatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Identifier of the script or process that last wrote this file (e.g. 'update-provider-state.ps1')."
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when this state snapshot was written."
+        }
+      }
+    }
+  }
+}
