@@ -15,10 +15,14 @@ const {
   buildFormSchema,
   buildFormSchemas,
   buildFormSchemasByCategory,
+  buildServerFormFields,
+  buildServerActionFormFields,
+  buildServerActionFormSchema,
   formSchemaMeta,
   riskBadge,
   FIELD_TYPES,
   RISK_BADGE,
+  SERVER_ACTION_FIELDS,
 } = require("./lib/action-form-schema");
 
 const { ACTIONS, RISK, listActionIds } = require("./lib/action-registry");
@@ -50,6 +54,36 @@ assert(FIELD_TYPES.field.type === "text", "field type is text");
 assert(FIELD_TYPES.title.type === "text", "title type is text");
 assert(FIELD_TYPES.gapKey.type === "text", "gapKey type is text");
 assert(FIELD_TYPES.labels.type === "text", "labels type is text");
+assert(FIELD_TYPES.prNumbers.type === "text", "prNumbers type is text");
+assert(FIELD_TYPES.repo.type === "text", "repo type is text");
+assert(FIELD_TYPES.reason !== undefined, "reason field type exists");
+assert(FIELD_TYPES.reason.type === "text", "reason type is text");
+assert(FIELD_TYPES.reason.label === "Reason", "reason label is Reason");
+assert(typeof FIELD_TYPES.reason.helpText === "string", "reason has helpText");
+assert(FIELD_TYPES.action !== undefined, "action field type exists");
+assert(FIELD_TYPES.action.type === "select", "action type is select");
+assert(FIELD_TYPES.action.options.length === 2, "action has 2 options");
+assert(FIELD_TYPES.workerIds !== undefined, "workerIds field type exists");
+assert(FIELD_TYPES.workerIds.type === "text", "workerIds type is text");
+assert(typeof FIELD_TYPES.workerIds.helpText === "string", "workerIds has helpText");
+assert(FIELD_TYPES.targetIssue.type === "number", "targetIssue type is number");
+assert(FIELD_TYPES.targetIssue.min === 1, "targetIssue min is 1");
+assert(FIELD_TYPES.conflictGroup.type === "text", "conflictGroup type is text");
+assert(FIELD_TYPES.taskType.type === "select", "taskType type is select");
+assert(FIELD_TYPES.taskType.options.length === 9, "taskType has 9 options");
+assert(Object.isFrozen(FIELD_TYPES.taskType.options), "taskType options is frozen");
+assert(FIELD_TYPES.risk.type === "select", "risk type is select");
+assert(FIELD_TYPES.risk.options.length === 4, "risk has 4 options");
+assert(Object.isFrozen(FIELD_TYPES.risk.options), "risk options is frozen");
+assert(FIELD_TYPES.mainHealthPolicy.type === "select", "mainHealthPolicy type is select");
+assert(FIELD_TYPES.sharedLocks.type === "text", "sharedLocks type is text");
+assert(FIELD_TYPES.allowedFiles.type === "textarea", "allowedFiles type is textarea");
+assert(FIELD_TYPES.validationCommands.type === "textarea", "validationCommands type is textarea");
+assert(FIELD_TYPES.rolePacket.type === "object", "rolePacket type is object");
+assert(Object.isFrozen(FIELD_TYPES.rolePacket.fields), "rolePacket fields frozen");
+assert(FIELD_TYPES.allowlist !== undefined, "allowlist field type exists");
+assert(FIELD_TYPES.allowlist.type === "textarea", "allowlist type is textarea");
+assert(FIELD_TYPES.allowlist.parse === "csv-number", "allowlist parse is csv-number");
 
 // --- RISK_BADGE constants ----------------------------------------------------
 
@@ -138,6 +172,55 @@ console.log("\nbuildFieldDescriptor\n");
   assert(f9.label === "Labels", "labels label is Labels");
   assert(f9.required === true, "labels is required");
 
+  const fPr = buildFieldDescriptor("prNumbers");
+  assert(fPr.name === "prNumbers", "prNumbers field name correct");
+  assert(fPr.type === "text", "prNumbers type is text");
+  assert(fPr.required === true, "prNumbers is required");
+  assert(fPr.label === "PR Numbers", "prNumbers label is correct");
+
+  const fRepo = buildFieldDescriptor("repo");
+  assert(fRepo.name === "repo", "repo field name correct");
+  assert(fRepo.type === "text", "repo type is text");
+  assert(fRepo.required === true, "repo is required");
+  assert(fRepo.label === "Repository", "repo label is correct");
+
+  const fReason = buildFieldDescriptor("reason");
+  assert(fReason.name === "reason", "reason field name correct");
+  assert(fReason.type === "text", "reason type is text");
+  assert(fReason.required === true, "reason is required");
+  assert(fReason.label === "Reason", "reason label is Reason");
+  assert(Object.isFrozen(fReason), "reason descriptor is frozen");
+
+  const fAction = buildFieldDescriptor("action");
+  assert(fAction.name === "action", "action field name correct");
+  assert(fAction.type === "select", "action type is select");
+  assert(fAction.label === "Operation", "action label is Operation");
+
+  const fWorkerIds = buildFieldDescriptor("workerIds");
+  assert(fWorkerIds.name === "workerIds", "workerIds field name correct");
+  assert(fWorkerIds.type === "text", "workerIds type is text");
+
+  const fTargetIssue = buildFieldDescriptor("targetIssue");
+  assert(fTargetIssue.name === "targetIssue", "targetIssue field name correct");
+  assert(fTargetIssue.type === "number", "targetIssue type is number");
+  assert(fTargetIssue.min === 1, "targetIssue min is 1");
+
+  const fTaskType = buildFieldDescriptor("taskType");
+  assert(fTaskType.name === "taskType", "taskType field name correct");
+  assert(fTaskType.type === "select", "taskType type is select");
+  assert(fTaskType.options.length === 9, "taskType has 9 options");
+
+  const fRisk = buildFieldDescriptor("risk");
+  assert(fRisk.name === "risk", "risk field name correct");
+  assert(fRisk.type === "select", "risk type is select");
+  assert(fRisk.options.length === 4, "risk has 4 options");
+
+  const fAllowlist = buildFieldDescriptor("allowlist");
+  assert(fAllowlist.name === "allowlist", "allowlist field name correct");
+  assert(fAllowlist.type === "textarea", "allowlist type is textarea");
+  assert(fAllowlist.parse === "csv-number", "allowlist parse is csv-number");
+  assert(Object.isFrozen(fAllowlist), "allowlist descriptor is frozen");
+
   // Unknown field gets default treatment
   const f6 = buildFieldDescriptor("customParam");
   assert(f6.name === "customParam", "unknown field name preserved");
@@ -191,6 +274,14 @@ console.log("\nbuildFormFields\n");
   const single = buildFormFields(["target"]);
   assert(single.length === 1, "single element array returns 1 field");
   assert(single[0].name === "target", "single field is target");
+
+  // Reason field in multi-field array
+  const withReason = buildFormFields(["providerId", "reason"]);
+  assert(withReason.length === 2, "returns 2 fields with reason");
+  assert(withReason[0].name === "providerId", "first field is providerId");
+  assert(withReason[1].name === "reason", "second field is reason");
+  assert(withReason[1].type === "text", "reason field type is text");
+  assert(withReason[1].label === "Reason", "reason label is Reason");
 }
 
 // --- buildFormSchema ---------------------------------------------------------
@@ -472,7 +563,9 @@ console.log("\nbuildFieldDescriptor edge cases\n");
   assert(numField.type === "text", "numeric field defaults to text");
 
   // All known fields produce frozen descriptors
-  for (const name of Object.keys(FIELD_TYPES)) {
+  const fieldNames = Object.keys(FIELD_TYPES);
+  assert(fieldNames.length === 23, "FIELD_TYPES has 23 entries");
+  for (const name of fieldNames) {
     const desc = buildFieldDescriptor(name);
     assert(Object.isFrozen(desc), `descriptor for ${name} is frozen`);
     assert(desc.name === name, `descriptor for ${name} has correct name`);
@@ -549,6 +642,155 @@ console.log("\nSchema shape: no script field exposed\n");
     }
     assert(!("script" in schema), `${schema.actionId} does not expose script`);
   }
+}
+
+// --- worker.control form schema ----------------------------------------------
+
+console.log("\nworker.control form schema\n");
+
+{
+  const schema = buildFormSchema("worker.control");
+  assert(schema !== null, "worker.control returns schema");
+  assert(schema.actionId === "worker.control", "actionId is worker.control");
+  assert(schema.title === "Worker Control", "title matches label");
+  assert(schema.risk === RISK.HIGH, "risk is high");
+  assert(schema.riskBadge !== null, "has riskBadge");
+  assert(schema.riskBadge.color === "orange", "riskBadge color is orange");
+  assert(schema.privileged === false, "not privileged");
+  assert(schema.readOnly === false, "not readOnly");
+  assert(schema.defaultPreview === true, "defaults to preview");
+  assert(schema.fields.length === 1, "has 1 required field (action)");
+  assert(schema.fields[0].name === "action", "required field is action");
+  assert(schema.hasConfirmMessage === true, "has confirm message");
+  assert(schema.submitLabel === "Execute", "submit label is Execute");
+  assert(schema.previewLabel === "Preview", "preview label is Preview");
+}
+
+// --- Launch-batch task field types -------------------------------------------
+
+console.log("\nLaunch-batch task field types\n");
+
+{
+  assert(FIELD_TYPES.targetIssue.type === "number", "targetIssue type is number");
+  assert(FIELD_TYPES.targetIssue.label === "Target Issue", "targetIssue label is Target Issue");
+  assert(FIELD_TYPES.targetIssue.min === 1, "targetIssue min is 1");
+  assert(FIELD_TYPES.conflictGroup.type === "text", "conflictGroup type is text");
+  assert(FIELD_TYPES.taskType.type === "select", "taskType type is select");
+  assert(FIELD_TYPES.taskType.options.includes("operation"), "taskType includes operation");
+  assert(FIELD_TYPES.taskType.options.includes("test"), "taskType includes test");
+  assert(FIELD_TYPES.taskType.options.includes("docs"), "taskType includes docs");
+  assert(FIELD_TYPES.risk.type === "select", "risk type is select");
+  assert(FIELD_TYPES.risk.options.includes("low"), "risk includes low");
+  assert(FIELD_TYPES.risk.options.includes("critical"), "risk includes critical");
+  assert(FIELD_TYPES.mainHealthPolicy.type === "select", "mainHealthPolicy type is select");
+  assert(FIELD_TYPES.mainHealthPolicy.options.includes("standard"), "mainHealthPolicy includes standard");
+  assert(FIELD_TYPES.sharedLocks.type === "text", "sharedLocks type is text");
+
+  for (const name of ["targetIssue", "conflictGroup", "taskType", "risk", "mainHealthPolicy", "sharedLocks"]) {
+    assert(Object.isFrozen(FIELD_TYPES[name]), `FIELD_TYPES.${name} is frozen`);
+  }
+}
+
+// --- compile-tasks field types -----------------------------------------------
+
+console.log("\ncompile-tasks field types\n");
+
+{
+  assert(FIELD_TYPES.allowedFiles.type === "textarea", "allowedFiles is textarea");
+  assert(FIELD_TYPES.validationCommands.type === "textarea", "validationCommands is textarea");
+  assert(FIELD_TYPES.rolePacket.type === "object", "rolePacket is object");
+  assert(FIELD_TYPES.rolePacket.fields.actorRole.type === "text", "actorRole is text");
+}
+
+// --- buildServerFormFields ---------------------------------------------------
+
+console.log("\nbuildServerFormFields\n");
+
+{
+  assert(buildServerFormFields(null).length === 0, "null returns empty");
+  assert(buildServerFormFields({ id: "t" }).length === 0, "missing requiredFields returns empty");
+  assert(buildServerFormFields({ id: "t", requiredFields: [] }).length === 0, "empty requiredFields returns empty");
+
+  const fields = buildServerFormFields({
+    id: "compile-tasks",
+    requiredFields: ["targetIssue", "taskType", "risk", "conflictGroup", "allowedFiles", "validationCommands", "rolePacket"],
+  });
+  assert(fields.length === 7, "compile-tasks produces 7 fields");
+  assert(fields[0].name === "targetIssue" && fields[0].type === "number", "targetIssue is number");
+  assert(fields[1].name === "taskType" && fields[1].type === "select", "taskType is select");
+  assert(fields[2].name === "risk" && fields[2].type === "select", "risk is select");
+  assert(fields[4].name === "allowedFiles" && fields[4].type === "textarea", "allowedFiles is textarea");
+  assert(fields[6].name === "rolePacket" && fields[6].type === "object", "rolePacket is object");
+
+  for (const field of fields) {
+    assert(Object.isFrozen(field), `server field ${field.name} is frozen`);
+  }
+}
+
+// --- SERVER_ACTION_FIELDS ----------------------------------------------------
+
+console.log("\nSERVER_ACTION_FIELDS\n");
+
+{
+  assert(typeof SERVER_ACTION_FIELDS === "object", "SERVER_ACTION_FIELDS is an object");
+  assert(Object.isFrozen(SERVER_ACTION_FIELDS), "SERVER_ACTION_FIELDS is frozen");
+  assert(Array.isArray(SERVER_ACTION_FIELDS["plan.next.batch"]), "plan.next.batch has fields");
+  assert(SERVER_ACTION_FIELDS["plan.next.batch"].length === 2, "plan.next.batch has 2 fields");
+  assert(SERVER_ACTION_FIELDS["plan.next.batch"][0] === "reason", "first field is reason");
+  assert(SERVER_ACTION_FIELDS["plan.next.batch"][1] === "allowlist", "second field is allowlist");
+}
+
+// --- buildServerActionFormFields ---------------------------------------------
+
+console.log("\nbuildServerActionFormFields\n");
+
+{
+  const fields = buildServerActionFormFields("plan.next.batch");
+  assert(Array.isArray(fields), "returns an array");
+  assert(fields.length === 2, "returns 2 fields");
+  assert(fields[0].name === "reason", "first field is reason");
+  assert(fields[0].type === "text", "reason type is text");
+  assert(fields[1].name === "allowlist", "second field is allowlist");
+  assert(fields[1].type === "textarea", "allowlist type is textarea");
+  assert(fields[1].parse === "csv-number", "allowlist parse is csv-number");
+
+  const empty = buildServerActionFormFields("nonexistent.action");
+  assert(empty.length === 0, "unknown action returns empty array");
+
+  const nullFields = buildServerActionFormFields(null);
+  assert(nullFields.length === 0, "null returns empty array");
+}
+
+// --- buildServerActionFormSchema ---------------------------------------------
+
+console.log("\nbuildServerActionFormSchema\n");
+
+{
+  const meta = {
+    id: "plan.next.batch",
+    label: "Plan Next Batch",
+    description: "Preview the next worker batch",
+    dangerous: false,
+  };
+
+  const schema = buildServerActionFormSchema("plan.next.batch", meta);
+  assert(schema !== null, "returns non-null for valid meta");
+  assert(schema.actionId === "plan.next.batch", "actionId is correct");
+  assert(schema.title === "Plan Next Batch", "title matches label");
+  assert(schema.risk === "low", "risk is low for non-dangerous");
+  assert(schema.riskBadge.color === "green", "riskBadge is green for low risk");
+  assert(schema.fields.length === 2, "has 2 fields");
+  assert(schema.submitLabel === "Execute", "submit label is Execute");
+  assert(Object.isFrozen(schema), "schema is frozen");
+
+  const dangerMeta = { ...meta, dangerous: true };
+  const dangerSchema = buildServerActionFormSchema("plan.next.batch", dangerMeta);
+  assert(dangerSchema.risk === "high", "risk is high for dangerous action");
+  assert(dangerSchema.riskBadge.color === "orange", "riskBadge is orange for high risk");
+  assert(dangerSchema.submitLabel === "Execute (Dangerous)", "submit label includes Dangerous");
+
+  assert(buildServerActionFormSchema("nonexistent", meta) === null, "mismatched id returns null");
+  assert(buildServerActionFormSchema("plan.next.batch", null) === null, "null meta returns null");
 }
 
 // --- Confirm message field substitution --------------------------------------

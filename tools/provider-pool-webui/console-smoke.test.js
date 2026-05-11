@@ -248,9 +248,25 @@ function assertNoSecrets(json, label) {
       }
     }
 
-    // === 5. Action preview (dry-run) ==========================================
+    // === 5. Action doc links and risk prompts ================================
 
-    console.log("\n5. Action preview\n");
+    console.log("\n5. Action doc links and risk prompts\n");
+
+    {
+      const appJsPath = path.resolve(__dirname, "public/app.js");
+      const appJsSource = fs.readFileSync(appJsPath, "utf-8");
+      assert(appJsSource.includes("ACTION_DOC_LINKS"), "app.js defines ACTION_DOC_LINKS map");
+      assert(appJsSource.includes("action-card__doc-link"), "app.js has doc link class");
+      assert(appJsSource.includes("action-card__risk-prompt"), "app.js has risk prompt class");
+      assert(appJsSource.includes("renderDocLink"), "app.js has renderDocLink function");
+      assert(appJsSource.includes("renderRiskPrompt"), "app.js has renderRiskPrompt function");
+      assert(appJsSource.includes("webui-action-"), "app.js references action doc filenames");
+      assert(appJsSource.includes("docs/ai-native/"), "app.js references docs/ai-native/ path");
+    }
+
+    // === 6. Action preview (dry-run) ==========================================
+
+    console.log("\n6. Action preview\n");
 
     // Preview with missing actionId
     {
@@ -283,9 +299,9 @@ function assertNoSecrets(json, label) {
       assert(res.status === 400, "preview invalid JSON returns 400");
     }
 
-    // === 6. Execute refusal (no confirm) ======================================
+    // === 7. Execute refusal (no confirm) ======================================
 
-    console.log("\n6. Execute refusal\n");
+    console.log("\n7. Execute refusal\n");
 
     // Execute with missing actionId
     {
@@ -305,9 +321,9 @@ function assertNoSecrets(json, label) {
       assert(res.status === 404, "execute unknown actionId returns 404");
     }
 
-    // === 7. Audit trail =======================================================
+    // === 8. Audit trail =======================================================
 
-    console.log("\n7. Audit trail\n");
+    console.log("\n8. Audit trail\n");
 
     {
       const res = await request(base + "/api/audit");
@@ -318,9 +334,9 @@ function assertNoSecrets(json, label) {
       // No executions in this test, so entries should be empty or from prior runs
     }
 
-    // === 7b. Audit filters ====================================================
+    // === 8b. Audit filters ====================================================
 
-    console.log("\n7b. Audit filters\n");
+    console.log("\n8b. Audit filters\n");
 
     // actionId filter
     {
@@ -363,9 +379,9 @@ function assertNoSecrets(json, label) {
       assert(data.filters.limit === 10, "combined filters echoes limit");
     }
 
-    // === 8. Secret isolation ==================================================
+    // === 9. Secret isolation ==================================================
 
-    console.log("\n8. Secret isolation\n");
+    console.log("\n9. Secret isolation\n");
 
     // Health endpoint
     {
@@ -468,9 +484,9 @@ function assertNoSecrets(json, label) {
       assertNoSecrets(res.body, "dashboard HTML");
     }
 
-    // === 9. Security headers ==================================================
+    // === 10. Security headers ==================================================
 
-    console.log("\n9. Security headers\n");
+    console.log("\n10. Security headers\n");
 
     {
       const res = await request(base + "/api/health");
@@ -480,22 +496,22 @@ function assertNoSecrets(json, label) {
       assert(res.headers["access-control-allow-origin"] !== "*", "CORS is not wildcard");
     }
 
-    // === 10. Localhost binding ================================================
+    // === 11. Localhost binding ================================================
 
-    console.log("\n10. Localhost binding\n");
+    console.log("\n11. Localhost binding\n");
 
     {
       const res = await request(base + "/api/health");
       assert(res.status === 200, "server responds on 127.0.0.1");
     }
 
-    // === 11. Unknown route ====================================================
+    // === 12. Unknown route ====================================================
 
-    console.log("\n11. Unknown route\n");
+    console.log("\n12. Unknown route\n");
 
-    // === 12. Confirmation copy enhancement =====================================
+    // === 13. Confirmation copy enhancement =====================================
 
-    console.log("\n12. Confirmation copy enhancement\n");
+    console.log("\n13. Confirmation copy enhancement\n");
 
     // Verify app.js source contains confirmation warning infrastructure
     {
@@ -536,9 +552,9 @@ function assertNoSecrets(json, label) {
       assert(data.error === "Not found", "unknown route error message");
     }
 
-    // === 12. Console readiness summary ========================================
+    // === 14. Console readiness summary ========================================
 
-    console.log("\n12. Console readiness\n");
+    console.log("\n14. Console readiness\n");
 
     {
       // Verify all expected API routes respond (even if with 503)

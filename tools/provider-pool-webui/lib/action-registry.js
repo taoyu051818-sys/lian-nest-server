@@ -179,6 +179,21 @@ const ACTIONS = Object.freeze([
     category: "worker",
   },
 
+  // --- Worker control (high risk, dangerous) --------------------------------
+  {
+    id: "worker.control",
+    label: "Worker Control",
+    description: "List, preview, and stop workers with explicit worker targeting.",
+    risk: RISK.HIGH,
+    privileged: false,
+    readOnly: false,
+    defaultPreview: true,
+    requiredFields: ["action"],
+    script: "tools/provider-pool-webui/actions/worker-control.js",
+    confirmMessage: "Execute worker control action?",
+    category: "worker",
+  },
+
   // --- Resource management (high risk, privileged) -------------------------
   {
     id: "concurrency.update",
