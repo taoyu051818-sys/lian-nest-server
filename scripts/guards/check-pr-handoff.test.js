@@ -98,7 +98,7 @@ for (const section of REQUIRED_SECTIONS) {
     'Closes #1',
     '',
     '## Test plan',
-    '- Ran tests',
+    '- Ran tests → PASS',
     '',
     '## Out of scope',
     '- Not this',
@@ -232,7 +232,7 @@ for (const section of REQUIRED_SECTIONS) {
     '- Done',
   ].join('\n');
   const result = validate(body);
-  assert(result.ok === true, 'empty Validation section still passes section check');
+  assert(result.ok === false, 'empty Validation section fails evidence check');
   assert(result.warnings.length === 1, 'empty Validation section produces one warning');
   assert(result.warnings[0].includes('empty'), 'warning mentions empty');
 }
@@ -263,7 +263,7 @@ for (const section of REQUIRED_SECTIONS) {
     '- Done',
   ].join('\n');
   const result = validate(body);
-  assert(result.ok === true, 'Validation without PASS/FAIL still passes section check');
+  assert(result.ok === false, 'Validation without PASS/FAIL fails evidence check');
   assert(result.warnings.length === 1, 'Validation without PASS/FAIL produces one warning');
   assert(result.warnings[0].includes('PASS/FAIL'), 'warning mentions PASS/FAIL');
 }
@@ -336,6 +336,186 @@ for (const section of REQUIRED_SECTIONS) {
   ].join('\n');
   const result = validate(body);
   assert(result.warnings.length === 0, 'lowercase pass is recognized');
+}
+
+// --- Validation evidence regression tests ---
+
+// 18. Regression: empty Validation causes ok=false (not just a warning)
+{
+  const body = [
+    '## Summary',
+    '- Something',
+    '',
+    '## Changed files',
+    '- file.js',
+    '',
+    '## Linked issues',
+    'Closes #1',
+    '',
+    '## Validation',
+    '',
+    '## Non-goals',
+    '- Not this',
+    '',
+    '## Risk',
+    '- Low',
+    '',
+    '## Handoff',
+    '- Done',
+  ].join('\n');
+  const result = validate(body);
+  assert(result.ok === false, 'regression: empty Validation section fails guard');
+  assert(result.missing.length === 0, 'regression: no missing sections when Validation is present but empty');
+  assert(result.warnings.length === 1, 'regression: empty Validation produces exactly one warning');
+}
+
+// 19. Regression: Validation with only whitespace fails
+{
+  const body = [
+    '## Summary',
+    '- Something',
+    '',
+    '## Changed files',
+    '- file.js',
+    '',
+    '## Linked issues',
+    'Closes #1',
+    '',
+    '## Validation',
+    '   ',
+    '  ',
+    '',
+    '## Non-goals',
+    '- Not this',
+    '',
+    '## Risk',
+    '- Low',
+    '',
+    '## Handoff',
+    '- Done',
+  ].join('\n');
+  const result = validate(body);
+  assert(result.ok === false, 'regression: whitespace-only Validation fails guard');
+  assert(result.warnings[0].includes('empty'), 'regression: whitespace-only Validation warns about empty');
+}
+
+// 20. Regression: Validation with commands but no PASS/FAIL fails
+{
+  const body = [
+    '## Summary',
+    '- Something',
+    '',
+    '## Changed files',
+    '- file.js',
+    '',
+    '## Linked issues',
+    'Closes #1',
+    '',
+    '## Validation',
+    '- node scripts/guards/check-pr-handoff.test.js',
+    '- npm run check',
+    '',
+    '## Non-goals',
+    '- Not this',
+    '',
+    '## Risk',
+    '- Low',
+    '',
+    '## Handoff',
+    '- Done',
+  ].join('\n');
+  const result = validate(body);
+  assert(result.ok === false, 'regression: Validation with commands but no PASS/FAIL fails');
+  assert(result.warnings.some((w) => /PASS\/FAIL/.test(w)), 'regression: missing PASS/FAIL warning present');
+}
+
+// 21. Regression: Validation with PASS evidence passes
+{
+  const body = [
+    '## Summary',
+    '- Something',
+    '',
+    '## Changed files',
+    '- file.js',
+    '',
+    '## Linked issues',
+    'Closes #1',
+    '',
+    '## Validation',
+    '- node scripts/guards/check-pr-handoff.test.js → PASS',
+    '- npm run check → PASS',
+    '',
+    '## Non-goals',
+    '- Not this',
+    '',
+    '## Risk',
+    '- Low',
+    '',
+    '## Handoff',
+    '- Done',
+  ].join('\n');
+  const result = validate(body);
+  assert(result.ok === true, 'regression: PASS evidence passes guard');
+  assert(result.warnings.length === 0, 'regression: PASS evidence produces no warnings');
+}
+
+// 22. Regression: mixed PASS and FAIL results pass (both are valid evidence)
+{
+  const body = [
+    '## Summary',
+    '- Something',
+    '',
+    '## Changed files',
+    '- file.js',
+    '',
+    '## Linked issues',
+    'Closes #1',
+    '',
+    '## Validation',
+    '- npm run build → PASS',
+    '- npm test → FAIL (expected, test not yet written)',
+    '',
+    '## Non-goals',
+    '- Not this',
+    '',
+    '## Risk',
+    '- Low',
+    '',
+    '## Handoff',
+    '- Done',
+  ].join('\n');
+  const result = validate(body);
+  assert(result.ok === true, 'regression: mixed PASS/FAIL evidence passes guard');
+  assert(result.warnings.length === 0, 'regression: mixed PASS/FAIL produces no warnings');
+}
+
+// 23. Regression: multiple validation commands without evidence all fail together
+{
+  const body = [
+    '## Summary',
+    '- Something',
+    '',
+    '## Changed files',
+    '- file.js',
+    '',
+    '## Linked issues',
+    'Closes #1',
+    '',
+    '## Validation',
+    '```\nnpm run check\nnpm run build\nnpm test\n```',
+    '',
+    '## Non-goals',
+    '- Not this',
+    '',
+    '## Risk',
+    '- Low',
+    '',
+    '## Handoff',
+    '- Done',
+  ].join('\n');
+  const result = validate(body);
+  assert(result.ok === false, 'regression: code block without PASS/FAIL fails');
+  assert(result.warnings.length === 1, 'regression: produces exactly one evidence warning');
 }
 
 // --- Summary ---
