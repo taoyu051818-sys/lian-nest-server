@@ -22,11 +22,13 @@ Role prompts for AI workers and reviewers live in [ops/agent-prompts/](ops/agent
 - [Next-Wave Policy](ops/agent-prompts/next-wave-policy.md) - How to continue after a worker wave completes (manual orchestrator, router-driven, serial aggregator).
 - [Writeback Checklist](ops/agent-prompts/writeback-checklist.md) - Verify worker PR comments and label updates actually landed.
 
+
 ## Architecture
 
 - **ConfigModule** (`src/config/`) — Global module; validates `process.env` with Joi at startup and exposes `ConfigService`.
 - **HealthModule** (`src/health/`) — `GET /api/health` liveness probe.
 - **NodebbModule** (`src/nodebb/`) — Single gateway for all outbound NodeBB API calls. Provides typed providers for topics, posts, users, notifications, and tags. See [docs/architecture/nodebb-integration.md](docs/architecture/nodebb-integration.md).
+- **RepositoryModule** (`src/repositories/`) — Provider interfaces and skeletons for persistence layer. See [docs/architecture/repositories.md](docs/architecture/repositories.md).
 - **GlobalExceptionFilter** (`src/common/filters/`) — Uniform `{ ok, error }` envelope for all error responses.
 
 ## Quick start
