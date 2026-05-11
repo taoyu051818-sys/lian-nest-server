@@ -74,9 +74,34 @@ Glob patterns defining the worker's edit boundary. The worker MUST NOT edit file
 
 Shell commands the worker must run and capture output for. Results are attached as validation evidence in the PR.
 
+### issues
+
+Array of related issue numbers beyond the target issue. Used to track dependencies or related work. Can be empty.
+
+### expectedPR
+
+Whether this task is expected to produce a PR. `true` for execution tasks, `false` for research or investigation tasks.
+
 ### rolePacket
 
 Identifies which role prompt governs this worker's behavior.
+
+- `actorRole`: The role name matching a prompt in `ops/agent-prompts/`.
+- `description`: One-line summary of what this worker is doing.
+
+### attentionAreas
+
+Guidance for the worker on what to focus on and what pitfalls to avoid.
+
+- `focus`: Key constraints or priorities the worker must keep in mind.
+- `knownBlindspots`: Patterns or mistakes the worker should actively avoid.
+
+### reviewAndAcceptance
+
+Defines who reviews and accepts the PR.
+
+- `requiredReviewRoles`: Roles that must review before merge (maps to `pr-review-gate.md` reviewers).
+- `acceptanceOwner`: Who has final acceptance authority — `human-owner` or a specific role name.
 
 ### budgets
 
@@ -91,6 +116,10 @@ What happens if the worker approaches `hardTimeMinutes` without completing:
 - `open_pr_or_comment_blocker`: Open a PR with whatever is done, or comment a blocker on the issue.
 - `publishPartial`: true = always publish partial progress.
 - `maxExtensionMinutes`: Additional time granted if progress is being made.
+
+### pmPhase
+
+The wave phase this task belongs to (e.g., `foundation-wave-1`, `feature-wave-1`). Maps to the wave planning table in `ops/agent-prompts/pm-gate.md`. Used for sequencing and prioritization.
 
 ## Example
 

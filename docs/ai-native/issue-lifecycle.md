@@ -58,13 +58,14 @@ OPEN -> IN_PROGRESS -> IN_REVIEW -> MERGED / CLOSED
 
 ## Transitions
 
-1. **OPEN -> IN_PROGRESS**: Worker picks up issue, sets `agent:running`.
-2. **IN_PROGRESS -> IN_REVIEW**: Worker opens PR, sets `agent:done`.
-3. **IN_PROGRESS -> BLOCKED**: Worker cannot proceed, comments blocker, sets `agent:blocked`.
-4. **BLOCKED -> IN_PROGRESS**: Blocker resolved, worker resumes.
-5. **IN_REVIEW -> MERGED**: Review gate passes, repo-owner merges.
-6. **IN_REVIEW -> CLOSED**: Review gate rejects, pm-gate closes.
-7. **OPEN -> CLOSED**: pm-gate closes as won't-do or duplicate.
+1. **OPEN -> OPEN (queued)**: pm-gate triages and approves issue, sets `agent:queued`.
+2. **OPEN -> IN_PROGRESS**: Worker picks up queued issue, sets `agent:running`.
+3. **IN_PROGRESS -> IN_REVIEW**: Worker opens PR, sets `agent:done`.
+4. **IN_PROGRESS -> BLOCKED**: Worker cannot proceed, comments blocker, sets `agent:blocked`.
+5. **BLOCKED -> IN_PROGRESS**: Blocker resolved, worker resumes, sets `agent:running`.
+6. **IN_REVIEW -> MERGED**: Review gate passes, repo-owner merges.
+7. **IN_REVIEW -> CLOSED**: Review gate rejects, pm-gate closes.
+8. **OPEN -> CLOSED**: pm-gate closes as won't-do or duplicate.
 
 ## Issue Template
 
