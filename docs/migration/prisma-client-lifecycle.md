@@ -81,6 +81,8 @@ npm run build
 
 Never skip `prisma generate` after a schema edit. The generated client in `node_modules/.prisma/client/` must match the current schema or typecheck will fail.
 
+If a generated file is deleted from `src/generated/prisma/` without a corresponding schema change, the guard will flag it as a violation. This means the schema and generated output have drifted. Re-run `prisma generate` or update the schema to match.
+
 ## Known Blockers
 
 ### Issue #68: Generated Client Import Failure

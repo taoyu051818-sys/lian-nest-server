@@ -69,11 +69,11 @@ function classifyChangedFiles(files) {
 function buildDiffFiles(base) {
   try {
     const merged = execSync(
-      `git diff --name-only --diff-filter=ACMR ${base}...HEAD`,
+      `git diff --name-only --diff-filter=ACMRD ${base}...HEAD`,
       { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
     ).trim();
     const staged = execSync(
-      'git diff --cached --name-only --diff-filter=ACMR',
+      'git diff --cached --name-only --diff-filter=ACMRD',
       { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
     ).trim();
     const lines = [merged, staged].filter(Boolean).join('\n');
