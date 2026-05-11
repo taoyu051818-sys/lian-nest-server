@@ -145,14 +145,41 @@ Status progression: `NOT_STARTED` -> `CONTRACTED` -> `IMPLEMENTED` -> `PARITY_TE
 
 ## Fixture Coverage
 
-Endpoints with parity fixtures defined (from readonly-route-parity-fixtures.md):
+Full index: [readonly-route-parity-fixtures.md](readonly-route-parity-fixtures.md)
+
+### Fixtures Defined (4)
 
 | Endpoint | Fixture File | Slice | Notes |
 |----------|-------------|-------|-------|
 | GET /api/health | `health-basic.json` | — | Health check, not in legacy inventory |
 | GET /api/feed | `feed-list-default.json`, `feed-list-pagination.json` | F1 | Feed not in legacy route inventory |
-| GET /api/feed/:feedItemId | `feed-item-basic.json` | F1 | Feed not in legacy route inventory |
+| GET /api/feed/:feedItemId | `feed-item-basic.json` | F1 | Feed not in legacy route inventory (stub, fixture deferred) |
 | GET /api/profile/:uid | `profile-public-basic.json` | PR1 | Profile not in legacy route inventory |
+
+### Implemented Endpoints Missing Fixtures (11)
+
+| Endpoint | Module | Auth | Notes |
+|----------|--------|------|-------|
+| GET /api/profile/:uid/saved | Profile | Public | `ProfileCollection<T>` pattern |
+| GET /api/profile/:uid/liked | Profile | Public | `ProfileCollection<T>` pattern |
+| GET /api/posts | Posts | Public | Paginated list (#209) |
+| GET /api/posts/:postId | Posts | Public | Single object (#128) |
+| GET /api/posts/:postId/reactions | Posts | Public | Starter shape (#233) |
+| GET /api/posts/:postId/replies | Posts | Public | Paginated list (#185) |
+| GET /api/messages | Messages | Auth | Empty fallback (#180) |
+| GET /api/notifications | Notifications | Auth | Provider-backed (#127) |
+| GET /api/notifications/unread-count | Notifications | Auth | Count value (#152) |
+| GET /api/categories | Categories | Public | Flat list (#232) |
+| GET /api/tags | Tags | Public | Flat list (#208) |
+
+### Coverage Summary
+
+| Metric | Count |
+|--------|-------|
+| Implemented read-only GETs | 14 |
+| Fixtures defined | 4 |
+| Fixtures missing | 11 |
+| **Coverage** | **29%** |
 
 > **Note:** Feed (`/api/feed`) and Profile (`/api/profile`) endpoints exist in the
 > Nest codebase but are absent from the legacy route inventory. They are tracked
