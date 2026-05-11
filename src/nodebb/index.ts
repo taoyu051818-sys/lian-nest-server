@@ -21,6 +21,21 @@ export { NodebbClient, NODEBB_CLIENT } from './nodebb-client';
 // Module
 export { NodebbModule, NodebbModuleConfig } from './nodebb.module';
 
+// Error taxonomy contracts (type-only)
+export {
+  NodebbErrorCategory,
+  NodebbHttpErrorCode,
+  NodebbAuthErrorCode,
+  NodebbTimeoutErrorCode,
+  NodebbNetworkErrorCode,
+  NodebbBodyErrorCode,
+  NodebbUnknownErrorCode,
+  NodebbErrorCode,
+  NodebbClassifiedError,
+  NodebbHttpStatusCodeMap,
+  NodebbRetryableByCategory,
+} from './contracts';
+
 // Providers
 export { NodebbTopicsProvider } from './providers/nodebb-topics.provider';
 export { NodebbPostsProvider } from './providers/nodebb-posts.provider';
