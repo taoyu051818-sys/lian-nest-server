@@ -121,7 +121,7 @@ function stopServer(child) {
 function loadModules() {
   const actionsDir = path.join(__dirname, "actions");
   const files = fs.readdirSync(actionsDir)
-    .filter((name) => name.endsWith(".js"))
+    .filter((name) => name.endsWith(".js") && !name.endsWith(".test.js"))
     .sort();
   return files.map((file) => {
     const fullPath = path.join(actionsDir, file);
