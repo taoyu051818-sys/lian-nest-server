@@ -4,6 +4,7 @@
 
   "sourceDocs": [
     "docs/ai-native/local-resource-policy.md",
+    "docs/ai-native/local-resource-pressure-policy.md",
     "docs/ai-native/launch-policy.md",
     "docs/ai-native/provider-pool-guard.md"
   ],
@@ -105,6 +106,33 @@
       "description": "Count processes whose command line includes the worker entrypoint marker.",
       "marker": "claude-worker",
       "note": "The orchestrator counts its own child processes. External tooling should use OS process enumeration."
+    }
+  },
+
+  "pressureClassification": {
+    "description": "Green/yellow/red zones used by the resource sampler and launch gate for UI display and worst-case state derivation.",
+    "sourceScript": "scripts/ai/sample-local-resource.ps1",
+    "testScript": "scripts/ai/test-resource-pressure-sampler.js",
+    "cpu": {
+      "green": { "max": 50, "meaning": "Nominal. Full throughput available." },
+      "yellow": { "min": 51, "max": 80, "meaning": "Elevated. Workers may experience degraded throughput." },
+      "red": { "min": 81, "meaning": "Critical. New launches blocked; risk of stalled workers." }
+    },
+    "memory": {
+      "green": { "max": 70, "meaning": "Nominal. Full throughput available." },
+      "yellow": { "min": 71, "max": 85, "meaning": "Elevated. Workers may be swapped, degrading latency." },
+      "red": { "min": 86, "meaning": "Critical. Risk of OOM kill by the OS." }
+    },
+    "disk": {
+      "green": { "max": 75, "meaning": "Nominal. Full throughput available." },
+      "yellow": { "min": 76, "max": 90, "meaning": "Elevated. Large build outputs may cause failures." },
+      "red": { "min": 91, "meaning": "Critical. Build artifacts and logs will fail to write." }
+    },
+    "worstCaseRule": "If ANY resource is red → red. If ANY is yellow → yellow. Otherwise green.",
+    "launchGateMapping": {
+      "green": "all tasks allowed",
+      "yellow": "runtime tasks blocked, health-repair allowed",
+      "red": "runtime tasks blocked, health-repair allowed"
     }
   },
 
