@@ -49,6 +49,52 @@ Expected output for a ready PR:
 
 ---
 
+## Guard Fixtures
+
+Guard fixtures are example files for testing the controlled auto-merge
+guard behavior. Use them to verify that the allowlist, boundary, and
+handoff guards work correctly before merging real PRs.
+
+### Print fixture templates
+
+```powershell
+.\scripts\ai\merge-clean-pr-batch.ps1 -ShowFixtures
+```
+
+This outputs:
+- A safe `task-manifest.json` (allowlist-only, no forbidden overlap)
+- A high-risk `task-manifest.json` (forbidden overlap — always blocked)
+- A PR body template with all seven required handoff sections
+
+### Using fixtures for testing
+
+1. Copy the safe `task-manifest.json` to `.ai/task-manifest.json`.
+2. Use the PR body template in your PR description.
+3. Run a dry-run with guards:
+
+```powershell
+.\scripts\ai\merge-clean-pr-batch.ps1 -PRs <N> -Repo owner/name -RunGuards
+```
+
+The guard output will show CHECKING/PASS/SKIPPED status for each guard.
+If any guard fails, the dry-run reports the failure reason.
+
+### Allowlist safety
+
+The controlled auto-merge enforces explicit allowlist safety:
+
+- **Script-level**: Only PRs in `-PRs` or `-AllowlistFile` are processed.
+- **Guard-level**: Changed files must stay inside `allowedFiles` and
+  outside `forbiddenFiles` globs from the task manifest.
+- **Policy-level**: High-risk PRs (`src/**`, `prisma/**`, `package.json`,
+  auth/security) are always human-required — guards block these
+  regardless of the allowlist.
+
+If any PR touches forbidden files or falls outside the allowlist, the
+entire batch is aborted. No partial merges.
+
+---
+
 ## Merge Queue Assistant
 
 The merge queue assistant finds eligible PRs and produces merge commands.
