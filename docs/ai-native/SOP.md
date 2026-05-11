@@ -30,6 +30,11 @@ See [roles.md](roles.md) for full role definitions and [../../ops/agent-prompts/
 issue (OPEN) -> triage -> worker launch -> PR opened -> review gate -> merge decision
 ```
 
+The self-cycle runner (`run-self-cycle.ps1`) automates steps 2–5. See
+[self-cycle-runner.md](self-cycle-runner.md) and
+[codex-retirement-runbook.md](codex-retirement-runbook.md) for current
+capabilities and remaining manual gates.
+
 1. **Issue creation**: Bounded scope, acceptance criteria, labels assigned.
 2. **Triage (pm-gate)**: Validates scope, assigns priority and wave.
 3. **Worker launch**: Worker receives JSON task contract with allowed files, validation commands, role, risk level.
