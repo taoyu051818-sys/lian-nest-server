@@ -1,0 +1,56 @@
+{
+  "id": "groups-list-basic",
+  "endpoint": "GET /api/groups",
+  "description": "Standard groups list with mapped results from NodeBB groups",
+  "request": {
+    "method": "GET",
+    "path": "/api/groups"
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "groups": [
+        {
+          "name": "<STRING>",
+          "slug": "<STRING>",
+          "description": "<STRING>",
+          "memberCount": "<NON_NEG_INT>",
+          "hidden": "<BOOLEAN>",
+          "deleted": "<BOOLEAN>",
+          "createtime": "<NON_NEG_INT>"
+        }
+      ],
+      "source": "nodebb"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["groups", "source"],
+      "properties": {
+        "groups": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/GroupItem" }
+        },
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "GroupItem": {
+          "type": "object",
+          "required": ["name", "slug", "description", "memberCount", "hidden", "deleted", "createtime"],
+          "properties": {
+            "name": { "type": "string" },
+            "slug": { "type": "string" },
+            "description": { "type": "string" },
+            "memberCount": { "type": "integer", "minimum": 0 },
+            "hidden": { "type": "boolean" },
+            "deleted": { "type": "boolean" },
+            "createtime": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "notes": "Groups list maps from NodeBB groups. Deleted and system groups are filtered out. When NodeBB is unreachable or returns an error, the response falls back to an empty list with source=fallback."
+}
