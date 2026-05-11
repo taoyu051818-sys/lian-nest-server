@@ -94,6 +94,23 @@ export class AuthService {
 }
 ```
 
+## Redis Infrastructure Module
+
+The Redis client abstraction lives in `src/redis/`, separate from the repository
+layer. This module owns connection lifecycle only — it does **not** implement
+repository interfaces or serve as durable truth.
+
+| Component | File | Role |
+|---|---|---|
+| `RedisModule` | `src/redis/redis.module.ts` | Global NestJS module, exports service + client token |
+| `RedisService` | `src/redis/redis.service.ts` | Creates `ioredis` client from `REDIS_URL`, manages lifecycle |
+| `REDIS_CLIENT` | `src/redis/redis.constants.ts` | Symbol-based injection token for the raw `ioredis` instance |
+
+**Boundary rule**: `src/redis/` is infrastructure plumbing. Repository providers in
+`src/repositories/providers/` import `RedisService` or inject `REDIS_CLIENT` to
+access the connection. Business modules must continue to use repository interfaces
+— they must not import from `src/redis/` directly.
+
 ## Migration Path
 
 1. **Phase 1** (current): Skeleton implementations with `throw new Error()`

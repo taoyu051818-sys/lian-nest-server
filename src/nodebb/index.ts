@@ -12,6 +12,7 @@ export {
   NodebbTag,
   normalizeOk,
   normalizeError,
+  toNodebbAuthMode,
 } from './types';
 
 // Client contract
