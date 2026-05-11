@@ -352,6 +352,16 @@ console.log("\nEADDRINUSE tests\n");
       assert(Array.isArray(data.actions), "GET /api/actions has actions array");
       assert(data.actions.length >= 1, "GET /api/actions discovers action modules");
       assert(!data.actions.some((action) => String(action.id || "").endsWith(".test")), "GET /api/actions does not expose test files as actions");
+
+      // Loader guard: verify the server filters .test.js files from the actions dir
+      const fs = require("node:fs");
+      const actionsDir = path.join(path.dirname(serverScript), "actions");
+      const dirFiles = fs.readdirSync(actionsDir).filter((f) => f.endsWith(".js"));
+      const testFiles = dirFiles.filter((f) => f.endsWith(".test.js"));
+      assert(testFiles.length > 0, "actions directory contains .test.js files to guard against");
+      const nonTestFiles = dirFiles.filter((f) => !f.endsWith(".test.js"));
+      assert(data.actions.length <= nonTestFiles.length, "server returns at most the non-test .js action count (" + nonTestFiles.length + ")");
+      assert(!data.actions.some((a) => String(a.label || "").includes(".test")), "no action label references a .test.js file");
     }
 
     // POST /api/actions/preview — missing actionId
