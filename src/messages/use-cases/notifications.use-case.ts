@@ -41,11 +41,17 @@ export class NotificationsUseCase {
     };
   }
 
-  async getUnreadCount(uid: number): Promise<number> {
+  async getUnreadCount(uid: number): Promise<{ count: number; fallback: boolean }> {
     void uid;
-    // TODO: Implement when notification parity is defined.
-    // Delegate to NodebbNotificationsProvider when unread-count endpoint is available.
-    return 0;
+    const auth = { mode: NodebbAuthMode.NONE };
+    const res = await this.notificationsProvider.list(auth);
+
+    if (res.status !== BodyStatus.OK || !res.data) {
+      return { count: 0, fallback: true };
+    }
+
+    const count = res.data.filter((n) => !n.read).length;
+    return { count, fallback: false };
   }
 
   /**

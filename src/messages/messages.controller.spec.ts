@@ -87,8 +87,32 @@ describe('MessagesModule', () => {
     });
 
     it('should return unread count from use case', async () => {
-      const result = await notificationsController.getUnreadCount();
+      providerMock.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [
+          { nid: '1', type: 'test', bodyShort: 'a', nidFrom: 1, datetime: 0, read: false },
+          { nid: '2', type: 'test', bodyShort: 'b', nidFrom: 2, datetime: 0, read: true },
+        ],
+        error: null,
+      });
+      const mockRes = { set: jest.fn() };
+      const result = await notificationsController.getUnreadCount(mockRes as any);
+      expect(result).toEqual({ count: 1 });
+      expect(mockRes.set).not.toHaveBeenCalled();
+    });
+
+    it('should set X-Fallback header when provider fails', async () => {
+      providerMock.list.mockResolvedValue({
+        status: BodyStatus.ERROR,
+        statusCode: 500,
+        data: null,
+        error: 'NodeBB unreachable',
+      });
+      const mockRes = { set: jest.fn() };
+      const result = await notificationsController.getUnreadCount(mockRes as any);
       expect(result).toEqual({ count: 0 });
+      expect(mockRes.set).toHaveBeenCalledWith('X-Fallback', 'true');
     });
 
     it('should throw not implemented for markRead', async () => {
@@ -176,9 +200,53 @@ describe('MessagesModule', () => {
       expect(result).toEqual({ notifications: [], totalCount: 0 });
     });
 
-    it('should return 0 for getUnreadCount', async () => {
-      const count = await notificationsUseCase.getUnreadCount(1);
-      expect(count).toBe(0);
+    it('should return 0 for getUnreadCount with empty list', async () => {
+      providerMock.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+      const result = await notificationsUseCase.getUnreadCount(1);
+      expect(result).toEqual({ count: 0, fallback: false });
+    });
+
+    it('should count unread notifications from list', async () => {
+      providerMock.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [
+          { nid: '1', type: 'test', bodyShort: 'a', nidFrom: 1, datetime: 0, read: false },
+          { nid: '2', type: 'test', bodyShort: 'b', nidFrom: 2, datetime: 0, read: true },
+          { nid: '3', type: 'test', bodyShort: 'c', nidFrom: 3, datetime: 0, read: false },
+          { nid: '4', type: 'test', bodyShort: 'd', nidFrom: 4, datetime: 0, read: true },
+        ],
+        error: null,
+      });
+      const result = await notificationsUseCase.getUnreadCount(1);
+      expect(result).toEqual({ count: 2, fallback: false });
+    });
+
+    it('should return fallback true when provider returns error', async () => {
+      providerMock.list.mockResolvedValue({
+        status: BodyStatus.ERROR,
+        statusCode: 500,
+        data: null,
+        error: 'NodeBB unreachable',
+      });
+      const result = await notificationsUseCase.getUnreadCount(1);
+      expect(result).toEqual({ count: 0, fallback: true });
+    });
+
+    it('should return fallback true when provider returns null data', async () => {
+      providerMock.list.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: null,
+        error: null,
+      });
+      const result = await notificationsUseCase.getUnreadCount(1);
+      expect(result).toEqual({ count: 0, fallback: true });
     });
 
     it('should throw not implemented for markRead', async () => {
