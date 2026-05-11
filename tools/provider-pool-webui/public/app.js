@@ -784,6 +784,27 @@ function buildPayloadForm(actionMeta, allData) {
     form.append(selectWrap);
   }
 
+  // Structured fields for create-issues gap form
+  if (actionMeta.id === 'create-issues') {
+    const fields = [
+      { name: 'title', label: 'Issue Title', placeholder: 'e.g. feat(module): add feature X' },
+      { name: 'gapKey', label: 'Gap Key', placeholder: 'e.g. auth-slice-2' },
+      { name: 'labels', label: 'Labels', placeholder: 'e.g. wave21, gap-fill (comma-separated)' },
+    ];
+    for (const f of fields) {
+      const wrap = el('div', { className: 'action-form__field' });
+      wrap.append(el('label', { className: 'action-form__label', textContent: f.label }));
+      wrap.append(el('input', {
+        className: 'action-form__input',
+        type: 'text',
+        'data-field': f.name,
+        placeholder: f.placeholder,
+        autocomplete: 'off',
+      }));
+      form.append(wrap);
+    }
+  }
+
   // Generic JSON payload editor for advanced params
   const jsonWrap = el('div', { className: 'action-form__field' });
   jsonWrap.append(el('label', { className: 'action-form__label', textContent: 'Payload (JSON)' }));
@@ -821,6 +842,18 @@ function collectFormPayload(form) {
     } catch {
       // ignore invalid JSON — server will handle it
     }
+  }
+
+  // Construct gaps array for create-issues from structured fields
+  if (payload.title || payload.gapKey) {
+    const gap = {};
+    if (payload.title) gap.title = payload.title;
+    if (payload.gapKey) gap.gapKey = payload.gapKey;
+    if (payload.labels) gap.labels = payload.labels.split(',').map((s) => s.trim()).filter(Boolean);
+    payload.gaps = [gap];
+    delete payload.title;
+    delete payload.gapKey;
+    delete payload.labels;
   }
 
   return payload;

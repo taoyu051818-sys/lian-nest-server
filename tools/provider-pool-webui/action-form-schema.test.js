@@ -47,6 +47,9 @@ assert(FIELD_TYPES.workerId.type === "text", "workerId type is text");
 assert(FIELD_TYPES.target.type === "text", "target type is text");
 assert(FIELD_TYPES.value.type === "number", "value type is number");
 assert(FIELD_TYPES.field.type === "text", "field type is text");
+assert(FIELD_TYPES.title.type === "text", "title type is text");
+assert(FIELD_TYPES.gapKey.type === "text", "gapKey type is text");
+assert(FIELD_TYPES.labels.type === "text", "labels type is text");
 
 // --- RISK_BADGE constants ----------------------------------------------------
 
@@ -116,6 +119,24 @@ console.log("\nbuildFieldDescriptor\n");
   const f5 = buildFieldDescriptor("field");
   assert(f5.name === "field", "field field name correct");
   assert(f5.label === "Policy Field", "field label is humanized");
+
+  const f7 = buildFieldDescriptor("title");
+  assert(f7.name === "title", "title field name correct");
+  assert(f7.type === "text", "title type is text");
+  assert(f7.label === "Issue Title", "title label is Issue Title");
+  assert(f7.required === true, "title is required");
+
+  const f8 = buildFieldDescriptor("gapKey");
+  assert(f8.name === "gapKey", "gapKey field name correct");
+  assert(f8.type === "text", "gapKey type is text");
+  assert(f8.label === "Gap Key", "gapKey label is Gap Key");
+  assert(f8.required === true, "gapKey is required");
+
+  const f9 = buildFieldDescriptor("labels");
+  assert(f9.name === "labels", "labels field name correct");
+  assert(f9.type === "text", "labels type is text");
+  assert(f9.label === "Labels", "labels label is Labels");
+  assert(f9.required === true, "labels is required");
 
   // Unknown field gets default treatment
   const f6 = buildFieldDescriptor("customParam");
@@ -280,6 +301,30 @@ console.log("\nbuildFormSchema zero-field mutable\n");
   assert(schema.fields.length === 0, "queue.clear has no fields");
   assert(schema.privileged === true, "is privileged");
   assert(schema.readOnly === false, "not readOnly");
+}
+
+// --- buildFormFields for create-issues gap fields ----------------------------
+
+console.log("\nbuildFormFields create-issues gap fields\n");
+
+{
+  const gapFields = buildFormFields(["title", "gapKey", "labels"]);
+  assert(gapFields.length === 3, "gap fields returns 3 fields");
+  assert(gapFields[0].name === "title", "first field is title");
+  assert(gapFields[0].label === "Issue Title", "title label is Issue Title");
+  assert(gapFields[1].name === "gapKey", "second field is gapKey");
+  assert(gapFields[1].label === "Gap Key", "gapKey label is Gap Key");
+  assert(gapFields[2].name === "labels", "third field is labels");
+  assert(gapFields[2].label === "Labels", "labels label is Labels");
+  assert(gapFields.every((f) => f.required), "all gap fields are required");
+  assert(gapFields.every((f) => f.type === "text"), "all gap fields are text type");
+
+  // Mixed provider + gap fields
+  const mixed = buildFormFields(["providerId", "title", "gapKey"]);
+  assert(mixed.length === 3, "mixed fields returns 3 fields");
+  assert(mixed[0].name === "providerId", "first field is providerId");
+  assert(mixed[1].name === "title", "second field is title");
+  assert(mixed[2].name === "gapKey", "third field is gapKey");
 }
 
 // --- buildFormSchemas --------------------------------------------------------
