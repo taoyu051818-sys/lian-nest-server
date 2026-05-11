@@ -513,6 +513,168 @@ test('integration: nonexistent healthLog path produces zeroed snapshot', () => {
   assert.strictEqual(snapshot.signals.failureScore, 0);
 });
 
+// ── Empty object / null-field pure function tests ────────────────────────
+
+test('failureScore: empty object entries (no state) treated as red/unknown', () => {
+  const entries = [{}];
+  const result = calculateFailureScore(entries);
+  assert.strictEqual(result.score, 20);
+  assert.deepStrictEqual(result.categoryCounts, { unknown: 1 });
+});
+
+test('failureScore: entry with null state is counted (falsy falls through guard)', () => {
+  const entries = [{ state: null, category: 'runtime compile' }];
+  const result = calculateFailureScore(entries);
+  // null state is falsy, so the `entry.state &&` guard is false → not skipped
+  assert.strictEqual(result.score, 25);
+  assert.deepStrictEqual(result.categoryCounts, { 'runtime compile': 1 });
+});
+
+test('failureScore: entry with undefined state is counted (falsy falls through guard)', () => {
+  const entries = [{ state: undefined, category: 'runtime compile' }];
+  const result = calculateFailureScore(entries);
+  assert.strictEqual(result.score, 25);
+  assert.deepStrictEqual(result.categoryCounts, { 'runtime compile': 1 });
+});
+
+test('frictionScore: entry with undefined state and no noOutputMs returns 0', () => {
+  assert.strictEqual(calculateFrictionScore([{}]), 0);
+});
+
+test('frictionScore: entry with null noOutputMs is ignored', () => {
+  const entries = [{ state: 'stale', noOutputMs: null }];
+  assert.strictEqual(calculateFrictionScore(entries), 30);
+});
+
+test('frictionScore: entry with string noOutputMs is ignored', () => {
+  const entries = [{ state: 'running', noOutputMs: 'not a number' }];
+  assert.strictEqual(calculateFrictionScore(entries), 0);
+});
+
+test('riskScore: entry with null severity adds 0', () => {
+  assert.strictEqual(calculateRiskScore([{ severity: null }]), 0);
+});
+
+test('riskScore: empty object entry adds 0', () => {
+  assert.strictEqual(calculateRiskScore([{}]), 0);
+});
+
+test('cost: entry with negative elapsedMs is ignored', () => {
+  assert.strictEqual(calculateCost([{ elapsedMs: -5000 }]), 0);
+});
+
+test('cost: entry with string elapsedMs is ignored', () => {
+  assert.strictEqual(calculateCost([{ elapsedMs: 'abc' }]), 0);
+});
+
+test('trust: negative inputs clamp to 0', () => {
+  assert.strictEqual(calculateTrust(-50, -50), 100);
+});
+
+test('topPain: undefined returns "none"', () => {
+  assert.strictEqual(findTopPain(undefined), 'none');
+});
+
+// ── Integration: empty file edge cases ────────────────────────────────────
+
+test('integration: empty health NDJSON file produces zeroed failure score', () => {
+  const tmpFile = path.join(os.tmpdir(), `empty-health-${Date.now()}.ndjson`);
+  fs.writeFileSync(tmpFile, '', 'utf8');
+
+  try {
+    const { stdout, exitCode } = runSubprocess(['--stdout', '--healthLog', tmpFile]);
+    assert.strictEqual(exitCode, 0);
+    const snapshot = JSON.parse(stdout);
+    assert.strictEqual(snapshot.signals.failureScore, 0);
+    assert.strictEqual(snapshot.signals.riskScore, 0);
+    assert.strictEqual(snapshot.signals.topPain, 'none');
+    assert.strictEqual(snapshot.inputSources.healthEntryCount, 0);
+  } finally {
+    fs.unlinkSync(tmpFile);
+  }
+});
+
+test('integration: empty heartbeat NDJSON file produces zeroed friction/cost', () => {
+  const tmpFile = path.join(os.tmpdir(), `empty-heartbeat-${Date.now()}.ndjson`);
+  fs.writeFileSync(tmpFile, '', 'utf8');
+
+  try {
+    const { stdout, exitCode } = runSubprocess(['--stdout', '--heartbeatLog', tmpFile]);
+    assert.strictEqual(exitCode, 0);
+    const snapshot = JSON.parse(stdout);
+    assert.strictEqual(snapshot.signals.frictionScore, 0);
+    assert.strictEqual(snapshot.signals.cost, 0);
+    assert.strictEqual(snapshot.signals.trust, 100);
+    assert.strictEqual(snapshot.inputSources.heartbeatEntryCount, 0);
+  } finally {
+    fs.unlinkSync(tmpFile);
+  }
+});
+
+test('integration: health log with only null-field entries', () => {
+  const tmpFile = path.join(os.tmpdir(), `null-fields-${Date.now()}.ndjson`);
+  const lines = [
+    JSON.stringify({ state: null, category: null, severity: null }),
+    JSON.stringify({}),
+  ];
+  fs.writeFileSync(tmpFile, lines.join('\n') + '\n', 'utf8');
+
+  try {
+    const { stdout, exitCode } = runSubprocess(['--stdout', '--healthLog', tmpFile]);
+    assert.strictEqual(exitCode, 0);
+    const snapshot = JSON.parse(stdout);
+    // null/undefined state is falsy → guard `entry.state && ...` is false → counted
+    // null entry: category null → 'unknown' (20); {} entry: undefined → 'unknown' (20)
+    assert.strictEqual(snapshot.signals.failureScore, 40);
+    assert.strictEqual(snapshot.inputSources.healthEntryCount, 2);
+  } finally {
+    fs.unlinkSync(tmpFile);
+  }
+});
+
+test('integration: heartbeat log with wrong-type numeric fields', () => {
+  const tmpFile = path.join(os.tmpdir(), `wrong-types-${Date.now()}.ndjson`);
+  const lines = [
+    JSON.stringify({ state: 'stale', elapsedMs: 'not-a-number', noOutputMs: true }),
+    JSON.stringify({ state: 'running', elapsedMs: null, noOutputMs: 'hello' }),
+  ];
+  fs.writeFileSync(tmpFile, lines.join('\n') + '\n', 'utf8');
+
+  try {
+    const { stdout, exitCode } = runSubprocess(['--stdout', '--heartbeatLog', tmpFile]);
+    assert.strictEqual(exitCode, 0);
+    const snapshot = JSON.parse(stdout);
+    // stale gives 30 friction; wrong-type noOutputMs is ignored by truthy check
+    assert.strictEqual(snapshot.signals.frictionScore, 30);
+    assert.strictEqual(snapshot.signals.cost, 0);
+  } finally {
+    fs.unlinkSync(tmpFile);
+  }
+});
+
+test('integration: health log with only whitespace and blank lines', () => {
+  const tmpFile = path.join(os.tmpdir(), `whitespace-${Date.now()}.ndjson`);
+  fs.writeFileSync(tmpFile, '   \n\n  \n', 'utf8');
+
+  try {
+    const { stdout, exitCode } = runSubprocess(['--stdout', '--healthLog', tmpFile]);
+    assert.strictEqual(exitCode, 0);
+    const snapshot = JSON.parse(stdout);
+    assert.strictEqual(snapshot.signals.failureScore, 0);
+    assert.strictEqual(snapshot.inputSources.healthEntryCount, 0);
+  } finally {
+    fs.unlinkSync(tmpFile);
+  }
+});
+
+test('integration: nonexistent heartbeatLog path produces zeroed friction', () => {
+  const { stdout, exitCode } = runSubprocess(['--stdout', '--heartbeatLog', '/nonexistent/heartbeat.ndjson']);
+  assert.strictEqual(exitCode, 0);
+  const snapshot = JSON.parse(stdout);
+  assert.strictEqual(snapshot.signals.frictionScore, 0);
+  assert.strictEqual(snapshot.signals.cost, 0);
+});
+
 // ── Clamp edge cases ─────────────────────────────────────────────────────
 
 test('clamp: value within range returns value', () => {
