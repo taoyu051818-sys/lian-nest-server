@@ -484,6 +484,288 @@ console.log("\nPreview has no side effects\n");
   }
 })();
 
+// --- Safety edge coverage (issue #849) ---------------------------------------
+
+// Duplicate workerIds — preview
+console.log("\nPreview stop duplicate workerIds\n");
+(function () {
+  var state = makeState();
+  var tmp = tmpStatePath(state);
+  try {
+    var result = mod.preview({
+      action: "stop",
+      workerIds: ["provider-alpha-slot-0", "provider-alpha-slot-0"],
+      _statePath: tmp.filePath,
+    });
+    // Duplicate IDs resolve twice — preview succeeds but reports inflated count
+    assert(result.ok === true, "preview stop with duplicate ids returns ok");
+    assert(result.total === 2, "preview stop duplicate count reflects duplicates");
+    // State must still be untouched
+    var after = JSON.parse(fs.readFileSync(tmp.filePath, "utf-8"));
+    assert(after.providers[0].currentConcurrency === 2, "preview stop duplicates does not mutate state");
+  } finally {
+    cleanup(tmp.dir);
+  }
+})();
+
+// Duplicate workerIds — execute (over-decrement safety)
+console.log("\nExecute stop duplicate workerIds safety\n");
+(function () {
+  var state = makeState();
+  var tmp = tmpStatePath(state);
+  try {
+    var result = mod.execute({
+      action: "stop",
+      workerIds: ["provider-alpha-slot-0", "provider-alpha-slot-0"],
+      reason: "duplicate id test",
+      _statePath: tmp.filePath,
+    });
+    assert(result.ok === true, "execute stop with duplicate ids returns ok");
+    // Implementation applies each duplicate — concurrency floors at 0 via Math.max
+    var after = JSON.parse(fs.readFileSync(tmp.filePath, "utf-8"));
+    assert(after.providers[0].currentConcurrency >= 0, "execute stop duplicate does not produce negative concurrency");
+    assert(after.global.totalActiveWorkers >= 0, "execute stop duplicate global total stays non-negative");
+  } finally {
+    cleanup(tmp.dir);
+  }
+})();
+
+// Non-string elements in workerIds — preview
+console.log("\nPreview stop non-string workerIds elements\n");
+(function () {
+  var state = makeState();
+  var tmp = tmpStatePath(state);
+  try {
+    var r1 = mod.preview({ action: "stop", workerIds: [123], _statePath: tmp.filePath });
+    assert(r1.ok === false, "preview stop rejects numeric workerId element");
+
+    var r2 = mod.preview({ action: "stop", workerIds: [null], _statePath: tmp.filePath });
+    assert(r2.ok === false, "preview stop rejects null workerId element");
+
+    var r3 = mod.preview({ action: "stop", workerIds: [undefined], _statePath: tmp.filePath });
+    assert(r3.ok === false, "preview stop rejects undefined workerId element");
+
+    // State unchanged
+    var after = JSON.parse(fs.readFileSync(tmp.filePath, "utf-8"));
+    assert(after.providers[0].currentConcurrency === 2, "non-string workerId rejections do not mutate state");
+  } finally {
+    cleanup(tmp.dir);
+  }
+})();
+
+// Non-string elements in workerIds — execute
+console.log("\nExecute stop non-string workerIds elements\n");
+(function () {
+  var state = makeState();
+  var tmp = tmpStatePath(state);
+  try {
+    var r1 = mod.execute({ action: "stop", workerIds: [123], reason: "test", _statePath: tmp.filePath });
+    assert(r1.ok === false, "execute stop rejects numeric workerId element");
+
+    var r2 = mod.execute({ action: "stop", workerIds: [null], reason: "test", _statePath: tmp.filePath });
+    assert(r2.ok === false, "execute stop rejects null workerId element");
+
+    var after = JSON.parse(fs.readFileSync(tmp.filePath, "utf-8"));
+    assert(after.providers[0].currentConcurrency === 2, "non-string workerId execute rejections do not mutate state");
+  } finally {
+    cleanup(tmp.dir);
+  }
+})();
+
+// Execute stop — reason type validation
+console.log("\nExecute stop reason type validation\n");
+assertDeepEqual(
+  mod.execute({ action: "stop", workerIds: ["x"], reason: 42 }),
+  { ok: false, error: "reason is required for stop action" },
+  "execute stop rejects numeric reason",
+);
+assertDeepEqual(
+  mod.execute({ action: "stop", workerIds: ["x"], reason: true }),
+  { ok: false, error: "reason is required for stop action" },
+  "execute stop rejects boolean reason",
+);
+assertDeepEqual(
+  mod.execute({ action: "stop", workerIds: ["x"], reason: {} }),
+  { ok: false, error: "reason is required for stop action" },
+  "execute stop rejects object reason",
+);
+
+// workerIds type edge cases
+console.log("\nworkerIds type edge cases\n");
+assertDeepEqual(
+  mod.preview({ action: "stop", workerIds: 123 }),
+  { ok: false, error: "workerIds array is required for stop action" },
+  "preview stop rejects numeric workerIds",
+);
+assertDeepEqual(
+  mod.preview({ action: "stop", workerIds: {} }),
+  { ok: false, error: "workerIds array is required for stop action" },
+  "preview stop rejects object workerIds",
+);
+assertDeepEqual(
+  mod.execute({ action: "stop", workerIds: 123, reason: "test" }),
+  { ok: false, error: "workerIds array is required for stop action" },
+  "execute stop rejects numeric workerIds",
+);
+assertDeepEqual(
+  mod.execute({ action: "stop", workerIds: {}, reason: "test" }),
+  { ok: false, error: "workerIds array is required for stop action" },
+  "execute stop rejects object workerIds",
+);
+
+// Corrupt state file (invalid JSON)
+console.log("\nCorrupt state file\n");
+(function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "wc-corrupt-"));
+  var filePath = path.join(dir, "provider-pool.json");
+  fs.writeFileSync(filePath, "NOT VALID JSON {{{", "utf-8");
+  try {
+    var r1 = mod.preview({ action: "list", _statePath: filePath });
+    assert(r1.ok === false, "list preview fails on corrupt state file");
+    assert(r1.error === "Cannot load worker state", "corrupt state returns expected error");
+
+    var r2 = mod.execute({ action: "list", _statePath: filePath });
+    assert(r2.ok === false, "list execute fails on corrupt state file");
+
+    var r3 = mod.preview({ action: "stop", workerIds: ["x"], _statePath: filePath });
+    assert(r3.ok === false, "preview stop fails on corrupt state file");
+
+    var r4 = mod.execute({ action: "stop", workerIds: ["x"], reason: "test", _statePath: filePath });
+    assert(r4.ok === false, "execute stop fails on corrupt state file");
+  } finally {
+    cleanup(dir);
+  }
+})();
+
+// Zero-concurrency providers produce no workers
+console.log("\nZero-concurrency providers\n");
+(function () {
+  var state = makeState({
+    providers: [
+      { id: "idle-provider", currentConcurrency: 0, maxConcurrency: 5 },
+    ],
+    global: { capturedAt: "2026-05-12T00:00:00Z", totalActiveWorkers: 0 },
+  });
+  var tmp = tmpStatePath(state);
+  try {
+    var result = mod.preview({ action: "list", _statePath: tmp.filePath });
+    assert(result.ok === true, "zero-concurrency list returns ok");
+    assert(result.total === 0, "zero-concurrency produces 0 workers");
+    assert(result.workers.length === 0, "zero-concurrency workers array is empty");
+  } finally {
+    cleanup(tmp.dir);
+  }
+})();
+
+// Execute stop output is sanitized — no raw state objects leak
+console.log("\nExecute stop output sanitization\n");
+(function () {
+  var state = makeState();
+  var tmp = tmpStatePath(state);
+  try {
+    var result = mod.execute({
+      action: "stop",
+      workerIds: ["provider-alpha-slot-0"],
+      reason: "sanitization check",
+      _statePath: tmp.filePath,
+    });
+    assert(result.ok === true, "execute stop sanitization returns ok");
+    assert(Array.isArray(result.workers), "execute stop workers is array");
+    assert(result.workers.every(function (w) { return typeof w === "string"; }), "execute stop workers contains only strings");
+    assert(!result.hasOwnProperty("providers"), "execute stop result has no providers field");
+    assert(!result.hasOwnProperty("state"), "execute stop result has no state field");
+    assert(!result.hasOwnProperty("global"), "execute stop result has no global field");
+  } finally {
+    cleanup(tmp.dir);
+  }
+})();
+
+// Preview stop output is sanitized — workers array contains objects but no secrets
+console.log("\nPreview stop output sanitization\n");
+(function () {
+  var state = makeState();
+  var tmp = tmpStatePath(state);
+  try {
+    var result = mod.preview({
+      action: "stop",
+      workerIds: ["provider-alpha-slot-0"],
+      _statePath: tmp.filePath,
+    });
+    assert(result.ok === true, "preview stop sanitization returns ok");
+    assert(!result.hasOwnProperty("providers"), "preview stop result has no providers field");
+    assert(!result.hasOwnProperty("state"), "preview stop result has no state field");
+    assert(!result.hasOwnProperty("global"), "preview stop result has no global field");
+    // Workers should only contain expected keys
+    var worker = result.workers[0];
+    var allowedKeys = ["workerId", "providerId", "status", "startedAt"].sort();
+    var actualKeys = Object.keys(worker).sort();
+    assertDeepEqual(actualKeys, allowedKeys, "preview stop worker has only expected keys");
+  } finally {
+    cleanup(tmp.dir);
+  }
+})();
+
+// Multiple not-found workers listed in error
+console.log("\nMultiple not-found workers\n");
+(function () {
+  var state = makeState();
+  var tmp = tmpStatePath(state);
+  try {
+    var result = mod.preview({
+      action: "stop",
+      workerIds: ["ghost-1", "provider-alpha-slot-0", "ghost-2"],
+      _statePath: tmp.filePath,
+    });
+    assert(result.ok === false, "preview stop with multiple unknown workers fails");
+    assert(result.error.includes("ghost-1"), "error mentions first missing worker");
+    assert(result.error.includes("ghost-2"), "error mentions second missing worker");
+    // State unchanged
+    var after = JSON.parse(fs.readFileSync(tmp.filePath, "utf-8"));
+    assert(after.providers[0].currentConcurrency === 2, "multiple not-found rejection does not mutate state");
+  } finally {
+    cleanup(tmp.dir);
+  }
+})();
+
+// Duplicate workerIds across providers
+console.log("\nPreview stop duplicate across providers\n");
+(function () {
+  var state = makeState();
+  var tmp = tmpStatePath(state);
+  try {
+    var result = mod.preview({
+      action: "stop",
+      workerIds: ["provider-alpha-slot-0", "provider-beta-slot-0", "provider-alpha-slot-0"],
+      _statePath: tmp.filePath,
+    });
+    assert(result.ok === true, "preview stop cross-provider with duplicate returns ok");
+    assert(result.total === 3, "preview stop cross-provider duplicate count includes duplicates");
+    var after = JSON.parse(fs.readFileSync(tmp.filePath, "utf-8"));
+    assert(after.providers[0].currentConcurrency === 2, "state unchanged after cross-provider duplicate preview");
+  } finally {
+    cleanup(tmp.dir);
+  }
+})();
+
+// Mixed valid and non-string workerIds
+console.log("\nPreview stop mixed valid and non-string workerIds\n");
+(function () {
+  var state = makeState();
+  var tmp = tmpStatePath(state);
+  try {
+    var result = mod.preview({
+      action: "stop",
+      workerIds: ["provider-alpha-slot-0", 42, null],
+      _statePath: tmp.filePath,
+    });
+    assert(result.ok === false, "preview stop with mixed types fails");
+    // Non-string elements are treated as not-found
+    assert(result.error.includes("42") || result.error.includes("null"), "error mentions non-string elements");
+  } finally {
+    cleanup(tmp.dir);
+  }
+})();
+
 // Source hygiene
 console.log("\nSource hygiene\n");
 (function () {
