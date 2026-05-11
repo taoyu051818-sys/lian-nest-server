@@ -137,17 +137,74 @@ behavior before posting.
 Requires `gh` CLI authenticated with `issues` and `pull_requests` scopes.
 Set `GH_REPO` env var or pass `-Repo OWNER/NAME`.
 
-## Idempotency Flow
+## Idempotency Contract
+
+The publisher is safe to retry. Every call with the same `MarkerId` on
+the same target produces exactly one comment — either created or updated.
+
+### Guarantees
+
+| Guarantee | Detail |
+|-----------|--------|
+| **No duplicates** | Running the publisher N times with the same `MarkerId` results in exactly one comment on the target issue/PR. |
+| **Update over create** | If a comment containing the open marker `<!-- ai-result:<id>:begin -->` already exists, the publisher PATCHes it instead of creating a new one. |
+| **Content overwrite** | On update, the entire comment body is replaced. Stale content from a previous run does not persist. |
+| **Label normalization** | When `-StatusLabel` is passed, label mutations are also idempotent — removing labels that are already absent is a no-op, and adding an existing label is a no-op. |
+
+### Flow
 
 ```
-1. Build comment body with markers
+1. Build comment body with open/close markers
 2. Search existing comments on target for matching open marker
-3. If found  -> PATCH (update) existing comment
-4. If not found -> POST new comment
+3. If found  -> PATCH (update) the existing comment body
+4. If not found -> POST a new comment
 ```
 
-This ensures workers can safely re-publish after fixing issues without
-creating duplicate comments.
+### What triggers update vs. create
+
+- **CREATE**: No comment on the target issue/PR contains the
+  `<!-- ai-result:<MarkerId>:begin -->` string.
+- **UPDATE**: A comment exists whose body contains the open marker.
+  The publisher replaces its body with the new content.
+
+### Marker ID determinism
+
+The marker ID is caller-supplied, not auto-generated. Two calls with
+the same `MarkerId` on the same target always hit the same comment.
+Two calls with different `MarkerId` values produce separate comments
+(this is intentional — different result kinds use different markers).
+
+### Retry safety
+
+Workers can safely re-run the publisher after:
+
+- Fixing a validation failure
+- Updating changed-file lists
+- Refreshing validation evidence
+
+Each re-run replaces the previous comment content atomically. The
+marker pair (`begin`/`end`) is always re-emitted, so the next run
+will find and update the same comment.
+
+### Dry-run idempotency check
+
+Pass `-DryRun` to see whether the next run would **CREATE** or
+**UPDATE** without making any API mutations. The dry-run probes for
+an existing marker and reports the action it would take:
+
+```
+=== DRY RUN ===
+Target: issue #88
+Repo: owner/name
+MarkerId: issue-88-exec
+Comment size: 342 chars (limit: 65000)
+Idempotency: UPDATE existing comment 1234567890 (marker 'issue-88-exec' found)
+...
+=== END DRY RUN ===
+```
+
+If multiple comments contain the same marker (unexpected), the
+dry-run emits a warning. Only the first match is updated.
 
 ## Label Transition
 

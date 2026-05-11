@@ -144,7 +144,11 @@ sanitized summary comment with idempotent markers to the target issue or
 PR. Key guarantees:
 
 - **No raw logs** — only state, exit code, and elapsed time are published.
-- **Idempotent by marker** — re-running the monitor updates the same comment.
+- **Idempotent by marker** — re-running the monitor updates the same
+  comment. If the marker already exists, the publisher PATCHes the
+  existing comment instead of creating a duplicate. See the
+  [idempotency contract](result-publishing.md#idempotency-contract)
+  for full details.
 - **Local-only default** — publishing never happens unless explicitly opted in.
 - **Fail-safe** — publish errors are warnings; the monitor always writes the
   final local snapshot regardless.
