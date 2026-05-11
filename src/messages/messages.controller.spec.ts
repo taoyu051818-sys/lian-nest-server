@@ -60,10 +60,24 @@ describe('MessagesModule', () => {
       ).rejects.toThrow('Not implemented: MessagesUseCase.sendMessage');
     });
 
-    it('should throw not implemented for listMessages', async () => {
-      await expect(messagesController.listMessages()).rejects.toThrow(
-        'Not implemented: MessagesUseCase.listMessages',
-      );
+    it('should return empty paginated list for listMessages with defaults', async () => {
+      const result = await messagesController.listMessages();
+      expect(result).toEqual({
+        messages: [],
+        totalCount: 0,
+        page: 1,
+        perPage: 20,
+      });
+    });
+
+    it('should parse and forward pagination params', async () => {
+      const result = await messagesController.listMessages('2', '10');
+      expect(result).toEqual({
+        messages: [],
+        totalCount: 0,
+        page: 2,
+        perPage: 10,
+      });
     });
 
     it('should throw not implemented for markRead', async () => {
@@ -129,10 +143,37 @@ describe('MessagesModule', () => {
       ).rejects.toThrow('Not implemented');
     });
 
-    it('should throw not implemented for listMessages', async () => {
-      await expect(messagesUseCase.listMessages(1)).rejects.toThrow(
-        'Not implemented',
-      );
+    it('should return empty list with default pagination', async () => {
+      const result = await messagesUseCase.listMessages(1);
+      expect(result).toEqual({
+        messages: [],
+        totalCount: 0,
+        page: 1,
+        perPage: 20,
+      });
+    });
+
+    it('should forward custom pagination values', async () => {
+      const result = await messagesUseCase.listMessages(1, 3, 15);
+      expect(result).toEqual({
+        messages: [],
+        totalCount: 0,
+        page: 3,
+        perPage: 15,
+      });
+    });
+
+    it('should return response matching parity schema shape', async () => {
+      const result = await messagesUseCase.listMessages(1);
+      // Parity contract: required keys present, correct types
+      expect(Array.isArray(result.messages)).toBe(true);
+      expect(typeof result.totalCount).toBe('number');
+      expect(typeof result.page).toBe('number');
+      expect(typeof result.perPage).toBe('number');
+      expect(result.totalCount).toBeGreaterThanOrEqual(0);
+      expect(result.page).toBeGreaterThanOrEqual(1);
+      expect(result.perPage).toBeGreaterThanOrEqual(1);
+      expect(result.perPage).toBeLessThanOrEqual(50);
     });
 
     it('should throw not implemented for markRead', async () => {

@@ -15,13 +15,16 @@ export class MessagesUseCase {
 
   /**
    * List messages for a user (inbox or thread).
-   * TODO: Wire to NodeBB chat/message API when available.
+   * Returns an empty list until a NodeBB message provider is wired.
    */
   async listMessages(uid: number, page = 1, perPage = 20): Promise<MessageListResponseDto> {
     void uid;
-    void page;
-    void perPage;
-    throw new Error('Not implemented: MessagesUseCase.listMessages — awaiting NodeBB message provider');
+    return {
+      messages: [],
+      totalCount: 0,
+      page,
+      perPage,
+    };
   }
 
   /**
