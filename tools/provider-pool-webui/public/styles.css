@@ -1344,6 +1344,102 @@ tr.row-disabled td {
   color: var(--text-secondary);
 }
 
+/* --- Confirmation Warning Banner --- */
+
+.confirm-warning {
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--sp-3);
+  border: 1px solid;
+}
+
+.confirm-warning--low {
+  background: var(--action-safe-bg);
+  border-color: var(--action-safe-border);
+}
+
+.confirm-warning--medium {
+  background: var(--status-exhausted-bg);
+  border-color: var(--status-exhausted);
+}
+
+.confirm-warning--high {
+  background: var(--action-execute-bg);
+  border-color: var(--action-execute-border);
+}
+
+.confirm-warning__header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+
+.confirm-warning__icon {
+  font-size: var(--text-lg);
+  flex-shrink: 0;
+}
+
+.confirm-warning--high .confirm-warning__icon {
+  color: var(--status-disabled);
+}
+
+.confirm-warning--medium .confirm-warning__icon {
+  color: var(--status-exhausted);
+}
+
+.confirm-warning--low .confirm-warning__icon {
+  color: var(--status-available);
+}
+
+.confirm-warning__title {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.confirm-warning--high .confirm-warning__title {
+  color: var(--status-disabled);
+}
+
+.confirm-warning--medium .confirm-warning__title {
+  color: var(--status-exhausted);
+}
+
+.confirm-warning--low .confirm-warning__title {
+  color: var(--status-available);
+}
+
+.confirm-warning__body {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--sp-2);
+}
+
+.confirm-warning__notice {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--status-disabled);
+}
+
+/* --- Confirmation Reason Input --- */
+
+.execute-confirm__reason-wrap {
+  margin-bottom: var(--sp-3);
+}
+
+.execute-confirm__reason-label {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-1);
+}
+
 /* --- Audit Timeline --- */
 
 .audit-timeline {

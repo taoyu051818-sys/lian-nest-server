@@ -12,6 +12,7 @@
  */
 
 const { spawn } = require("child_process");
+const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
 
@@ -479,6 +480,42 @@ function assertNoSecrets(json, label) {
     // === 11. Unknown route ====================================================
 
     console.log("\n11. Unknown route\n");
+
+    // === 12. Confirmation copy enhancement =====================================
+
+    console.log("\n12. Confirmation copy enhancement\n");
+
+    // Verify app.js source contains confirmation warning infrastructure
+    {
+      const appJsPath = path.resolve(__dirname, "public", "app.js");
+      const appJs = fs.readFileSync(appJsPath, "utf-8");
+      assert(appJs.includes("RISK_DESCRIPTIONS"), "app.js contains RISK_DESCRIPTIONS map");
+      assert(appJs.includes("confirmationWarningBanner"), "app.js contains confirmationWarningBanner function");
+      assert(appJs.includes("confirm-warning"), "app.js references confirm-warning CSS class");
+      assert(appJs.includes("execute-confirm__reason"), "app.js references reason input classes");
+      // Verify risk-specific descriptions exist
+      assert(appJs.includes("provider.retry"), "RISK_DESCRIPTIONS includes provider.retry");
+      assert(appJs.includes("provider.disable"), "RISK_DESCRIPTIONS includes provider.disable");
+      assert(appJs.includes("queue.clearStale"), "RISK_DESCRIPTIONS includes queue.clearStale");
+      assert(appJs.includes("global.refreshState"), "RISK_DESCRIPTIONS includes global.refreshState");
+      // Verify confirmation prompt includes action label
+      assert(appJs.includes("to confirm execution of"), "confirmation prompt includes action label context");
+      // Verify reason validation logic exists
+      assert(appJs.includes("needsReason"), "app.js has reason validation logic");
+      assert(appJs.includes("validateConfirm"), "app.js has validateConfirm function");
+    }
+
+    // Verify styles.css source contains confirmation warning styles
+    {
+      const stylesPath = path.resolve(__dirname, "public", "styles.css");
+      const styles = fs.readFileSync(stylesPath, "utf-8");
+      assert(styles.includes("confirm-warning--high"), "styles.css contains high-risk warning style");
+      assert(styles.includes("confirm-warning--medium"), "styles.css contains medium-risk warning style");
+      assert(styles.includes("confirm-warning__body"), "styles.css contains warning body style");
+      assert(styles.includes("confirm-warning__notice"), "styles.css contains warning notice style");
+      assert(styles.includes("execute-confirm__reason"), "styles.css contains reason input style");
+      assert(styles.includes("confirm-warning__icon"), "styles.css contains warning icon style");
+    }
 
     {
       const res = await request(base + "/api/nonexistent");
