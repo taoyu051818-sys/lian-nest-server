@@ -6,6 +6,8 @@ this document tracks the freeze, migration checklist, and eventual removal.
 
 > **Owner document:** [orchestration-ownership.md](../ai-native/orchestration-ownership.md)
 > establishes `lian-nest-server` as the sole orchestration owner.
+> **Backend source of truth:** [backend-source-of-truth.md](../contracts/backend-source-of-truth.md)
+> declares `lian-nest-server` as the explicit backend source of truth.
 > **Reference:** [legacy-freeze-rules.md](legacy-freeze-rules.md) for general
 > legacy freeze policy, [legacy-shutdown-matrix.md](legacy-shutdown-matrix.md)
 > for endpoint-level shutdown tracking.
