@@ -1,48 +1,82 @@
-# First Read-Only Route Parity -- Migration Plan
+# Read-Only Route Parity Fixtures -- Index
 
-Plans the first fixture-driven parity verification slice for read-only
-endpoints. This is the implementation companion to
-`docs/contracts/readonly-route-parity-fixtures.md`.
+Index of all implemented read-only (GET) endpoints and their parity fixture
+status. Companion to `docs/contracts/readonly-route-parity-fixtures.md`
+(fixture format and first-slice contracts).
 
-> **Issue:** #46
-> **Scope:** Planning doc only. No runtime, test, or script changes in this PR.
+> **Issue:** #242
+> **Scope:** Documentation only. No runtime, test, or script changes.
 
 ---
 
-## Selected Endpoints (4)
+## Fixture Index
 
-The following endpoints are chosen for the first slice because they are:
+### Implemented Read-Only Endpoints (14)
 
-- Already implemented in Nest (not stubs)
-- Read-only (GET only, no mutations)
-- Public (no auth dependency, avoiding AuthModule merge blocker)
-- Cover three response patterns: single object, paginated list, single by ID
+All endpoints below have working Nest implementations (not stubs).
 
-| # | Endpoint                 | Module  | Auth   | Pattern          | Fixture file(s)                  |
-|---|--------------------------|---------|--------|------------------|----------------------------------|
-| 1 | `GET /api/health`        | Health  | Public | Single object    | `health-basic.json`              |
-| 2 | `GET /api/feed`          | Feed    | Public | Paginated list   | `feed-list-default.json`, `feed-list-pagination.json` |
-| 3 | `GET /api/feed/:id`      | Feed    | Public | Single by ID     | `feed-item-basic.json`           |
-| 4 | `GET /api/profile/:uid`  | Profile | Public | Single object    | `profile-public-basic.json`      |
+| # | Endpoint                                | Module        | Auth     | Pattern        | Fixture Status | Fixture File(s)                              | Impl PR |
+|---|-----------------------------------------|---------------|----------|----------------|----------------|----------------------------------------------|---------|
+| 1 | `GET /api/health`                       | Health        | Public   | Single object  | DEFINED        | `health-basic.json`                          | —       |
+| 2 | `GET /api/feed`                         | Feed          | Public   | Paginated list | DEFINED        | `feed-list-default.json`, `feed-list-pagination.json` | #143 |
+| 3 | `GET /api/profile/:uid`                 | Profile       | Public   | Single object  | DEFINED        | `profile-public-basic.json`                  | #126    |
+| 4 | `GET /api/profile/:uid/saved`           | Profile       | Public   | Paginated list | MISSING        | —                                            | —       |
+| 5 | `GET /api/profile/:uid/liked`           | Profile       | Public   | Paginated list | MISSING        | —                                            | #231    |
+| 6 | `GET /api/posts`                        | Posts         | Public   | Paginated list | MISSING        | —                                            | #209    |
+| 7 | `GET /api/posts/:postId`                | Posts         | Public   | Single by ID   | MISSING        | —                                            | #128    |
+| 8 | `GET /api/posts/:postId/reactions`      | Posts         | Public   | Single object  | MISSING        | —                                            | #233    |
+| 9 | `GET /api/posts/:postId/replies`        | Posts         | Public   | Paginated list | MISSING        | —                                            | #185    |
+| 10| `GET /api/messages`                     | Messages      | Auth     | Paginated list | MISSING        | —                                            | #180    |
+| 11| `GET /api/notifications`                | Notifications | Auth     | Paginated list | MISSING        | —                                            | #127    |
+| 12| `GET /api/notifications/unread-count`   | Notifications | Auth     | Single object  | MISSING        | —                                            | #152    |
+| 13| `GET /api/categories`                   | Categories    | Public   | List           | MISSING        | —                                            | #232    |
+| 14| `GET /api/tags`                         | Tags          | Public   | List           | MISSING        | —                                            | #208    |
 
-### Why Not PostsModule?
+### Stub Endpoints (3 -- not yet eligible for fixtures)
 
-All 4 PostsModule GET handlers throw `NotImplementedException`. Fixtures for
-stubs would only verify the 501 error shape, which adds no parity value.
-PostsModule fixtures should be planned after its endpoints are implemented.
+These have controller handlers but the underlying usecase throws or returns
+empty. Fixtures would only verify error/empty shapes, adding no parity value.
 
-### Why Not Profile Collections?
+| Endpoint                          | Module  | Stub Reason                                      |
+|-----------------------------------|---------|--------------------------------------------------|
+| `GET /api/feed/:feedItemId`       | Feed    | `GetFeedItemUsecase` throws Error                |
+| `GET /api/profile/:uid/history`   | Profile | `ProfileUsecase.getHistory` throws Error          |
+| `GET /api/auth/me`                | Auth    | `CurrentUserUsecase` throws Error                 |
 
-`GET /api/profile/:uid/saved`, `/liked`, `/history` are implemented but add
-3 more endpoints with identical `ProfileCollection<T>` pattern. Including
-them would double the profile fixture count without testing a new shape.
-They are deferred to the follow-up slice.
+---
 
-### Why Not Messages/Notifications?
+## Fixture Coverage Summary
 
-`GET /api/messages` and `GET /api/notifications` require authentication.
-Adding auth-gated fixtures before AuthModule merge creates a dependency
-risk. They belong in a post-auth slice.
+| Metric                       | Count |
+|------------------------------|-------|
+| Implemented read-only GETs   | 14    |
+| Fixtures defined             | 4     |
+| Fixtures missing             | 11    |
+| Stub endpoints (deferred)    | 3     |
+| **Fixture coverage**         | **29%** (4 / 14) |
+
+### Missing Fixtures by Priority
+
+**Public endpoints (no auth dependency):**
+
+| Endpoint                                | Module     | Notes |
+|-----------------------------------------|------------|-------|
+| `GET /api/posts`                        | Posts      | Paginated list, same shape as feed |
+| `GET /api/posts/:postId`                | Posts      | Single object with nested topic |
+| `GET /api/posts/:postId/reactions`      | Posts      | Starter shape with zero counts |
+| `GET /api/posts/:postId/replies`        | Posts      | Paginated list, filtered from topic |
+| `GET /api/profile/:uid/saved`           | Profile    | `ProfileCollection<T>` pattern |
+| `GET /api/profile/:uid/liked`           | Profile    | `ProfileCollection<T>` pattern |
+| `GET /api/categories`                   | Categories | Flat list of category items |
+| `GET /api/tags`                         | Tags       | Flat list of tag items |
+
+**Auth-gated endpoints (require AuthModule):**
+
+| Endpoint                                | Module        | Notes |
+|-----------------------------------------|---------------|-------|
+| `GET /api/messages`                     | Messages      | Returns empty fallback currently |
+| `GET /api/notifications`                | Notifications | Provider-backed list |
+| `GET /api/notifications/unread-count`   | Notifications | Single count value |
 
 ---
 
