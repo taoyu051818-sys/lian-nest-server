@@ -16,6 +16,7 @@
     ./scripts/ai/update-migration-matrix.ps1 -Slice A3 -TargetStatus IMPLEMENTED -Apply
     ./scripts/ai/update-migration-matrix.ps1 -Slice A3 -TargetStatus IMPLEMENTED -Write
     ./scripts/ai/update-migration-matrix.ps1 -Slice A3 -TargetStatus IMPLEMENTED -SliceMatrix -Write
+    ./scripts/ai/update-migration-matrix.ps1 -Slice A3 -TargetStatus IMPLEMENTED -Idempotent
 #>
 
 [CmdletBinding()]
@@ -43,7 +44,10 @@ param(
     [switch]$Write,
 
     [Parameter(Mandatory = $false)]
-    [switch]$SliceMatrix
+    [switch]$SliceMatrix,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$Idempotent
 )
 
 Set-StrictMode -Version Latest
@@ -93,7 +97,7 @@ function Import-MatrixRows {
             }
         }
     }
-    return $rows
+    return ,$rows
 }
 
 # --- Slice matrix parser -----------------------------------------------------
@@ -114,7 +118,7 @@ function Import-SliceMatrixRows {
             }
         }
     }
-    return $rows
+    return ,$rows
 }
 
 # --- PR metadata loader ------------------------------------------------------
@@ -132,52 +136,66 @@ function Import-PrMeta {
 # --- Suggestion engine -------------------------------------------------------
 
 function Find-SuggestedUpdates {
-    param($Rows, [string]$TargetSlice, [string]$NewStatus, [string]$NewBlocker)
-    $suggestions = @()
+    param($Rows, [string]$TargetSlice, [string]$NewStatus, [string]$NewBlocker, [ref]$Skipped)
+    [System.Collections.ArrayList]$suggestions = @()
     foreach ($row in $Rows) {
         if ($row.Slice -ne $TargetSlice) { continue }
-        if ($row.Status -eq $NewStatus) { continue }
+        if ($row.Status -eq $NewStatus) {
+            if ($Skipped) {
+                $null = $Skipped.Value.Add([PSCustomObject]@{
+                    Method = $row.Method; Path = $row.Path; Slice = $row.Slice; Status = $row.Status
+                })
+            }
+            continue
+        }
         if (-not (Test-StatusTransition -From $row.Status -To $NewStatus)) {
-            $suggestions += [PSCustomObject]@{
+            $null = $suggestions.Add([PSCustomObject]@{
                 Family = $row.Family; Method = $row.Method; Path = $row.Path; Slice = $row.Slice
                 From = $row.Status; To = $NewStatus; Valid = $false
                 Reason = "Invalid: $($row.Status) -> $NewStatus (linear, one-step only)"
                 Blocker = $row.ShutdownBlocker
-            }
+            })
             continue
         }
         $blocker = if ($NewBlocker) { $NewBlocker } else { $row.ShutdownBlocker }
         if ((Get-StatusIndex $NewStatus) -ge (Get-StatusIndex "PARITY_TESTED")) { $blocker = "None" }
-        $suggestions += [PSCustomObject]@{
+        $null = $suggestions.Add([PSCustomObject]@{
             Family = $row.Family; Method = $row.Method; Path = $row.Path; Slice = $row.Slice
             From = $row.Status; To = $NewStatus; Valid = $true
             Reason = "Advance $($row.Status) -> $NewStatus"; Blocker = $blocker
-        }
+        })
     }
-    return $suggestions
+    return ,$suggestions
 }
 
 function Find-SliceMatrixUpdates {
-    param($Rows, [string]$TargetSlice, [string]$NewStatus)
-    $suggestions = @()
+    param($Rows, [string]$TargetSlice, [string]$NewStatus, [ref]$Skipped)
+    [System.Collections.ArrayList]$suggestions = @()
     $matched = @($Rows | Where-Object { $_.Slice -eq $TargetSlice })
     foreach ($row in $matched) {
-        if ($row.Status -eq $NewStatus) { continue }
-        if (-not (Test-StatusTransition -From $row.Status -To $NewStatus)) {
-            $suggestions += [PSCustomObject]@{
-                Phase = $row.Phase; Order = $row.Order; Slice = $row.Slice
-                From = $row.Status; To = $NewStatus; Valid = $false
-                Reason = "Invalid: $($row.Status) -> $NewStatus (linear, one-step only)"
+        if ($row.Status -eq $NewStatus) {
+            if ($Skipped) {
+                $null = $Skipped.Value.Add([PSCustomObject]@{
+                    Phase = $row.Phase; Order = $row.Order; Slice = $row.Slice; Status = $row.Status
+                })
             }
             continue
         }
-        $suggestions += [PSCustomObject]@{
+        if (-not (Test-StatusTransition -From $row.Status -To $NewStatus)) {
+            $null = $suggestions.Add([PSCustomObject]@{
+                Phase = $row.Phase; Order = $row.Order; Slice = $row.Slice
+                From = $row.Status; To = $NewStatus; Valid = $false
+                Reason = "Invalid: $($row.Status) -> $NewStatus (linear, one-step only)"
+            })
+            continue
+        }
+        $null = $suggestions.Add([PSCustomObject]@{
             Phase = $row.Phase; Order = $row.Order; Slice = $row.Slice
             From = $row.Status; To = $NewStatus; Valid = $true
             Reason = "Advance $($row.Status) -> $NewStatus"
-        }
+        })
     }
-    return $suggestions
+    return ,$suggestions
 }
 
 # --- Output ------------------------------------------------------------------
@@ -308,14 +326,31 @@ if ($useSliceMatrix) {
     Write-Ok "Matched $($matchedRows.Count) row(s) for slice $slice."
     Write-Output ""
 
-    $suggestions = Find-SliceMatrixUpdates -Rows $sliceRows -TargetSlice $slice -NewStatus $targetStatus
+    [System.Collections.ArrayList]$skipped = @()
+    $suggestions = Find-SliceMatrixUpdates -Rows $sliceRows -TargetSlice $slice -NewStatus $targetStatus -Skipped ([ref]$skipped)
     Write-SliceSuggestionReport -Suggestions $suggestions
     $null = Build-SliceMarkdownReport -Suggestions $suggestions
+
+    # Idempotency reporting
+    if ($skipped.Count -gt 0) {
+        Write-Output ""
+        Write-Ok "Idempotent: $($skipped.Count) row(s) already at $targetStatus (no change needed)."
+        foreach ($s in $skipped) {
+            Write-Output "  [SKIP] Slice $($s.Slice) (order $($s.Order)): already ``$($s.Status)``"
+        }
+    }
+
+    $valid = @($suggestions | Where-Object { $_.Valid })
+    if ($valid.Count -eq 0 -and $skipped.Count -gt 0) {
+        Write-Output ""
+        Write-Ok "All matched rows already at target status. No-op (idempotent)."
+        if ($Idempotent) { exit 0 }
+    }
 
     if ($Apply) {
         Write-Output ""
         Write-Step "APPLY MODE (suggestions only, no file mutation)"
-        foreach ($s in @($suggestions | Where-Object { $_.Valid })) {
+        foreach ($s in $valid) {
             Write-Output "  Slice $($s.Slice) (order $($s.Order)): ``$($s.From)`` -> ``$($s.To)``"
         }
         Write-Output "No files were modified."
@@ -345,15 +380,32 @@ Write-Ok "Matched $($sliceRows.Count) endpoint(s) for slice $slice."
 Write-Output ""
 
 # Generate suggestions
-$suggestions = Find-SuggestedUpdates -Rows $rows -TargetSlice $slice -NewStatus $targetStatus -NewBlocker $shutdownBlocker
+[System.Collections.ArrayList]$skipped = @()
+$suggestions = Find-SuggestedUpdates -Rows $rows -TargetSlice $slice -NewStatus $targetStatus -NewBlocker $shutdownBlocker -Skipped ([ref]$skipped)
 Write-SuggestionReport -Suggestions $suggestions
 $null = Build-MarkdownReport -Suggestions $suggestions
+
+# Idempotency reporting
+if ($skipped.Count -gt 0) {
+    Write-Output ""
+    Write-Ok "Idempotent: $($skipped.Count) endpoint(s) already at $targetStatus (no change needed)."
+    foreach ($s in $skipped) {
+        Write-Output "  [SKIP] $($s.Method) $($s.Path): already ``$($s.Status)``"
+    }
+}
+
+$valid = @($suggestions | Where-Object { $_.Valid })
+if ($valid.Count -eq 0 -and $skipped.Count -gt 0) {
+    Write-Output ""
+    Write-Ok "All matched endpoints already at target status. No-op (idempotent)."
+    if ($Idempotent) { exit 0 }
+}
 
 # Apply mode: print replacement rows for manual review
 if ($Apply) {
     Write-Output ""
     Write-Step "APPLY MODE (suggestions only, no file mutation)"
-    foreach ($s in @($suggestions | Where-Object { $_.Valid })) {
+    foreach ($s in $valid) {
         Write-Output "  OLD: | $($s.Method) | $($s.Path) | $($s.Slice) | ``$($s.From)`` | $($s.Blocker) |"
         Write-Output "  NEW: | $($s.Method) | $($s.Path) | $($s.Slice) | ``$($s.To)`` | $($s.Blocker) |"
         Write-Output ""
@@ -365,7 +417,6 @@ if ($Apply) {
 if ($Write) {
     Write-Output ""
     Write-Step "WRITE MODE (modifying matrix file)"
-    $valid = @($suggestions | Where-Object { $_.Valid })
     if ($valid.Count -eq 0) {
         Write-Output "Nothing to write."
     } else {
