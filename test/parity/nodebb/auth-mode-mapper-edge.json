@@ -1,0 +1,53 @@
+{
+  "id": "auth-mode-mapper-edge",
+  "endpoint": "mapper/toNodebbAuthMode",
+  "description": "toNodebbAuthMode rejects whitespace-padded, mixed-case, non-primitive, and prototype-key inputs",
+  "request": {
+    "method": "MAPPER",
+    "function": "toNodebbAuthMode",
+    "cases": [
+      { "input": " api_token", "label": "leading-whitespace" },
+      { "input": "api_token ", "label": "trailing-whitespace" },
+      { "input": " session ", "label": "padded-whitespace" },
+      { "input": "   ", "label": "only-whitespace" },
+      { "input": "\t", "label": "tab" },
+      { "input": "\n", "label": "newline" },
+      { "input": "Api_Token", "label": "title-case" },
+      { "input": "Session", "label": "capitalized" },
+      { "input": "aPi_tOkEn", "label": "mixed-case" },
+      { "input": "None", "label": "title-case-none" },
+      { "input": {}, "label": "plain-object" },
+      { "input": { "mode": "api_token" }, "label": "object-with-mode" },
+      { "input": [], "label": "empty-array" },
+      { "input": ["api_token"], "label": "array-with-valid" },
+      { "input": "function () {}", "label": "function-type", "typeofOverride": "function" },
+      { "input": "NaN", "label": "nan", "typeofOverride": "number" },
+      { "input": "Infinity", "label": "infinity", "typeofOverride": "number" },
+      { "input": "-0", "label": "negative-zero", "typeofOverride": "number" },
+      { "input": "new String('api_token')", "label": "string-object", "typeofOverride": "object" },
+      { "input": "__proto__", "label": "proto-key" },
+      { "input": "constructor", "label": "constructor-key" },
+      { "input": "toString", "label": "tostring-key" }
+    ]
+  },
+  "expected": {
+    "throws": true,
+    "errorMessagePattern": "Invalid NODEBB_AUTH_MODE",
+    "prototypeKeyBehavior": {
+      "__proto__": "returns Object.prototype (non-enum, known prototype-pollution surface)",
+      "constructor": "returns Object constructor (non-enum, known prototype-pollution surface)",
+      "toString": "returns Object.prototype.toString (non-enum, known prototype-pollution surface)"
+    },
+    "validMappings": [
+      { "input": "api_token", "output": "api_token" },
+      { "input": "session", "output": "session" },
+      { "input": "none", "output": "none" }
+    ],
+    "enumIntegrity": {
+      "API_TOKEN": "api_token",
+      "SESSION": "session",
+      "NONE": "none"
+    }
+  },
+  "notes": "Covers edge cases beyond nodebb-auth-mode.mapper.spec.ts: whitespace padding, case sensitivity beyond all-caps, non-primitive types, prototype-key strings (known prototype-pollution surface via Object.prototype), and enum round-trip integrity."
+}
