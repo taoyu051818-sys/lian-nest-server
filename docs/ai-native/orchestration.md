@@ -4,17 +4,18 @@ This document describes how `lian-nest-server` owns and runs AI worker orchestra
 
 ## Overview
 
-The self-hosted batch launcher runs Claude Code workers directly from this repository. It reads task JSON files, creates isolated git worktrees, and invokes Claude Code in `--print` mode with strict tool boundaries.
+The self-hosted batch launcher runs Claude Code workers directly from this repository. It reads task JSON files, validates them against the launch gate, creates isolated git worktrees, and invokes Claude Code in `--print` mode with strict tool boundaries.
 
 ```
-task.json → batch-launch.ps1 → git worktree → run-claude-print.ps1 → Claude Code → commit → done
+task.json → batch-launch.ps1 → launch gate → git worktree → run-claude-print.ps1 → Claude Code → commit → done
 ```
 
 ## Components
 
 | File | Purpose |
 |------|---------|
-| `scripts/ai/batch-launch.ps1` | Entry point — validates task, creates worktree, launches worker |
+| `scripts/ai/batch-launch.ps1` | Entry point — validates task, runs launch gate, creates worktree, launches worker |
+| `scripts/ai/check-launch-gate.ps1` | Pre-launch gate — validates tasks against main health and conflict metadata |
 | `scripts/ai/run-claude-print.ps1` | Worker runner — invokes Claude Code with constrained tools |
 | `scripts/ai/task.schema.json` | JSON Schema for task contracts |
 | `docs/ai-native/orchestration.md` | This file |
@@ -129,6 +130,7 @@ The self-hosted launcher is additive — it does not replace or modify existing 
 
 ## Future Work
 
+- [x] Launch gate integration — `check-launch-gate.ps1` runs automatically in `batch-launch.ps1`
 - [ ] Task queue integration (read from GitHub issues directly)
 - [ ] Parallel worker launch with conflict group enforcement
 - [ ] PR creation automation after successful worker completion
@@ -139,5 +141,6 @@ The self-hosted launcher is additive — it does not replace or modify existing 
 
 - [Worker Task Contract](worker-task-contract.md) — full JSON schema documentation
 - [Worker Acceptance Checklist](worker-acceptance-checklist.md) — PR review criteria
+- [Launch Gate](launch-gate.md) — pre-launch health and conflict validation
 - [SOP](SOP.md) — full AI-native development lifecycle
 - [Parallel Work Policy](parallel-work-policy.md) — conflict group rules
