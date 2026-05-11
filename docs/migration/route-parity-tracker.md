@@ -12,12 +12,12 @@ Tracks which legacy route families have been migrated to Nest controllers.
 
 | Family       | Status       | Nest Module / Controller | Issue | Notes |
 |--------------|--------------|--------------------------|-------|-------|
-| AUTH         | IN_PROGRESS  | AuthModule / AuthController | #243 | 1 of 5 endpoints implemented (me) |
-| USERS        | IN_PROGRESS  | UsersModule / UsersController | #248 | 1 of 5 endpoints implemented (detail) |
+| AUTH         | IN_PROGRESS  | AuthModule / AuthController | #243, #272 | 1 of 5 endpoints implemented (me) |
+| USERS        | IN_PROGRESS  | UsersModule / UsersController | #248, #265 | 2 of 5 endpoints implemented (detail, posts) |
 | CATEGORIES   | IN_PROGRESS  | CategoriesModule / CategoriesController | #232, #247 | 2 of 4 endpoints implemented (list, detail) |
-| TOPICS       | UNMIGRATED   |                          |       |       |
+| TOPICS       | IN_PROGRESS  | TopicsModule / TopicsController | #273 | 1 of 6 endpoints implemented (detail) |
 | POSTS        | IN_PROGRESS  | PostsModule / PostsController | #128, #185, #209, #233 | 4 of 7 endpoints implemented (list, detail, reactions, replies) |
-| MESSAGING    | IN_PROGRESS  | MessagesModule / MessagesController | #180 | 1 of 4 endpoints implemented (list) |
+| MESSAGING    | IN_PROGRESS  | MessagesModule / MessagesController | #180, #263 | 2 of 4 endpoints implemented (list, markRead) |
 | NOTIFICATIONS| IN_PROGRESS  | NotificationsController (under MessagesModule) | #127, #152 | 3 of 4 endpoints implemented (list, unread-count, mark-read) |
 | TAGS         | IN_PROGRESS  | TagsModule / TagsController | #208, #250 | 2 of 2 endpoints implemented (list, tag topics) |
 | SEARCH       | UNMIGRATED   |                          |       |       |
@@ -36,7 +36,7 @@ When a family moves to IN_PROGRESS or MIGRATED, add per-route detail below.
 | POST   | /api/auth/login       | UNMIGRATED   |                             |
 | POST   | /api/auth/register    | UNMIGRATED   |                             |
 | POST   | /api/auth/logout      | UNMIGRATED   |                             |
-| GET    | /api/auth/me          | IMPLEMENTED  | AuthController.getCurrentUser |
+| GET    | /api/auth/me          | IMPLEMENTED  | AuthController.getCurrentUser (#272) |
 | POST   | /api/auth/password    | UNMIGRATED   |                             |
 
 ### USERS
@@ -46,8 +46,19 @@ When a family moves to IN_PROGRESS or MIGRATED, add per-route detail below.
 | GET    | /api/users/:uid       | IMPLEMENTED  | UsersController.getByUid (#248) |
 | GET    | /api/users/:uid/profile | UNMIGRATED   |                             |
 | PUT    | /api/users/:uid       | UNMIGRATED   |                             |
-| GET    | /api/users/:uid/posts | UNMIGRATED   |                             |
+| GET    | /api/users/:uid/posts | IMPLEMENTED  | UsersController.getPosts (#265) |
 | GET    | /api/users/:uid/topics | UNMIGRATED   |                             |
+
+### TOPICS
+
+| Method | Path                  | Status       | Controller / Handler        |
+|--------|-----------------------|--------------|-----------------------------|
+| GET    | /api/topic/:tid       | IMPLEMENTED  | TopicsController.getByTid (#273) |
+| PUT    | /api/topic/:tid       | UNMIGRATED   |                             |
+| DELETE | /api/topic/:tid       | UNMIGRATED   |                             |
+| POST   | /api/topic/:tid/follow | UNMIGRATED   |                             |
+| DELETE | /api/topic/:tid/follow | UNMIGRATED   |                             |
+| POST   | /api/topic/:tid/vote  | UNMIGRATED   |                             |
 
 ### POSTS
 
@@ -68,7 +79,7 @@ When a family moves to IN_PROGRESS or MIGRATED, add per-route detail below.
 | GET    | /api/messages         | IMPLEMENTED  | MessagesController.listMessages (#180) |
 | GET    | /api/messages/:mid    | UNMIGRATED   |                             |
 | POST   | /api/messages         | UNMIGRATED   |                             |
-| POST   | /api/messages/:mid    | UNMIGRATED   |                             |
+| POST   | /api/messages/:mid/read | IMPLEMENTED  | MessagesController.markRead (#263) |
 
 ### NOTIFICATIONS
 
@@ -115,8 +126,8 @@ When a family moves to IN_PROGRESS or MIGRATED, add per-route detail below.
 
 - **Total families:** 12
 - **MIGRATED:** 0
-- **IN_PROGRESS:** 9
-- **UNMIGRATED:** 3
+- **IN_PROGRESS:** 11
+- **UNMIGRATED:** 1
 
 ## How to Update
 

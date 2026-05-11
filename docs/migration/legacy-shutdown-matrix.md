@@ -58,7 +58,7 @@ are true:
 | GET | /api/users/:uid | U1 | `IMPLEMENTED` | Parity tests not yet passing |
 | GET | /api/users/:uid/profile | — | `NOT_STARTED` | No slice defined |
 | PUT | /api/users/:uid | — | `NOT_STARTED` | No slice defined |
-| GET | /api/users/:uid/posts | — | `NOT_STARTED` | No slice defined |
+| GET | /api/users/:uid/posts | U2 | `IMPLEMENTED` | Parity tests not yet passing |
 | GET | /api/users/:uid/topics | — | `NOT_STARTED` | No slice defined |
 
 ### CATEGORIES — Category/Forum Structure
@@ -74,7 +74,7 @@ are true:
 
 | Method | Path | Slice | Status | Shutdown Blocker |
 |--------|------|-------|--------|-----------------|
-| GET | /api/topic/:tid | — | `NOT_STARTED` | No slice defined |
+| GET | /api/topic/:tid | T2 | `IMPLEMENTED` | Parity tests not yet passing |
 | PUT | /api/topic/:tid | — | `NOT_STARTED` | No slice defined |
 | DELETE | /api/topic/:tid | — | `NOT_STARTED` | No slice defined |
 | POST | /api/topic/:tid/follow | — | `NOT_STARTED` | No slice defined |
@@ -95,10 +95,11 @@ are true:
 
 | Method | Path | Slice | Status | Shutdown Blocker |
 |--------|------|-------|--------|-----------------|
-| GET | /api/messages | M1 | `CONTRACTED` | Slice M1 not implemented |
+| GET | /api/messages | M1 | `IMPLEMENTED` | Parity tests not yet passing |
 | GET | /api/messages/:mid | M1 | `CONTRACTED` | Slice M1 not implemented |
 | POST | /api/messages | M1 | `CONTRACTED` | Slice M1 not implemented |
 | POST | /api/messages/:mid | M1 | `CONTRACTED` | Slice M1 not implemented |
+| POST | /api/messages/:mid/read | M1 | `IMPLEMENTED` | Parity tests not yet passing |
 
 ### NOTIFICATIONS — User Notifications
 
@@ -136,12 +137,12 @@ are true:
 
 | Status | Count |
 |--------|-------|
-| `NOT_STARTED` | 13 |
-| `CONTRACTED` | 17 |
-| `IMPLEMENTED` | 9 |
+| `NOT_STARTED` | 10 |
+| `CONTRACTED` | 16 |
+| `IMPLEMENTED` | 13 |
 | `PARITY_TESTED` | 0 |
 | `LEGACY_DISABLED` | 0 |
-| **Total** | **39** |
+| **Total** | **40** |
 
 ---
 
