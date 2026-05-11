@@ -65,21 +65,51 @@ if ($MarkerId -notmatch '^[a-zA-Z0-9._-]+$') {
     exit 1
 }
 
-# Validate summary does not contain secrets patterns
+# ---------------------------------------------------------------------------
+# Sanitization helpers
+# ---------------------------------------------------------------------------
+
+$MAX_VALIDATION_LINES = 200
+$MAX_COMMENT_CHARS    = 65000  # GitHub limit is 65536; leave headroom
+
+function Strip-AnsiEscapes {
+    param([string]$Text)
+    return $Text -replace '\x1b\[[0-9;]*[A-Za-z]', ''
+}
+
+function Truncate-Lines {
+    param([string]$Text, [int]$MaxLines)
+    $allLines = $Text -split "`n"
+    if ($allLines.Count -le $MaxLines) { return $Text }
+    $kept = $allLines[0..($MaxLines - 1)] -join "`n"
+    return "$kept`n... (truncated: $($allLines.Count) lines total, showing first $MaxLines)"
+}
+
+# ---------------------------------------------------------------------------
+# Scan ALL user-supplied content for secrets
+# ---------------------------------------------------------------------------
+
 $secretPatterns = @(
     'ghp_[a-zA-Z0-9]{36}',
     'gho_[a-zA-Z0-9]{36}',
     'github_pat_[a-zA-Z0-9_]{22,}',
+    'glpat-[a-zA-Z0-9_-]{20,}',
     '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----',
     'AKIA[0-9A-Z]{16}',
-    'password\s*[:=]',
-    'secret\s*[:=]',
-    'token\s*[:=]'
+    'xox[bpors]-[a-zA-Z0-9-]{10,}',
+    'Bearer\s+[A-Za-z0-9._-]{20,}',
+    'password\s*[:=]\s*\S+',
+    'secret\s*[:=]\s*\S+',
+    'token\s*[:=]\s*\S+'
 )
-foreach ($pattern in $secretPatterns) {
-    if ($Summary -match $pattern -or $Body -match $pattern) {
-        Write-Error "Potential secret detected in content. Redact and retry."
-        exit 1
+
+$allContent = @($Summary, $Body, $ValidationEvidence, $ChangedFiles, $LinkedIssues) | Where-Object { $_ }
+foreach ($content in $allContent) {
+    foreach ($pattern in $secretPatterns) {
+        if ($content -match $pattern) {
+            Write-Error "Potential secret detected in content (pattern: $pattern). Redact and retry."
+            exit 1
+        }
     }
 }
 
@@ -123,12 +153,14 @@ if ($Body) {
 }
 
 if ($ValidationEvidence) {
+    $sanitizedEvidence = Strip-AnsiEscapes $ValidationEvidence
+    $sanitizedEvidence = Truncate-Lines $sanitizedEvidence $MAX_VALIDATION_LINES
     $lines += "<details>"
     $lines += "<summary>Validation evidence</summary>"
     $lines += ""
-    $lines += "```"
-    $lines += $ValidationEvidence
-    $lines += "```"
+    $lines += '```'
+    $lines += $sanitizedEvidence
+    $lines += '```'
     $lines += ""
     $lines += "</details>"
     $lines += ""
@@ -143,6 +175,13 @@ $lines += $CLOSE_MARKER
 
 $commentBody = $lines -join "`n"
 
+# Guard: truncate if comment exceeds GitHub's limit
+if ($commentBody.Length -gt $MAX_COMMENT_CHARS) {
+    Write-Warning "Comment body ($($commentBody.Length) chars) exceeds $MAX_COMMENT_CHARS limit. Truncating."
+    $commentBody = $commentBody.Substring(0, $MAX_COMMENT_CHARS - 60) + "`n`n... (truncated to fit GitHub comment size limit)"
+    $commentBody += "`n$CLOSE_MARKER"
+}
+
 # ---------------------------------------------------------------------------
 # Dry-run output
 # ---------------------------------------------------------------------------
@@ -151,6 +190,7 @@ if ($DryRun) {
     Write-Output "=== DRY RUN ==="
     Write-Output "Target: $(if ($TargetIssue) { "issue #$TargetIssue" } else { "PR #$TargetPR" })"
     Write-Output "Repo: $Repo"
+    Write-Output "Comment size: $($commentBody.Length) chars (limit: $MAX_COMMENT_CHARS)"
     Write-Output ""
     Write-Output $commentBody
     Write-Output ""
