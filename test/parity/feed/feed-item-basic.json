@@ -1,0 +1,51 @@
+{
+  "id": "feed-item-basic",
+  "endpoint": "GET /api/feed/:feedItemId",
+  "description": "Single feed item by ID returns full FeedItemDto",
+  "request": {
+    "method": "GET",
+    "path": "/api/feed/<FEED_ITEM_ID>",
+    "query": {},
+    "params": { "feedItemId": "<FEED_ITEM_ID>" },
+    "headers": {}
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "id": "<FEED_ITEM_ID>",
+      "postId": "<POSITIVE_INT>",
+      "topicId": "<POSITIVE_INT>",
+      "title": "<STRING>",
+      "snippet": "<STRING>",
+      "authorUid": "<POSITIVE_INT>",
+      "authorUsername": "<STRING>",
+      "createdAt": "<ISO8601>"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": [
+        "id",
+        "postId",
+        "topicId",
+        "title",
+        "snippet",
+        "authorUid",
+        "authorUsername",
+        "createdAt"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "postId": { "type": "integer", "minimum": 1 },
+        "topicId": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "snippet": { "type": "string" },
+        "authorUid": { "type": "integer", "minimum": 1 },
+        "authorUsername": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "notes": "FEED_ITEM_ID must reference a valid seeded item during test runs. Resolve placeholder before executing against a live app."
+}

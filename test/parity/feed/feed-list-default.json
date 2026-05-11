@@ -1,0 +1,37 @@
+{
+  "id": "feed-list-default",
+  "endpoint": "GET /api/feed",
+  "description": "Feed list with default pagination returns first page (page=1, perPage=20)",
+  "request": {
+    "method": "GET",
+    "path": "/api/feed",
+    "query": {},
+    "params": {},
+    "headers": {}
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "items": "<ARRAY>",
+      "totalCount": "<NON_NEG_INT>",
+      "page": 1,
+      "perPage": 20
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["items", "totalCount", "page", "perPage"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "$ref": "schema.json#/$defs/FeedItemDto" }
+        },
+        "totalCount": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "const": 1 },
+        "perPage": { "type": "integer", "const": 20 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "notes": "Default query params (page=1, perPage=20) are applied by FeedQueryDto defaults when omitted."
+}

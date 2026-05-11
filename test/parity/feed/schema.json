@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "test/parity/feed/schema.json",
+  "title": "Feed Parity Schema",
+  "description": "Shared JSON Schema definitions for feed parity fixtures.",
+  "$defs": {
+    "FeedItemDto": {
+      "type": "object",
+      "required": [
+        "id",
+        "postId",
+        "topicId",
+        "title",
+        "snippet",
+        "authorUid",
+        "authorUsername",
+        "createdAt"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "postId": { "type": "integer", "minimum": 1 },
+        "topicId": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "snippet": { "type": "string" },
+        "authorUid": { "type": "integer", "minimum": 1 },
+        "authorUsername": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "FeedResponseDto": {
+      "type": "object",
+      "required": ["items", "totalCount", "page", "perPage"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FeedItemDto" }
+        },
+        "totalCount": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "minimum": 1 },
+        "perPage": { "type": "integer", "minimum": 1, "maximum": 50 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

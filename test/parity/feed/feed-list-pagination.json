@@ -1,0 +1,37 @@
+{
+  "id": "feed-list-pagination",
+  "endpoint": "GET /api/feed",
+  "description": "Feed list with explicit page=2, perPage=5",
+  "request": {
+    "method": "GET",
+    "path": "/api/feed",
+    "query": { "page": 2, "perPage": 5 },
+    "params": {},
+    "headers": {}
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "items": "<ARRAY>",
+      "totalCount": "<NON_NEG_INT>",
+      "page": 2,
+      "perPage": 5
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["items", "totalCount", "page", "perPage"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "$ref": "schema.json#/$defs/FeedItemDto" }
+        },
+        "totalCount": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "const": 2 },
+        "perPage": { "type": "integer", "const": 5 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "notes": "Verifies that explicit pagination params are reflected in the response envelope."
+}
