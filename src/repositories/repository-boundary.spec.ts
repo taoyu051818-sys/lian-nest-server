@@ -16,6 +16,18 @@ const FORBIDDEN_NODE_MODULES = ['fs', 'fs/promises'];
 const SRC_ROOT = path.resolve(__dirname, '..');
 const REPOSITORIES_DIR = path.resolve(__dirname);
 
+// Feature slices: business modules that must use repository interfaces.
+// Keep in sync with scripts/check-repository-boundary.js and
+// docs/ai-native/backend-worker-layers.md § Feature Slices.
+const FEATURE_SLICES = [
+  'auth',
+  'feed',
+  'messages',
+  'posts',
+  'profile',
+  'tags',
+];
+
 // Narrow infrastructure allowlist: specific packages permitted in specific directories.
 const INFRA_ALLOWLIST: { dir: string; packages: string[] }[] = [
   { dir: path.join(SRC_ROOT, 'database'), packages: ['@prisma/client', 'prisma'] },
@@ -26,6 +38,12 @@ function isAllowedByInfraAllowlist(filePath: string, pkg: string): boolean {
   return INFRA_ALLOWLIST.some(
     (entry) => entry.packages.includes(pkg) && filePath.startsWith(entry.dir + path.sep),
   );
+}
+
+function featureSliceFor(filePath: string): string | null {
+  const rel = path.relative(SRC_ROOT, filePath);
+  const topDir = rel.split(path.sep)[0];
+  return FEATURE_SLICES.includes(topDir) ? topDir : null;
 }
 
 function packageImportPattern(pkg: string): RegExp {
@@ -86,5 +104,31 @@ describe('repository boundary', () => {
   it('files inside src/repositories may import any package', () => {
     const repoFiles = collectTsFiles(REPOSITORIES_DIR, new Set());
     expect(repoFiles.length).toBeGreaterThan(0);
+  });
+
+  it.each(FEATURE_SLICES)(
+    'feature slice "%s" does not import data-store drivers directly',
+    (slice) => {
+      const sliceDir = path.join(SRC_ROOT, slice);
+      if (!fs.existsSync(sliceDir)) return; // slice not yet created
+
+      const sliceFiles = collectTsFiles(sliceDir, new Set());
+      const violations: string[] = [];
+
+      for (const file of sliceFiles) {
+        const content = fs.readFileSync(file, 'utf-8');
+        for (const pkg of [...FORBIDDEN_PACKAGES, ...FORBIDDEN_NODE_MODULES]) {
+          if (packageImportPattern(pkg).test(content) && !isAllowedByInfraAllowlist(file, pkg)) {
+            violations.push(`${path.basename(file)} imports ${pkg}`);
+          }
+        }
+      }
+
+      expect(violations).toEqual([]);
+    },
+  );
+
+  it('feature slice list is non-empty', () => {
+    expect(FEATURE_SLICES.length).toBeGreaterThan(0);
   });
 });
