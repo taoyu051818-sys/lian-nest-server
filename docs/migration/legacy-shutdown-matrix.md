@@ -30,16 +30,12 @@ Progression is linear: `NOT_STARTED` → `CONTRACTED` → `IMPLEMENTED` → `PAR
 An endpoint may only advance to `LEGACY_DISABLED` when **all** of the following
 are true:
 
-1. **Nest controller live** — The endpoint is registered and responding in the
-   Nest application.
-2. **Parity tests green** — Integration tests cover all acceptance criteria from
-   `acceptance-criteria.md` and pass against the legacy backend as reference.
-3. **No legacy callers** — No frontend or internal service still routes through
-   the legacy backend for this path.
-4. **Rollback plan** — A documented way to re-enable the legacy route within
-   the same deployment if regression is detected.
-5. **Tracker updated** — `route-parity-tracker.md` reflects `VERIFIED` status
-   for the endpoint.
+1. **Nest controller live** — endpoint registered and responding.
+2. **Parity tests green** — integration tests cover acceptance criteria from
+   `acceptance-criteria.md` and pass against legacy reference.
+3. **No legacy callers** — no frontend or service routes through legacy.
+4. **Rollback plan** — documented way to re-enable legacy route on regression.
+5. **Tracker updated** — `route-parity-tracker.md` shows `VERIFIED`.
 
 ---
 
@@ -151,13 +147,10 @@ are true:
 
 ## How to Update This Matrix
 
-1. When a worker begins a slice, update affected endpoints from `CONTRACTED` to
-   `IMPLEMENTED`.
-2. When integration tests pass against legacy reference, advance to
-   `PARITY_TESTED`.
-3. When all endpoints in a family reach `PARITY_TESTED` and the five shutdown
-   criteria above are met, advance to `LEGACY_DISABLED`.
-4. Record the date and issue/PR number in the **Shutdown Log** below.
+1. Worker begins slice → update endpoints from `CONTRACTED` to `IMPLEMENTED`.
+2. Integration tests pass → advance to `PARITY_TESTED`.
+3. All family endpoints at `PARITY_TESTED` + shutdown criteria met → advance to
+   `LEGACY_DISABLED`. Record in the Shutdown Log below.
 
 ---
 
@@ -169,13 +162,7 @@ are true:
 
 ---
 
-## Assumptions
-
-1. **Users, Categories, Topics, Tags, Search, Groups** are not yet in the
-   migration queue. Their endpoints are conservatively marked `NOT_STARTED`.
-   When slices are defined for these families, update this matrix accordingly.
-2. **Feed endpoints** (`/api/feed`, `/api/feed/:feedItemId`) are tracked in
-   slice F1 but not present in the legacy route inventory. They are excluded
-   from this matrix until confirmed in the legacy backend.
-3. Legacy shutdown is per-endpoint, not per-family. Individual endpoints within
-   a family may be disabled independently once their criteria are met.
+> **Note:** Users, Categories, Topics, Tags, Search, Groups are not yet in the
+> migration queue — conservatively marked `NOT_STARTED`. Feed endpoints (`/api/feed`)
+> are in slice F1 but absent from the legacy route inventory; excluded until confirmed.
+> Shutdown is per-endpoint, not per-family.

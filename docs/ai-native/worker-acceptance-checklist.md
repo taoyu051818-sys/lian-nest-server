@@ -120,13 +120,9 @@ overrun silently.
 
 ## Straggler Handling
 
-If a worker cannot complete within its `hardTimeMinutes` budget:
-
-1. **Commit partial progress** — Push any valid work-in-progress.
-2. **Comment on the issue** — Use the straggler policy action from the task
-   contract (typically `open_pr_or_comment_blocker`).
-3. **Do not abandon silently** — The orchestrator must detect the straggler
-   state and reassign or escalate.
+If a worker cannot complete within its `hardTimeMinutes` budget: commit partial
+progress, comment on the issue per the task's straggler policy (typically
+`open_pr_or_comment_blocker`), and never abandon silently.
 
 ---
 
@@ -141,14 +137,3 @@ A PR is considered accepted when:
 - [ ] Required reviewers have approved.
 - [ ] Acceptance owner has performed final merge decision.
 
----
-
-## Quick Reference
-
-```
-Worker opens PR
-  → Pre-flight: rebase, file check, validation
-  → PR body: summary, issues, validation table, risk
-  → Review gate: required roles review
-  → Orchestrator: final merge decision
-```

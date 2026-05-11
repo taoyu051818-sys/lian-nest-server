@@ -62,8 +62,7 @@ with each other and with code tasks, provided no file overlap exists.
 ### Rule 4: No Cross-Group File Sharing
 
 If two tasks touch the same file, they are in the same conflict group — even if
-the semantic dependency is unclear. The orchestrator MUST NOT launch them in
-parallel.
+the semantic dependency is unclear. The orchestrator MUST NOT launch them in parallel.
 
 ---
 
@@ -101,23 +100,14 @@ Workers MUST:
 
 ## Merge Order
 
-When multiple parallel PRs are ready:
-
-1. Merge the one with the fewest downstream dependents first.
-2. Rebase remaining PRs on the new `main`.
-3. Re-run validation on rebased PRs.
-4. Merge the next PR. Repeat until all are merged.
-
-If two PRs have equal dependency counts, merge the one with smaller diff size
-to reduce rebase risk.
+When multiple parallel PRs are ready, merge fewest-dependents first, rebase
+remaining PRs on new `main`, re-validate, and repeat. On equal dependency
+counts, prefer smaller diff size.
 
 ---
 
 ## Escalation
 
-If parallel work creates a conflict that cannot be resolved by rebase:
-
-1. Both workers comment on their respective issues with the conflict details.
-2. The orchestrator pauses the conflict group.
-3. The architect or repo-owner decides which PR takes precedence.
-4. The losing PR is rebased or abandoned, and the worker is reassigned.
+If a conflict cannot be resolved by rebase: workers comment conflict details on
+their issues, the orchestrator pauses the conflict group, and the architect or
+repo-owner decides which PR takes precedence.
