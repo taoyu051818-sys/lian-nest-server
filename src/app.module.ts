@@ -6,6 +6,7 @@ import { NodebbModule } from './nodebb';
 import { toNodebbAuthMode } from './nodebb/types';
 import { PostsModule } from './posts';
 import { ProfileModule } from './profile';
+import { TagsModule } from './tags';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { ProfileModule } from './profile';
     MessagesModule,
     PostsModule,
     ProfileModule,
+    TagsModule,
     NodebbModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
