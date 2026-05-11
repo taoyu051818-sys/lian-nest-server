@@ -220,6 +220,10 @@ $stderr = if (Test-Path "$Worktree/.claude-error.txt") { Get-Content "$Worktree/
 
 # ── Report results ───────────────────────────────────────────────────────────
 
+# Sanitization note: stdout/stderr may contain secrets, tokens, or raw LLM
+# transcripts. Console output is for local debugging only — never paste or
+# publish it directly. Use publish-agent-result.ps1 which enforces redaction.
+
 if ($exitCode -eq 0) {
     Write-Ok "Claude Code completed successfully"
     Write-Host $stdout
@@ -230,6 +234,11 @@ if ($exitCode -eq 0) {
     Write-Host "STDERR:" -ForegroundColor Gray
     Write-Host $stderr
 }
+
+Write-Host ""
+Write-Host "[sanitization] Output above is for local debugging only." -ForegroundColor DarkYellow
+Write-Host "[sanitization] Do NOT paste raw logs into issues, PRs, or comments." -ForegroundColor DarkYellow
+Write-Host "[sanitization] Use publish-agent-result.ps1 to publish sanitized results." -ForegroundColor DarkYellow
 
 # ── Commit if changes exist ──────────────────────────────────────────────────
 
