@@ -1,0 +1,70 @@
+{
+  "id": "user-detail-provider-error",
+  "endpoint": "GET /api/users/:uid",
+  "description": "Provider error responses (401, 403, 429, 500, 502, 503, 504) all map to 404 NotFoundException",
+  "scenarios": [
+    {
+      "id": "user-detail-provider-error-401",
+      "providerStatus": 401,
+      "providerMessage": "Unauthorized",
+      "description": "Provider returning 401 Unauthorized maps to 404 NotFoundException"
+    },
+    {
+      "id": "user-detail-provider-error-403",
+      "providerStatus": 403,
+      "providerMessage": "Forbidden",
+      "description": "Provider returning 403 Forbidden maps to 404 NotFoundException"
+    },
+    {
+      "id": "user-detail-provider-error-429",
+      "providerStatus": 429,
+      "providerMessage": "Too Many Requests",
+      "description": "Provider returning 429 Too Many Requests maps to 404 NotFoundException"
+    },
+    {
+      "id": "user-detail-provider-error-500",
+      "providerStatus": 500,
+      "providerMessage": "Internal Server Error",
+      "description": "Provider returning 500 Internal Server Error maps to 404 NotFoundException"
+    },
+    {
+      "id": "user-detail-provider-error-502",
+      "providerStatus": 502,
+      "providerMessage": "Bad Gateway",
+      "description": "Provider returning 502 Bad Gateway maps to 404 NotFoundException"
+    },
+    {
+      "id": "user-detail-provider-error-503",
+      "providerStatus": 503,
+      "providerMessage": "Service Unavailable",
+      "description": "Provider returning 503 Service Unavailable maps to 404 NotFoundException"
+    },
+    {
+      "id": "user-detail-provider-error-504",
+      "providerStatus": 504,
+      "providerMessage": "Gateway Timeout",
+      "description": "Provider returning 504 Gateway Timeout maps to 404 NotFoundException"
+    }
+  ],
+  "request": {
+    "method": "GET",
+    "path": "/api/users/42",
+    "params": { "uid": "42" }
+  },
+  "expected": {
+    "status": 404,
+    "contentType": "application/json",
+    "body": { "statusCode": 404, "error": "Not Found", "code": "NOT_FOUND" },
+    "bodySchema": {
+      "type": "object",
+      "required": ["statusCode", "error", "code"],
+      "properties": {
+        "statusCode": { "type": "integer", "const": 404 },
+        "error": { "type": "string" },
+        "code": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "notes": "When the NodeBB users provider returns any error (4xx/5xx) with null data, the usecase maps it to a NotFoundException. This verifies the error mapping regression for all provider failure modes."
+}
