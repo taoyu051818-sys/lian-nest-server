@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": 1,
+  "description": "Machine-readable merge policy for explicit allowlist controlled merge. Referenced by merge scripts and guards.",
+  "policy": {
+    "requireExplicitAllowlist": true,
+    "requireNonDraft": true,
+    "requireCleanMergeState": true,
+    "requireGateMarkers": true,
+    "riskCap": "medium",
+    "requireNoForbiddenFiles": true,
+    "requireGeneratedFreshness": true,
+    "requireDocsAuthority": true,
+    "requireSecretScan": true,
+    "requireTelemetryMarker": true
+  },
+  "eligibilityChecks": [
+    {
+      "id": "open-state",
+      "description": "PR must be in OPEN state",
+      "field": "state",
+      "expected": "OPEN",
+      "blocking": true
+    },
+    {
+      "id": "non-draft",
+      "description": "PR must not be a draft",
+      "field": "isDraft",
+      "expected": false,
+      "blocking": true
+    },
+    {
+      "id": "mergeable",
+      "description": "PR must be in MERGEABLE state",
+      "field": "mergeable",
+      "expected": "MERGEABLE",
+      "blocking": true
+    },
+    {
+      "id": "status-checks-clean",
+      "description": "No status checks may be FAILURE, CANCELLED, or TIMED_OUT",
+      "field": "statusCheckRollup",
+      "forbiddenStates": ["FAILURE", "CANCELLED", "TIMED_OUT"],
+      "blocking": true
+    }
+  ],
+  "guardChecks": [
+    {
+      "id": "explicit-allowlist",
+      "description": "PR number must appear in the explicit allowlist passed via -PRs or -AllowlistFile",
+      "scope": "per-pr",
+      "blocking": true
+    },
+    {
+      "id": "task-boundary",
+      "description": "Changed files must stay within allowedFiles globs and not touch forbiddenFiles globs from the task manifest",
+      "scope": "per-pr",
+      "requiredInput": ".ai/task-manifest.json",
+      "blocking": true
+    },
+    {
+      "id": "pr-handoff",
+      "description": "PR body must contain all seven required handoff sections: Summary, Changed Files, Linked Issues, Validation, Non-Goals, Risk / Rollback, Follow-up Handoff",
+      "scope": "per-pr",
+      "requiredInput": "pr-body",
+      "requiredSections": [
+        "Summary",
+        "Changed files",
+        "Linked issues",
+        "Validation",
+        "Non-goals",
+        "Risk / rollback",
+        "Follow-up handoff"
+      ],
+      "blocking": true
+    },
+    {
+      "id": "docs-authority",
+      "description": "No duplicate basenames, duplicate H1 titles, or missing frontmatter in docs/",
+      "scope": "repo-wide",
+      "blocking": false,
+      "mode": "warn-only"
+    },
+    {
+      "id": "generated-prisma-freshness",
+      "description": "If src/generated/prisma/ files changed, the corresponding prisma/schema.prisma must also have changed",
+      "scope": "per-pr",
+      "blocking": true
+    },
+    {
+      "id": "secret-scan",
+      "description": "No hardcoded secrets, tokens, or credentials in changed files",
+      "scope": "per-pr",
+      "blocking": true,
+      "patterns": [
+        ".env",
+        ".env.*",
+        "credentials.json",
+        "*.key",
+        "*.pem"
+      ]
+    },
+    {
+      "id": "forbidden-files",
+      "description": "No changes to high-risk files outside explicit allowlist",
+      "scope": "per-pr",
+      "blocking": true,
+      "forbiddenGlobs": [
+        "src/**",
+        "prisma/**",
+        "package.json",
+        "package-lock.json",
+        ".env",
+        ".env.*",
+        "C:/Users/LENOVO/.claude/**"
+      ]
+    }
+  ],
+  "riskPolicy": {
+    "maxAutoMergeRisk": "medium",
+    "highRiskRequiresHumanReview": true,
+    "riskCategories": {
+      "runtime-code": {
+        "globs": ["src/**"],
+        "risk": "high",
+        "requiresReviewRoles": ["backend-programmer", "architect"]
+      },
+      "database-prisma": {
+        "globs": ["prisma/**"],
+        "risk": "high",
+        "requiresReviewRoles": ["migration-auditor"]
+      },
+      "auth-security": {
+        "globs": ["src/modules/auth/**"],
+        "risk": "high",
+        "requiresReviewRoles": ["security-reviewer"]
+      },
+      "dependencies": {
+        "globs": ["package.json", "package-lock.json"],
+        "risk": "high",
+        "requiresReviewRoles": ["repo-owner"]
+      },
+      "infrastructure-scripts": {
+        "globs": ["scripts/merge-queue-assistant.js", "scripts/post-merge-health-gate.js"],
+        "risk": "high",
+        "requiresReviewRoles": ["devops-automation-engineer"]
+      },
+      "docs-policy": {
+        "globs": ["docs/**", ".github/ai-policy/**"],
+        "risk": "low",
+        "requiresReviewRoles": []
+      }
+    }
+  },
+  "gateMarkers": {
+    "healthGate": {
+      "path": ".github/ai-state/main-health.json",
+      "requiredStates": ["green", "yellow"],
+      "description": "Main branch health must be green or yellow for merge"
+    },
+    "telemetryMarker": {
+      "path": ".ai/merge-batch-manifests/",
+      "required": true,
+      "description": "Merge batch manifest must be written for every merge run"
+    }
+  },
+  "mergeStrategy": {
+    "defaultMethod": "squash",
+    "deleteBranchAfterMerge": true,
+    "stopOnFirstFailure": true,
+    "revalidateBeforeMerge": true
+  }
+}
