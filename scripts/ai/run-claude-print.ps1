@@ -61,26 +61,124 @@ Write-Step "Preparing worker for issue #$issueNum"
 
 # ── Build prompt ─────────────────────────────────────────────────────────────
 
+# Collect all issue numbers for context
+$allIssues = @($issueNum)
+if ($task.issues) {
+    foreach ($i in $task.issues) {
+        if ($i -ne $issueNum) { $allIssues += $i }
+    }
+}
+$issuesStr = $allIssues -join ", "
+
+# Build allowed files list
+$allowedStr = ($task.allowedFiles | ForEach-Object { "- $_" }) -join "`n"
+
+# Build forbidden files list
+$forbiddenStr = ($task.forbiddenFiles | ForEach-Object { "- $_" }) -join "`n"
+
+# Build validation commands list
+$valCmdsStr = ($task.validationCommands | ForEach-Object { "- $_" }) -join "`n"
+
+# Build role packet section
+$roleSection = ""
+if ($task.rolePacket) {
+    $roleSection += "Actor role: $($task.rolePacket.actorRole)"
+    if ($task.rolePacket.description) {
+        $roleSection += "`n$($task.rolePacket.description)"
+    }
+}
+
+# Build attention areas section
+$attentionSection = ""
+if ($task.attentionAreas) {
+    if ($task.attentionAreas.focus -and $task.attentionAreas.focus.Count -gt 0) {
+        $attentionSection += "Focus on:`n"
+        foreach ($f in $task.attentionAreas.focus) { $attentionSection += "- $f`n" }
+    }
+    if ($task.attentionAreas.knownBlindspots -and $task.attentionAreas.knownBlindspots.Count -gt 0) {
+        $attentionSection += "Known blindspots:`n"
+        foreach ($b in $task.attentionAreas.knownBlindspots) { $attentionSection += "- $b`n" }
+    }
+}
+
+# Build budgets section
+$budgetsSection = ""
+if ($task.budgets) {
+    $parts = @()
+    if ($task.budgets.maxFiles) { $parts += "maxFiles=$($task.budgets.maxFiles)" }
+    if ($task.budgets.maxLinesChanged) { $parts += "maxLinesChanged=$($task.budgets.maxLinesChanged)" }
+    if ($task.budgets.softTimeMinutes) { $parts += "softTimeMinutes=$($task.budgets.softTimeMinutes)" }
+    if ($task.budgets.hardTimeMinutes) { $parts += "hardTimeMinutes=$($task.budgets.hardTimeMinutes)" }
+    $budgetsSection = $parts -join ", "
+}
+
+# Build source of truth docs section
+$sourceOfTruthSection = ""
+if ($task.sourceOfTruthDocs -and $task.sourceOfTruthDocs.Count -gt 0) {
+    $sourceOfTruthSection += ($task.sourceOfTruthDocs | ForEach-Object { "- $_" }) -join "`n"
+}
+
+# Build issue repo string (for gh CLI)
+$repoSlug = "taoyu051818-sys/lian-nest-server"
+
 $promptParts = @()
-$promptParts += "You are an AI worker implementing issue #$issueNum in the lian-nest-server repository."
+$promptParts += "You are a Claude Code worker in the lian-nest-server repository."
 $promptParts += ""
-$promptParts += "## Task Contract"
-$promptParts += (Get-Content $TaskFile -Raw)
+$promptParts += "Task: $($task.rolePacket.description)"
+$promptParts += "GitHub issue: https://github.com/$repoSlug/issues/$issueNum"
 $promptParts += ""
-$promptParts += "## Hard Rules"
-$promptParts += "- Only edit files listed in allowedFiles."
-$promptParts += "- Never edit files listed in forbiddenFiles."
-$promptParts += "- Run all validationCommands before committing."
-$promptParts += "- If the task requires changes outside allowedFiles, stop and comment on the issue with the blocker."
-$promptParts += "- Commit with a message referencing issue #$issueNum."
-$promptParts += "- Do NOT push or create a PR — the orchestrator handles that."
+$promptParts += "First read the GitHub issue body and relevant repository docs. Use the issue and current repository files as the semantic source of truth; use the JSON control appendix only for boundaries, risk, validation, and routing."
+$promptParts += ""
+$promptParts += "Deliver a small, bounded PR that closes #$issueNum. Keep changes inside allowedFiles. Run the listed validation commands. If blocked, do not make broad edits; leave a concise GitHub issue comment explaining the blocker and evidence."
+$promptParts += "---"
+$promptParts += "CONTROL APPENDIX (launcher generated)"
+$promptParts += "Task type: $($task.taskType)"
+$promptParts += "Risk: $($task.risk)"
+$promptParts += "Conflict group: $($task.conflictGroup)"
+$promptParts += "Target issue: $issueNum"
+$promptParts += "Target PR: $($task.targetPR)"
+$promptParts += "Issues: $issuesStr"
+$promptParts += "Expected PR: $($task.expectedPR)"
+$promptParts += "Allowed files:"
+$promptParts += $allowedStr
+$promptParts += "Forbidden files:"
+$promptParts += $forbiddenStr
+$promptParts += "Validation commands:"
+$promptParts += $valCmdsStr
+
+if ($roleSection) {
+    $promptParts += "Role packet:"
+    $promptParts += $roleSection
+}
+
+if ($attentionSection) {
+    $promptParts += ""
+    $promptParts += "Attention areas:"
+    $promptParts += $attentionSection.TrimEnd()
+}
+
+if ($budgetsSection) {
+    $promptParts += "Budgets: {$budgetsSection}"
+}
+
+if ($sourceOfTruthSection) {
+    $promptParts += ""
+    $promptParts += "Source of truth docs:"
+    $promptParts += $sourceOfTruthSection
+}
+
+$promptParts += ""
+$promptParts += "Use these boundaries as hard constraints. If the requested fix requires files outside allowedFiles, stop and explain the blocker instead of making an unbounded change."
+$promptParts += "Do NOT output secrets, tokens, auth output, credentials, .env contents, local transcript contents, or llm_io_logs contents."
 
 $promptText = $promptParts -join "`n"
 
 # ── Build allowed tools ──────────────────────────────────────────────────────
 
 # Restrict tool access based on task type
-$allowedTools = @("Edit", "Write")
+$allowedTools = @("Edit", "Write", "Read", "Glob", "Grep")
+# Allow reading the GitHub issue body (bounded, read-only)
+$allowedTools += "Bash(gh issue view *)"
 if ($task.taskType -eq "execution") {
     $allowedTools += "Bash(git *)"
     $allowedTools += "Bash(npm run *)"
