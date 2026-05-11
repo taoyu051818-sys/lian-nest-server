@@ -1,0 +1,15 @@
+{
+  "description": "agent:queued but recently updated (within stale threshold) -- no drift expected",
+  "expectedRules": [],
+  "expectedCount": 0,
+  "issues": [
+    {
+      "number": 209,
+      "title": "Freshly queued issue",
+      "state": "OPEN",
+      "labels": [{"name": "agent:queued"}],
+      "updatedAt": "2026-05-11T00:00:00Z",
+      "linkedPRs": []
+    }
+  ]
+}
