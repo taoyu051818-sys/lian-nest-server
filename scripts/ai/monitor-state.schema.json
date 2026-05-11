@@ -68,7 +68,7 @@
     },
     "label": {
       "type": ["string", "null"],
-      "description": "Current GitHub issue label (e.g. agent:running, agent:done)."
+      "description": "Mapped agent:* label derived from heartbeat state. running/running:no-output/stale/failed map to agent:running; done maps to agent:done. Used by the state reconciler as worker evidence."
     }
   },
   "additionalProperties": false
