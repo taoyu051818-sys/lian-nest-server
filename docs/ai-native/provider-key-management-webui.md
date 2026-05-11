@@ -280,11 +280,50 @@ state files are required. The following fields are used:
 
 ### From `provider-pool-policy.json`
 
-| Field | Used For |
-|-------|----------|
-| `providers[].label` | Display name |
-| `providers[].source` | Source type display |
-| `providers[].secretRefKey` | Masked source key display |
+**Per-provider fields:**
+
+| Field | Type | Used For |
+|-------|------|----------|
+| `providers[].id` | string | Provider identification (matches pool state) |
+| `providers[].label` | string | Display name in Provider Settings panel |
+| `providers[].source` | enum | Source type display (`local-claude-settings`, `env-var`, `credential-manager`) |
+| `providers[].sourcePath` | string | Masked source pointer (UI shows derived `secretRefKey`) |
+| `providers[].capabilities` | string[] | Capability badges (`claude-code`, `print-mode`, `batch-mode`) |
+| `providers[].maxConcurrency` | integer | Per-provider concurrency cap shown in dashboard |
+| `providers[].notes` | string | Operator-visible annotation |
+
+**Concurrency policy:**
+
+| Field | Type | Used For |
+|-------|------|----------|
+| `concurrency.globalMaxWorkers` | integer | Hard ceiling displayed in dashboard header |
+| `concurrency.providerSelectionStrategy` | enum | Strategy label (`least-loaded`, `round-robin`) |
+| `concurrency.fallbackStrategy` | enum | Behavior when all providers are exhausted (`fail-closed`) |
+
+**Exhaustion triggers (read by launch gate and displayed in health panel):**
+
+| Field | Type | Used For |
+|-------|------|----------|
+| `exhaustion.triggers[].condition` | enum | Trigger label (`http-429`, `quota-exhausted`, `auth-failure`) |
+| `exhaustion.triggers[].action` | enum | Action taken (`mark-exhausted`, `mark-disabled`) |
+| `exhaustion.triggers[].cooldownMinutes` | integer or null | Cooldown duration displayed in provider row |
+| `exhaustion.recovery.autoRecoverAfterCooldown` | boolean | Whether provider auto-recovers after cooldown |
+| `exhaustion.recovery.healthCheckOnRecovery` | boolean | Whether a probe runs before routing post-cooldown |
+
+**Failure classification (drives health badge derivation):**
+
+| Field | Type | Used For |
+|-------|------|----------|
+| `failureClassification.*.patterns` | string[] | Error text patterns matched against provider responses |
+| `failureClassification.*.category` | enum | Category label (`exhaustion`, `auth`, `runtime`) |
+| `failureClassification.*.severity` | enum | Severity color (`yellow`, `red`) |
+
+**Secret source policy (enforced by UI and guards):**
+
+| Field | Type | Used For |
+|-------|------|----------|
+| `secretSources.allowed` | string[] | Whitelist of permitted credential sources |
+| `secretSources.forbidden` | string[] | Blocklist enforced by sanitization guards |
 
 ### New History Event Types
 
