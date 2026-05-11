@@ -5,7 +5,8 @@ import { MessagesUseCase } from './use-cases/messages.use-case';
 import { NotificationsUseCase } from './use-cases/notifications.use-case';
 import { NodebbNotificationsProvider } from '../nodebb';
 import { BodyStatus } from '../nodebb';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException, ExecutionContext } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth';
 
 describe('MessagesModule', () => {
   let module: TestingModule;
@@ -31,7 +32,10 @@ describe('MessagesModule', () => {
         NotificationsUseCase,
         { provide: NodebbNotificationsProvider, useValue: providerMock },
       ],
-    }).compile();
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     messagesController = module.get<MessagesController>(MessagesController);
     notificationsController = module.get<NotificationsController>(
@@ -57,12 +61,12 @@ describe('MessagesModule', () => {
   describe('MessagesController', () => {
     it('should throw not implemented for sendMessage', async () => {
       await expect(
-        messagesController.sendMessage({ toUid: 1, content: 'test' }),
+        messagesController.sendMessage({ toUid: 1, content: 'test' }, 1),
       ).rejects.toThrow('Not implemented: MessagesUseCase.sendMessage');
     });
 
     it('should return empty paginated list for listMessages with defaults', async () => {
-      const result = await messagesController.listMessages();
+      const result = await messagesController.listMessages(1);
       expect(result).toEqual({
         messages: [],
         totalCount: 0,
@@ -72,7 +76,7 @@ describe('MessagesModule', () => {
     });
 
     it('should parse and forward pagination params', async () => {
-      const result = await messagesController.listMessages('2', '10');
+      const result = await messagesController.listMessages(1, '2', '10');
       expect(result).toEqual({
         messages: [],
         totalCount: 0,
@@ -82,7 +86,7 @@ describe('MessagesModule', () => {
     });
 
     it('should throw not implemented for markRead', async () => {
-      await expect(messagesController.markRead('1')).rejects.toThrow(
+      await expect(messagesController.markRead(1, '1')).rejects.toThrow(
         'Not implemented: MessagesUseCase.markRead',
       );
     });
@@ -97,7 +101,7 @@ describe('MessagesModule', () => {
         error: null,
       });
 
-      const result = await notificationsController.listNotifications();
+      const result = await notificationsController.listNotifications(1);
       expect(result).toEqual({ notifications: [], totalCount: 0 });
     });
 
@@ -112,7 +116,7 @@ describe('MessagesModule', () => {
         error: null,
       });
       const mockRes = { set: jest.fn() };
-      const result = await notificationsController.getUnreadCount(mockRes as any);
+      const result = await notificationsController.getUnreadCount(1, mockRes as any);
       expect(result).toEqual({ count: 1 });
       expect(mockRes.set).not.toHaveBeenCalled();
     });
@@ -125,7 +129,7 @@ describe('MessagesModule', () => {
         error: 'NodeBB unreachable',
       });
       const mockRes = { set: jest.fn() };
-      const result = await notificationsController.getUnreadCount(mockRes as any);
+      const result = await notificationsController.getUnreadCount(1, mockRes as any);
       expect(result).toEqual({ count: 0 });
       expect(mockRes.set).toHaveBeenCalledWith('X-Fallback', 'true');
     });
@@ -138,7 +142,7 @@ describe('MessagesModule', () => {
         error: null,
       });
       await expect(
-        notificationsController.markRead('test-nid'),
+        notificationsController.markRead(1, 'test-nid'),
       ).resolves.toBeUndefined();
       expect(providerMock.markRead).toHaveBeenCalledWith('test-nid', {
         mode: 'none',
