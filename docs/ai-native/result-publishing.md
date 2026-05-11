@@ -44,23 +44,50 @@ and updates it instead of creating a new one.
 
 **Raw transcripts, log files, and LLM IO must NEVER be posted.**
 
-Before publishing, all content is checked against these patterns:
+Before publishing, **all** user-supplied parameters (`-Summary`, `-Body`,
+`-ValidationEvidence`, `-ChangedFiles`, `-LinkedIssues`) are scanned
+against these patterns:
 
 | Pattern | Example | Action |
 |---------|---------|--------|
-| GitHub tokens | `ghp_...`, `github_pat_...` | Reject (exit 1) |
+| GitHub tokens | `ghp_...`, `github_pat_...`, `gho_...` | Reject (exit 1) |
+| GitLab tokens | `glpat-...` | Reject (exit 1) |
 | AWS keys | `AKIA...` | Reject (exit 1) |
+| Slack tokens | `xoxb-...`, `xoxp-...` | Reject (exit 1) |
+| Bearer tokens | `Bearer eyJ...` | Reject (exit 1) |
 | Private keys | `-----BEGIN ... PRIVATE KEY-----` | Reject (exit 1) |
-| Passwords/secrets | `password=`, `secret=`, `token=` | Reject (exit 1) |
+| Passwords/secrets | `password=...`, `secret=...`, `token=...` | Reject (exit 1) |
 
 If any pattern matches, the publisher exits with an error and does NOT
-post the comment.
+post the comment. The pattern match is included in the error message
+to aid debugging.
+
+## Sanitization
+
+### ANSI Escape Stripping
+
+Validation evidence is stripped of ANSI escape sequences (terminal colors,
+cursor codes) before publishing. This prevents garbled output when workers
+produce colored terminal output.
+
+### Validation Evidence Truncation
+
+Validation evidence is capped at **200 lines**. If the output exceeds
+this limit, it is truncated with a footer showing the total line count.
+This prevents massive build logs from inflating the comment.
+
+### Max Comment Size
+
+The total comment body is capped at **65,000 characters** (GitHub's limit
+is 65,536). If the assembled comment exceeds this, it is truncated with
+a size-limit notice. The idempotency close marker is re-appended to
+preserve the marker pair.
 
 ### Safe Content
 
 - One-line status summary
 - File change lists
-- Validation command output (truncated if >200 lines)
+- Validation command output (truncated at 200 lines, ANSI-stripped)
 - Structured findings with severity levels
 - Issue/PR references
 
@@ -103,7 +130,9 @@ post the comment.
 
 ### Dry-run
 
-Pass `-DryRun` to print the comment payload without posting.
+Pass `-DryRun` to print the comment payload without posting. The output
+includes the comment size in characters so callers can verify truncation
+behavior before posting.
 
 Requires `gh` CLI authenticated with `issues` and `pull_requests` scopes.
 Set `GH_REPO` env var or pass `-Repo OWNER/NAME`.
