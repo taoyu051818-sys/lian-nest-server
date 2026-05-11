@@ -4,7 +4,8 @@ WebUI action module for provider key rotation via the dry-run settings bridge.
 Enables operators to preview and execute credential rotation from the local
 control console.
 
-> **Closes:** [#684](https://github.com/taoyu051818-sys/lian-nest-server/issues/684)
+> **Closes:** [#684](https://github.com/taoyu051818-sys/lian-nest-server/issues/684),
+> [#877](https://github.com/taoyu051818-sys/lian-nest-server/issues/877)
 >
 > **Module:** [`tools/provider-pool-webui/actions/provider-rotation.js`](../../tools/provider-pool-webui/actions/provider-rotation.js)
 > **Tests:** [`tools/provider-pool-webui/action-modules.test.js`](../../tools/provider-pool-webui/action-modules.test.js)
@@ -189,7 +190,19 @@ The module checks secret source *existence* only:
 | `env-var` | `process.env[key] !== undefined` — checks existence, not value |
 | `claude-settings` | `fs.existsSync(~/.claude/settings.json)` — checks file exists |
 
+The `providerSource` object in the preview plan reports `type` and
+`available` only — never the actual key value, path contents, or any
+`sk-`-prefixed string.
+
 No secret value is ever read, printed, logged, or returned in API responses.
+
+### Secret Source Availability
+
+When the secret source for a provider is not detected (env var missing,
+settings file absent), the plan sets a `blockReason` string describing the
+issue.  Rotation remains possible (`canRotate: true`) — the blockReason is
+advisory, not a gate — because the module is the "fix and re-enable" path
+and the operator may supply credentials out-of-band.
 
 ### Atomic Write
 
@@ -198,6 +211,10 @@ When executing rotation, the state file is updated atomically:
 1. Write updated state to a temporary file (`state.json.tmp.<timestamp>`).
 2. Rename temp file over the original (`fs.renameSync`).
 3. On failure, clean up the temp file.
+
+Preview never writes temp files — the state file is read-only during
+dry-run.  The test suite verifies no `.tmp.*` files remain after both
+preview and execute.
 
 ### Sanitization
 
@@ -261,21 +278,38 @@ WebUI Audit Log                    Record of rotation action
 
 ## Tests
 
-Run the action module tests:
+Run the dedicated test suite:
+
+```
+node tools/provider-pool-webui/actions/provider-rotation.test.js
+```
+
+Or the shared action-module suite (covers all modules):
 
 ```
 node tools/provider-pool-webui/action-modules.test.js
 ```
 
-Tests cover:
-- Module contract (id, label, description, dangerous, execute)
-- Preview returns valid plan with `dryRun: true`
-- Preview rejects missing/invalid providerId
-- Execute modifies state file correctly
-- Execute resets status, cooldown, and failure counters
-- Execute handles disabled provider rotation
-- No secrets in any output
-- Global count recalculation after rotation
+### Test Categories
+
+| Category | What It Verifies |
+|----------|-----------------|
+| Module contract | `id`, `label`, `description`, `dangerous`, `preview`, `execute` exports |
+| Secret isolation | Source has no literal API key or token patterns; preview/execute output omits `apiKey`, `token`, `password` fields |
+| Preview mode | Returns `status: "preview"`, `dryRun: true`; state file unchanged after preview; plan reflects current and target state |
+| Execute mode | Returns `status: "rotated"`, `dryRun: false`; state file updated to `available`; cooldown cleared, failures reset |
+| Input validation | Throws on missing, empty, or null `providerId` for both preview and execute |
+| Provider not found | Throws when provider absent from state or policy |
+| File missing | Throws on unreadable state or policy file path |
+| Validation checks | Plan includes 4 checks: `provider-exists-in-policy`, `provider-exists-in-state`, `state-file-writable`, `secret-source-exists` |
+| Atomic write safety | No `.tmp.*` files left after successful execute |
+| Preview temp file safety | Preview leaves no temp files; state file remains valid JSON and unchanged |
+| Reason handling | Default reason is `""`; explicit empty reason preserved; custom reason preserved verbatim; reason field contains no secret patterns |
+| Changes array structure | Exhausted provider produces 3 changes (`status`, `cooldownExpiresAt`, `consecutiveFailures`) with correct `from`/`to` values |
+| Disabled provider | Disabled provider rotates to `available`; global counts updated; `lastUpdatedBy` set to `webui-provider-rotation` |
+| Secret source blockReason | When env-var secret source is unavailable, `blockReason` is non-empty but `canRotate` remains `true` |
+| providerSource safety | `providerSource` reports `type` and `available` only — never contains `sk-` prefix or API key patterns |
+| Global count preservation | Execute on already-available provider preserves all global counts unchanged |
 
 ---
 
@@ -284,7 +318,8 @@ Tests cover:
 | File | Purpose |
 |------|---------|
 | `tools/provider-pool-webui/actions/provider-rotation.js` | Action module |
-| `tools/provider-pool-webui/action-modules.test.js` | Test suite |
+| `tools/provider-pool-webui/actions/provider-rotation.test.js` | Dedicated test suite |
+| `tools/provider-pool-webui/action-modules.test.js` | Shared action-module test suite |
 | `docs/ai-native/webui-action-provider-rotation.md` | This document |
 
 ---
