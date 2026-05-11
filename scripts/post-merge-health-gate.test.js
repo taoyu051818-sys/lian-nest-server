@@ -6,6 +6,8 @@
  */
 
 const { execSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const SCRIPT = path.join(__dirname, 'post-merge-health-gate.js');
@@ -164,6 +166,164 @@ console.log('\n--help flag (guard section)');
   assert(res.stdout.includes('pr handoff'), 'help mentions pr handoff guard');
   assert(res.stdout.includes('docs authority'), 'help mentions docs authority guard');
   assert(res.stdout.includes('non-blocking'), 'help states guards are non-blocking');
+}
+
+// --- Issue-to-task compiler tests ---
+console.log('\ncompile-issue-to-task-json.ps1');
+console.log('-'.repeat(50));
+
+const COMPILER = path.join(__dirname, 'ai', 'compile-issue-to-task-json.ps1');
+const canTestCompiler = fs.existsSync(COMPILER);
+
+function runPwsh(script, args = []) {
+  try {
+    const out = execSync(`pwsh -NoProfile -File "${script}" ${args.join(' ')}`, {
+      cwd: ROOT,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 30_000,
+    });
+    return { code: 0, stdout: out.toString(), stderr: '' };
+  } catch (err) {
+    return {
+      code: err.status || 1,
+      stdout: err.stdout ? err.stdout.toString() : '',
+      stderr: err.stderr ? err.stderr.toString() : '',
+    };
+  }
+}
+
+function runPwshWithInput(script, jsonInput) {
+  try {
+    const out = execSync(`pwsh -NoProfile -Command "& { '${jsonInput.replace(/'/g, "''")}' | & '${script}' }"`, {
+      cwd: ROOT,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 30_000,
+    });
+    return { code: 0, stdout: out.toString(), stderr: '' };
+  } catch (err) {
+    return {
+      code: err.status || 1,
+      stdout: err.stdout ? err.stdout.toString() : '',
+      stderr: err.stderr ? err.stderr.toString() : '',
+    };
+  }
+}
+
+if (canTestCompiler) {
+  // --help flag
+  console.log('\ncompiler --help');
+  {
+    const res = runPwsh(COMPILER, ['-Help']);
+    assert(res.code === 0, '--help exits 0');
+    assert(res.stdout.includes('USAGE'), 'help shows USAGE');
+    assert(res.stdout.includes('OPTIONS'), 'help shows OPTIONS');
+    assert(res.stdout.includes('LLM CONTRACT'), 'help shows LLM CONTRACT section');
+    assert(res.stdout.includes('EXIT CODES'), 'help shows EXIT CODES');
+    assert(res.stdout.includes('llmExtracted'), 'help mentions llmExtracted');
+    assert(res.stdout.includes('deterministic'), 'help mentions deterministic fallback');
+  }
+
+  // Missing required fields → exit 1
+  console.log('\ncompiler rejects underspecified input');
+  {
+    const tmpFile = path.join(os.tmpdir(), `compiler-test-missing-${Date.now()}.json`);
+    fs.writeFileSync(tmpFile, JSON.stringify({ targetIssue: 999, taskType: 'execution' }));
+    const res = runPwsh(COMPILER, ['-IssueFile', tmpFile]);
+    assert(res.code === 1, 'missing required fields exits 1');
+    assert(res.stdout.includes('Missing required fields'), 'reports missing fields');
+    fs.unlinkSync(tmpFile);
+  }
+
+  // Deterministic fallback — minimal valid input without llmExtracted
+  console.log('\ncompiler deterministic fallback (no llmExtracted)');
+  {
+    const tmpFile = path.join(os.tmpdir(), `compiler-test-det-${Date.now()}.json`);
+    const issue = {
+      targetIssue: 258,
+      taskType: 'execution',
+      risk: 'medium',
+      conflictGroup: 'test-group',
+      allowedFiles: ['scripts/ai/compile-issue-to-task-json.ps1'],
+      validationCommands: ['npm run check'],
+      rolePacket: { actorRole: 'test-worker', description: 'Test worker' },
+    };
+    fs.writeFileSync(tmpFile, JSON.stringify(issue));
+    const res = runPwsh(COMPILER, ['-IssueFile', tmpFile, '-DryRun']);
+    assert(res.code === 0, 'deterministic input exits 0');
+    assert(res.stdout.includes('taskType'), 'output contains taskType');
+    assert(!res.stdout.includes('LLM contract'), 'no LLM contract validation for deterministic input');
+    fs.unlinkSync(tmpFile);
+  }
+
+  // LLM contract: llmExtracted=true with semantic fields present
+  console.log('\ncompiler LLM contract (valid)');
+  {
+    const tmpFile = path.join(os.tmpdir(), `compiler-test-llm-valid-${Date.now()}.json`);
+    const issue = {
+      targetIssue: 258,
+      taskType: 'execution',
+      risk: 'medium',
+      conflictGroup: 'test-group',
+      allowedFiles: ['scripts/ai/compile-issue-to-task-json.ps1'],
+      validationCommands: ['npm run check'],
+      rolePacket: { actorRole: 'test-worker', description: 'Test worker' },
+      llmExtracted: true,
+      knowledgeRefs: ['docs/ai-native/issue-to-task-compiler.md'],
+      promptHandoff: 'Harden the issue-to-task compiler with LLM contract.',
+    };
+    fs.writeFileSync(tmpFile, JSON.stringify(issue));
+    const res = runPwsh(COMPILER, ['-IssueFile', tmpFile, '-DryRun']);
+    assert(res.code === 0, 'LLM-valid input exits 0');
+    assert(res.stdout.includes('LLM contract'), 'shows LLM contract validation');
+    assert(res.stdout.includes('semantic fields present'), 'confirms semantic fields present');
+    fs.unlinkSync(tmpFile);
+  }
+
+  // LLM contract: llmExtracted=true with missing semantic fields → warns
+  console.log('\ncompiler LLM contract (missing semantic fields)');
+  {
+    const tmpFile = path.join(os.tmpdir(), `compiler-test-llm-warn-${Date.now()}.json`);
+    const issue = {
+      targetIssue: 258,
+      taskType: 'execution',
+      risk: 'medium',
+      conflictGroup: 'test-group',
+      allowedFiles: ['scripts/ai/compile-issue-to-task-json.ps1'],
+      validationCommands: ['npm run check'],
+      rolePacket: { actorRole: 'test-worker', description: 'Test worker' },
+      llmExtracted: true,
+    };
+    fs.writeFileSync(tmpFile, JSON.stringify(issue));
+    const res = runPwsh(COMPILER, ['-IssueFile', tmpFile, '-DryRun']);
+    assert(res.code === 0, 'LLM-incomplete input still exits 0 (warns, does not block)');
+    assert(res.stdout.includes('WARN'), 'shows WARN for missing semantic fields');
+    assert(res.stdout.includes('knowledgeRefs'), 'warns about missing knowledgeRefs');
+    assert(res.stdout.includes('promptHandoff'), 'warns about missing promptHandoff');
+    fs.unlinkSync(tmpFile);
+  }
+
+  // llmExtracted=false is treated as deterministic
+  console.log('\ncompiler llmExtracted=false (deterministic path)');
+  {
+    const tmpFile = path.join(os.tmpdir(), `compiler-test-llm-false-${Date.now()}.json`);
+    const issue = {
+      targetIssue: 258,
+      taskType: 'execution',
+      risk: 'medium',
+      conflictGroup: 'test-group',
+      allowedFiles: ['scripts/ai/compile-issue-to-task-json.ps1'],
+      validationCommands: ['npm run check'],
+      rolePacket: { actorRole: 'test-worker', description: 'Test worker' },
+      llmExtracted: false,
+    };
+    fs.writeFileSync(tmpFile, JSON.stringify(issue));
+    const res = runPwsh(COMPILER, ['-IssueFile', tmpFile, '-DryRun']);
+    assert(res.code === 0, 'llmExtracted=false exits 0');
+    assert(!res.stdout.includes('LLM contract'), 'no LLM contract validation when llmExtracted=false');
+    fs.unlinkSync(tmpFile);
+  }
+} else {
+  console.log('\nSKIPPED: compile-issue-to-task-json.ps1 not found');
 }
 
 // --- Summary ---
