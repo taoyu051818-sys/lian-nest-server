@@ -765,6 +765,11 @@ function renderServerActionCard(actionMeta, allData) {
 }
 
 function buildPayloadForm(actionMeta, allData) {
+  // Launch-batch gets a structured task-entry form
+  if (actionMeta.id === 'launch-batch') {
+    return buildLaunchBatchForm(allData);
+  }
+
   const form = el('div', { className: 'action-form' });
   const providers = allData.state?.providers || [];
 
@@ -799,8 +804,138 @@ function buildPayloadForm(actionMeta, allData) {
   return form;
 }
 
+// ── launch-batch structured form ─────────────────────────────────────
+
+function buildLaunchBatchForm(allData) {
+  const form = el('div', { className: 'action-form action-form--launch-batch' });
+
+  // Mode toggle: use queue vs custom tasks
+  const modeWrap = el('div', { className: 'action-form__field' });
+  modeWrap.append(el('label', { className: 'action-form__label', textContent: 'Task Source' }));
+  const modeSelect = el('select', { className: 'action-form__select', 'data-field': '_taskSource' });
+  modeSelect.append(el('option', { value: 'queue', textContent: 'Use queued tasks (default)' }));
+  modeSelect.append(el('option', { value: 'custom', textContent: 'Specify custom tasks' }));
+  modeWrap.append(modeSelect);
+  form.append(modeWrap);
+
+  // Custom tasks container (hidden by default)
+  const tasksContainer = el('div', {
+    className: 'action-form__tasks-container',
+    'data-field': '_tasksContainer',
+    style: 'display:none',
+  });
+
+  // Task entries wrapper
+  const entriesWrap = el('div', { className: 'action-form__task-entries' });
+  entriesWrap.append(el('label', { className: 'action-form__label', textContent: 'Tasks' }));
+  tasksContainer.append(entriesWrap);
+
+  // Add-task button
+  const addBtn = el('button', {
+    className: 'action-btn action-btn--preview action-form__add-task-btn',
+    textContent: '+ Add Task',
+    type: 'button',
+  });
+  addBtn.addEventListener('click', () => {
+    entriesWrap.append(buildTaskEntryRow());
+  });
+  tasksContainer.append(addBtn);
+
+  form.append(tasksContainer);
+
+  // Toggle visibility based on mode
+  modeSelect.addEventListener('change', () => {
+    tasksContainer.style.display = modeSelect.value === 'custom' ? '' : 'none';
+  });
+
+  return form;
+}
+
+function buildTaskEntryRow() {
+  const row = el('div', { className: 'action-form__task-entry' });
+
+  // Remove button
+  const removeBtn = el('button', {
+    className: 'action-btn action-btn--cancel action-form__remove-task-btn',
+    textContent: '×',
+    type: 'button',
+  });
+  removeBtn.addEventListener('click', () => row.remove());
+  row.append(removeBtn);
+
+  // Target issue (required)
+  row.append(formFieldInput('targetIssue', 'number', 'Issue #', '1'));
+
+  // Conflict group
+  row.append(formFieldInput('conflictGroup', 'text', 'Conflict Group', 'e.g. wave21-webui'));
+
+  // Risk level
+  row.append(formFieldSelect('risk', ['low', 'medium', 'high', 'critical'], 'Risk'));
+
+  // Task type
+  row.append(formFieldSelect('taskType', ['operation', 'test', 'docs', 'bugfix', 'feature', 'refactor'], 'Task Type'));
+
+  // Main health policy
+  row.append(formFieldSelect('mainHealthPolicy', ['standard', 'recovery', 'none'], 'Health Policy'));
+
+  // Shared locks
+  row.append(formFieldInput('sharedLocks', 'text', 'Shared Locks', 'comma-separated'));
+
+  return row;
+}
+
+function formFieldInput(fieldName, inputType, label, placeholder) {
+  const wrap = el('div', { className: 'action-form__field action-form__field--inline' });
+  wrap.append(el('label', { className: 'action-form__label', textContent: label }));
+  wrap.append(el('input', {
+    className: 'action-form__input',
+    type: inputType,
+    'data-task-field': fieldName,
+    placeholder: placeholder || '',
+    autocomplete: 'off',
+  }));
+  return wrap;
+}
+
+function formFieldSelect(fieldName, options, label) {
+  const wrap = el('div', { className: 'action-form__field action-form__field--inline' });
+  wrap.append(el('label', { className: 'action-form__label', textContent: label }));
+  const select = el('select', { className: 'action-form__select', 'data-task-field': fieldName });
+  select.append(el('option', { value: '', textContent: '—' }));
+  for (const opt of options) {
+    select.append(el('option', { value: opt, textContent: opt }));
+  }
+  wrap.append(select);
+  return wrap;
+}
+
 function collectFormPayload(form) {
   const payload = {};
+
+  // Launch-batch structured form: collect task entries
+  const taskSource = form.querySelector('[data-field="_taskSource"]');
+  if (taskSource) {
+    if (taskSource.value === 'queue') {
+      // No tasks field — server will fall back to queue entries
+      return payload;
+    }
+    // Custom tasks mode: collect from task entry rows
+    const tasks = [];
+    for (const row of form.querySelectorAll('.action-form__task-entry')) {
+      const task = {};
+      for (const input of row.querySelectorAll('[data-task-field]')) {
+        const key = input.dataset.taskField;
+        let val = input.value;
+        if (!val) continue;
+        if (input.type === 'number') val = Number(val);
+        if (key === 'sharedLocks') val = val.split(',').map(s => s.trim()).filter(Boolean);
+        task[key] = val;
+      }
+      if (task.targetIssue) tasks.push(task);
+    }
+    if (tasks.length > 0) payload.tasks = tasks;
+    return payload;
+  }
 
   // Collect select fields
   for (const select of form.querySelectorAll('select[data-field]')) {
@@ -1678,6 +1813,31 @@ function injectConsoleStyles() {
       border: 1px solid var(--surface-border, #262b3a);
     }
     .audit-row--server { background: rgba(96,165,250,0.04); }
+
+    /* Launch-batch structured form */
+    .action-form--launch-batch { padding: 10px; }
+    .action-form__tasks-container { margin-top: 8px; }
+    .action-form__task-entries { display: flex; flex-direction: column; gap: 8px; }
+    .action-form__task-entry {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 6px; padding: 8px; background: rgba(0,0,0,0.1);
+      border: 1px solid var(--surface-border, #262b3a); border-radius: 4px;
+      position: relative;
+    }
+    .action-form__field--inline { margin-bottom: 0; }
+    .action-form__field--inline .action-form__label { margin-bottom: 2px; font-size: 10px; }
+    .action-form__field--inline .action-form__input,
+    .action-form__field--inline .action-form__select { font-size: 11px; padding: 4px 6px; }
+    .action-form__add-task-btn {
+      margin-top: 6px; font-size: 11px; padding: 3px 10px;
+    }
+    .action-form__remove-task-btn {
+      position: absolute; top: 4px; right: 4px;
+      padding: 0 6px; font-size: 14px; line-height: 1;
+      border: none; background: transparent;
+      color: var(--status-disabled, #f87171); cursor: pointer;
+    }
+    .action-form__remove-task-btn:hover { background: rgba(248,113,113,0.15); border-radius: 3px; }
   `;
   document.head.append(style);
 }

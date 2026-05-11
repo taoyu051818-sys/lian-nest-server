@@ -506,6 +506,102 @@ console.log("\nSchema shape: no script field exposed\n");
   }
 }
 
+// --- Launch-batch task field types -------------------------------------------
+
+console.log("\nLaunch-batch task field types\n");
+
+{
+  // targetIssue
+  assert(FIELD_TYPES.targetIssue.type === "number", "targetIssue type is number");
+  assert(FIELD_TYPES.targetIssue.label === "Target Issue", "targetIssue label is Target Issue");
+  assert(FIELD_TYPES.targetIssue.min === 1, "targetIssue min is 1");
+  assert(FIELD_TYPES.targetIssue.step === 1, "targetIssue step is 1");
+
+  // conflictGroup
+  assert(FIELD_TYPES.conflictGroup.type === "text", "conflictGroup type is text");
+  assert(FIELD_TYPES.conflictGroup.label === "Conflict Group", "conflictGroup label is Conflict Group");
+
+  // taskType (select)
+  assert(FIELD_TYPES.taskType.type === "select", "taskType type is select");
+  assert(FIELD_TYPES.taskType.label === "Task Type", "taskType label is Task Type");
+  assert(Array.isArray(FIELD_TYPES.taskType.options), "taskType has options array");
+  assert(FIELD_TYPES.taskType.options.includes("operation"), "taskType includes operation");
+  assert(FIELD_TYPES.taskType.options.includes("test"), "taskType includes test");
+  assert(FIELD_TYPES.taskType.options.includes("docs"), "taskType includes docs");
+  assert(Object.isFrozen(FIELD_TYPES.taskType.options), "taskType options is frozen");
+
+  // risk (select)
+  assert(FIELD_TYPES.risk.type === "select", "risk type is select");
+  assert(FIELD_TYPES.risk.label === "Risk", "risk label is Risk");
+  assert(Array.isArray(FIELD_TYPES.risk.options), "risk has options array");
+  assert(FIELD_TYPES.risk.options.includes("low"), "risk includes low");
+  assert(FIELD_TYPES.risk.options.includes("critical"), "risk includes critical");
+  assert(Object.isFrozen(FIELD_TYPES.risk.options), "risk options is frozen");
+
+  // mainHealthPolicy (select)
+  assert(FIELD_TYPES.mainHealthPolicy.type === "select", "mainHealthPolicy type is select");
+  assert(FIELD_TYPES.mainHealthPolicy.label === "Health Policy", "mainHealthPolicy label is Health Policy");
+  assert(Array.isArray(FIELD_TYPES.mainHealthPolicy.options), "mainHealthPolicy has options array");
+  assert(FIELD_TYPES.mainHealthPolicy.options.includes("standard"), "mainHealthPolicy includes standard");
+  assert(FIELD_TYPES.mainHealthPolicy.options.includes("recovery"), "mainHealthPolicy includes recovery");
+  assert(Object.isFrozen(FIELD_TYPES.mainHealthPolicy.options), "mainHealthPolicy options is frozen");
+
+  // sharedLocks
+  assert(FIELD_TYPES.sharedLocks.type === "text", "sharedLocks type is text");
+  assert(FIELD_TYPES.sharedLocks.label === "Shared Locks", "sharedLocks label is Shared Locks");
+
+  // All new FIELD_TYPES entries are frozen
+  for (const name of ["targetIssue", "conflictGroup", "taskType", "risk", "mainHealthPolicy", "sharedLocks"]) {
+    assert(Object.isFrozen(FIELD_TYPES[name]), `FIELD_TYPES.${name} is frozen`);
+  }
+}
+
+// --- buildFieldDescriptor for launch-batch fields ----------------------------
+
+console.log("\nbuildFieldDescriptor for launch-batch fields\n");
+
+{
+  const f1 = buildFieldDescriptor("targetIssue");
+  assert(f1.name === "targetIssue", "targetIssue field name correct");
+  assert(f1.type === "number", "targetIssue type is number");
+  assert(f1.required === true, "targetIssue is required");
+  assert(f1.label === "Target Issue", "targetIssue label is humanized");
+  assert(f1.min === 1, "targetIssue min is 1");
+
+  const f2 = buildFieldDescriptor("conflictGroup");
+  assert(f2.name === "conflictGroup", "conflictGroup field name correct");
+  assert(f2.type === "text", "conflictGroup type is text");
+  assert(f2.label === "Conflict Group", "conflictGroup label is humanized");
+
+  const f3 = buildFieldDescriptor("taskType");
+  assert(f3.name === "taskType", "taskType field name correct");
+  assert(f3.type === "select", "taskType type is select");
+  assert(Array.isArray(f3.options), "taskType has options");
+  assert(f3.options.length > 0, "taskType options is non-empty");
+
+  const f4 = buildFieldDescriptor("risk");
+  assert(f4.name === "risk", "risk field name correct");
+  assert(f4.type === "select", "risk type is select");
+  assert(f4.options.includes("low"), "risk options includes low");
+
+  const f5 = buildFieldDescriptor("mainHealthPolicy");
+  assert(f5.name === "mainHealthPolicy", "mainHealthPolicy field name correct");
+  assert(f5.type === "select", "mainHealthPolicy type is select");
+  assert(f5.label === "Health Policy", "mainHealthPolicy label is Health Policy");
+
+  const f6 = buildFieldDescriptor("sharedLocks");
+  assert(f6.name === "sharedLocks", "sharedLocks field name correct");
+  assert(f6.type === "text", "sharedLocks type is text");
+  assert(f6.label === "Shared Locks", "sharedLocks label is Shared Locks");
+
+  // All new field descriptors are frozen
+  for (const name of ["targetIssue", "conflictGroup", "taskType", "risk", "mainHealthPolicy", "sharedLocks"]) {
+    const desc = buildFieldDescriptor(name);
+    assert(Object.isFrozen(desc), `descriptor for ${name} is frozen`);
+    assert(desc.required === true, `descriptor for ${name} is required`);
+  }
+}
+
 // --- Confirm message field substitution --------------------------------------
 
 console.log("\nConfirm message field substitution\n");

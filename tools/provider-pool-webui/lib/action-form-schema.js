@@ -43,6 +43,44 @@ const FIELD_TYPES = Object.freeze({
     placeholder: "e.g. strategy",
     autocomplete: "off",
   }),
+  // Launch-batch task fields
+  targetIssue: Object.freeze({
+    type: "number",
+    label: "Target Issue",
+    placeholder: "e.g. 764",
+    min: 1,
+    step: 1,
+  }),
+  conflictGroup: Object.freeze({
+    type: "text",
+    label: "Conflict Group",
+    placeholder: "e.g. wave21-webui-operation",
+    autocomplete: "off",
+  }),
+  taskType: Object.freeze({
+    type: "select",
+    label: "Task Type",
+    placeholder: "select type",
+    options: Object.freeze(["operation", "test", "docs", "bugfix", "feature", "refactor"]),
+  }),
+  risk: Object.freeze({
+    type: "select",
+    label: "Risk",
+    placeholder: "select risk",
+    options: Object.freeze(["low", "medium", "high", "critical"]),
+  }),
+  mainHealthPolicy: Object.freeze({
+    type: "select",
+    label: "Health Policy",
+    placeholder: "select policy",
+    options: Object.freeze(["standard", "recovery", "none"]),
+  }),
+  sharedLocks: Object.freeze({
+    type: "text",
+    label: "Shared Locks",
+    placeholder: "e.g. app-module:auth, comma-separated",
+    autocomplete: "off",
+  }),
 });
 
 const DEFAULT_FIELD = Object.freeze({
