@@ -1,0 +1,117 @@
+{
+  "planVersion": 1,
+  "generatedAt": "2026-05-11T00:00:00Z",
+  "planMode": "autopilot",
+  "totalOpen": 5,
+  "proposed": 3,
+  "maxTasks": 10,
+  "candidates": [
+    {
+      "issueNumber": 601,
+      "title": "Add docs fixture for autopilot plan walkthrough",
+      "risk": "low",
+      "conflictGroup": "autopilot-docs",
+      "readiness": "ready",
+      "task": {
+        "taskType": "execution",
+        "risk": "low",
+        "conflictGroup": "autopilot-docs",
+        "targetIssue": 601,
+        "targetPR": null,
+        "issues": [601],
+        "expectedPR": true,
+        "allowedFiles": [
+          "docs/ai-native/**"
+        ],
+        "forbiddenFiles": [
+          "src/**",
+          "prisma/**"
+        ],
+        "validationCommands": [
+          "npm run check"
+        ],
+        "rolePacket": {
+          "actorRole": "ai-native-docs-worker",
+          "description": "Add documentation for autopilot plan walkthrough"
+        }
+      }
+    },
+    {
+      "issueNumber": 602,
+      "title": "Refactor plan-next-batch candidate scoring",
+      "risk": "medium",
+      "conflictGroup": "autopilot-scoring",
+      "readiness": "ready",
+      "task": {
+        "taskType": "execution",
+        "risk": "medium",
+        "conflictGroup": "autopilot-scoring",
+        "targetIssue": 602,
+        "targetPR": null,
+        "issues": [602],
+        "expectedPR": true,
+        "allowedFiles": [
+          "scripts/ai/plan-next-batch.ps1"
+        ],
+        "forbiddenFiles": [
+          "src/**",
+          "prisma/**"
+        ],
+        "validationCommands": [
+          "npm run check",
+          "npm run build"
+        ],
+        "rolePacket": {
+          "actorRole": "ai-native-scoring-worker",
+          "description": "Refactor candidate scoring logic in plan-next-batch"
+        }
+      }
+    },
+    {
+      "issueNumber": 603,
+      "title": "Add launch-lock fixture coverage",
+      "risk": "low",
+      "conflictGroup": "autopilot-docs",
+      "readiness": "ready",
+      "task": {
+        "taskType": "execution",
+        "risk": "low",
+        "conflictGroup": "autopilot-docs",
+        "targetIssue": 603,
+        "targetPR": null,
+        "issues": [603],
+        "expectedPR": true,
+        "allowedFiles": [
+          "tests/fixtures/**"
+        ],
+        "forbiddenFiles": [
+          "src/**"
+        ],
+        "validationCommands": [
+          "npm run check"
+        ],
+        "rolePacket": {
+          "actorRole": "ai-native-fixture-worker",
+          "description": "Add launch-lock fixture test coverage"
+        }
+      }
+    }
+  ],
+  "conflictWarnings": [
+    "Candidates #601 and #603 share conflict group 'autopilot-docs' — cannot run concurrently"
+  ],
+  "skippedIssues": [
+    {
+      "issueNumber": 604,
+      "title": "Blocked: high-risk auth change",
+      "reason": "blocked",
+      "detail": "Risk 'high' requires human approval"
+    },
+    {
+      "issueNumber": 605,
+      "title": "Waiting: dependency on #602",
+      "reason": "not-ready",
+      "detail": "Depends on issue #602 which is still open"
+    }
+  ]
+}
