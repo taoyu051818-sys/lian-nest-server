@@ -2,6 +2,10 @@
 
 Every PR must pass this gate before merge. The gate is a checklist of automated and role-based checks.
 
+> **See also:** [pr-handoff-template.md](pr-handoff-template.md) for the full
+> PR body template policy, section definitions, rejection criteria, and
+> examples.
+
 ## Automated Checks
 
 | Check | Pass condition |
@@ -47,9 +51,24 @@ Each PR requires reviews from the roles specified in the worker task contract's 
 - [ ] Legacy behavior parity maintained (when applicable)
 - [ ] Data migration path is safe (when applicable)
 
+## PR Handoff Checklist
+
+Every reviewer must verify the PR body follows the
+[handoff template](pr-handoff-template.md):
+
+- [ ] All 7 required sections are present and non-empty
+- [ ] `Linked Issues` references the correct issue number
+- [ ] `Validation` shows PASS for all required commands
+- [ ] `Changed Files` matches `git diff main --name-only`
+- [ ] `Follow-up Handoff` is present (or states issue is fully resolved)
+- [ ] `Risk / Rollback` is present for medium- and high-risk changes
+- [ ] No forbidden files appear in the diff
+
 ## PR Template
 
-Every PR must use this structure:
+Every PR must use this structure. See
+[pr-handoff-template.md](pr-handoff-template.md) for full section definitions,
+rejection criteria, and examples.
 
 ```markdown
 ## Summary
@@ -69,6 +88,10 @@ List of files modified.
 
 ## Risk / rollback
 Risk level and how to revert if needed.
+
+## Follow-up handoff
+What the next worker or loop needs to know (blocked-on, next step, context,
+open questions). Write "None — issue fully resolved" when applicable.
 ```
 
 ## Gate Decision
