@@ -404,6 +404,192 @@ if (require.main === module) {
     assert(source.includes("sanitize") || !source.includes("apiKey"), "no raw secret exposure");
   })();
 
+  // --- Dry-run edge coverage ---------------------------------------------------
+
+  // 17. Preview mode field is always "dry-run"
+  console.log("\nDry-run: mode field\n");
+  (() => {
+    setMainHealth("green");
+    setRunningTasks([]);
+    const mod = loadModule();
+
+    const result = mod.preview({
+      tasks: [makeTask({ targetIssue: 200, allowedFiles: ["docs/x.md"] })],
+    });
+    assertEqual(result.mode, "dry-run", "preview mode is dry-run");
+    assertEqual(result.status, "preview", "status is preview");
+
+    // Also verify mode is present even when all tasks are blocked
+    setMainHealth("red");
+    const mod2 = loadModule();
+    const result2 = mod2.preview({
+      tasks: [makeTask({ targetIssue: 201, allowedFiles: ["src/app.ts"] })],
+    });
+    assertEqual(result2.mode, "dry-run", "mode is dry-run even when blocked");
+  })();
+
+  // 18. Dry-run with empty allowedFiles defaults to health-repair
+  console.log("\nDry-run: empty allowedFiles\n");
+  (() => {
+    setMainHealth("green");
+    setRunningTasks([]);
+    const mod = loadModule();
+
+    const result = mod.preview({
+      tasks: [makeTask({ targetIssue: 210, allowedFiles: [] })],
+    });
+    assertEqual(result.status, "preview", "empty allowedFiles returns preview");
+    assertEqual(result.gateReport.tasks[0].workerType, "health-repair", "empty allowedFiles defaults to health-repair");
+    assertEqual(result.gateReport.tasks[0].allowed, true, "health-repair allowed in green");
+  })();
+
+  // 19. mainHealthPolicy overrides allowedFiles classification
+  console.log("\nDry-run: mainHealthPolicy override\n");
+  (() => {
+    setMainHealth("green");
+    setRunningTasks([]);
+    const mod = loadModule();
+
+    // gate-docs-only forces docs type even with src/ files
+    const result = mod.preview({
+      tasks: [
+        makeTask({ targetIssue: 220, allowedFiles: ["src/app.ts"], mainHealthPolicy: "gate-docs-only" }),
+        makeTask({ targetIssue: 221, allowedFiles: ["src/app.ts"], mainHealthPolicy: "gate-none" }),
+      ],
+    });
+    assertEqual(result.gateReport.tasks[0].workerType, "docs", "gate-docs-only overrides to docs");
+    assertEqual(result.gateReport.tasks[1].workerType, "research", "gate-none overrides to research");
+    assertEqual(result.gateReport.allAllowed, true, "both allowed in green");
+  })();
+
+  // 20. Preview rejects null/undefined payload gracefully
+  console.log("\nDry-run: null and undefined payload\n");
+  (() => {
+    setMainHealth("green");
+    setRunningTasks([]);
+    // Clean queue so null tasks doesn't fall through to queue entries
+    try { fs.unlinkSync(QUEUE_PATH); } catch { /* ignore */ }
+    const mod = loadModule();
+
+    const r1 = mod.preview(null);
+    assertEqual(r1.status, "empty", "null payload returns empty");
+
+    const r2 = mod.preview(undefined);
+    assertEqual(r2.status, "empty", "undefined payload returns empty");
+
+    const r3 = mod.preview({ tasks: null });
+    assertEqual(r3.status, "empty", "null tasks returns empty");
+  })();
+
+  // 21. Preview with no tasks and no queue returns empty
+  console.log("\nDry-run: no tasks no queue\n");
+  (() => {
+    setMainHealth("green");
+    setRunningTasks([]);
+    // Ensure no queue file exists
+    try { fs.unlinkSync(QUEUE_PATH); } catch { /* ignore */ }
+    const mod = loadModule();
+
+    const result = mod.preview({});
+    assertEqual(result.status, "empty", "no tasks and no queue returns empty");
+    assertEqual(result.gateReport, null, "gateReport is null when empty");
+  })();
+
+  // 22. Unknown health state falls through to block all types
+  console.log("\nDry-run: unknown health state\n");
+  (() => {
+    writeJson(HEALTH_PATH, { state: "purple", capturedAt: new Date().toISOString() });
+    setRunningTasks([]);
+    const mod = loadModule();
+
+    const result = mod.preview({
+      tasks: [
+        makeTask({ targetIssue: 230, allowedFiles: ["docs/x.md"] }),
+        makeTask({ targetIssue: 231, taskType: "research" }),
+      ],
+    });
+    assertEqual(result.mainHealth.state, "purple", "unknown state is preserved");
+    // Unknown state has no matrix entry, so PERMISSION_MATRIX[mainState] is undefined
+    // meaning allowed === false for all types
+    assertEqual(result.gateReport.tasks[0].allowed, false, "unknown state blocks docs");
+    assertEqual(result.gateReport.tasks[1].allowed, false, "unknown state blocks research");
+    assertEqual(result.gateReport.tasks[0].rule, "health-state-blocked", "rule is health-state-blocked");
+  })();
+
+  // 23. Sanitized preview — no secrets in output fields
+  console.log("\nDry-run: sanitized preview output\n");
+  (() => {
+    setMainHealth("green");
+    setRunningTasks([]);
+    const mod = loadModule();
+
+    const result = mod.preview({
+      tasks: [
+        makeTask({ targetIssue: 240, allowedFiles: ["docs/x.md"] }),
+        makeTask({ targetIssue: 241, allowedFiles: ["src/app.ts"] }),
+      ],
+    });
+
+    const resultStr = JSON.stringify(result);
+    const secretRe = /sk-ant-|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9_]+|password|secret/i;
+    assert(!secretRe.test(resultStr), "preview output has no secret patterns");
+
+    // Verify all string fields are actually strings
+    assertEqual(typeof result.status, "string", "status is string");
+    assertEqual(typeof result.mode, "string", "mode is string");
+    assertEqual(typeof result.message, "string", "message is string");
+    assert(Array.isArray(result.gateReport.tasks), "tasks is array");
+    for (const t of result.gateReport.tasks) {
+      assertEqual(typeof t.reason === "string" || t.reason === null, true, "reason is string or null for issue " + t.targetIssue);
+    }
+  })();
+
+  // 24. Non-array queue entries treated as empty
+  console.log("\nDry-run: malformed queue\n");
+  (() => {
+    setMainHealth("green");
+    setRunningTasks([]);
+    writeJson(QUEUE_PATH, { entries: "not-an-array" });
+    const mod = loadModule();
+
+    const result = mod.preview({});
+    assertEqual(result.status, "empty", "non-array queue entries returns empty");
+  })();
+
+  // 25. Null running tasks file does not crash
+  console.log("\nDry-run: missing running tasks file\n");
+  (() => {
+    setMainHealth("green");
+    // Remove running tasks file
+    try { fs.unlinkSync(RUNNING_PATH); } catch { /* ignore */ }
+    const mod = loadModule();
+
+    const result = mod.preview({
+      tasks: [makeTask({ targetIssue: 250, conflictGroup: "wave-missing-rt" })],
+    });
+    assertEqual(result.status, "preview", "missing running tasks file returns preview");
+    assertEqual(result.gateReport.tasks[0].allowed, true, "no crash, task allowed");
+  })();
+
+  // 26. Mixed allowedFiles paths — partially docs, partially src
+  console.log("\nDry-run: mixed allowedFiles paths\n");
+  (() => {
+    setMainHealth("green");
+    setRunningTasks([]);
+    const mod = loadModule();
+
+    const result = mod.preview({
+      tasks: [
+        makeTask({ targetIssue: 260, allowedFiles: ["docs/a.md", "src/b.ts"] }),
+        makeTask({ targetIssue: 261, allowedFiles: ["scripts/c.ps1", "scripts/d.ps1"] }),
+      ],
+    });
+    // mixed docs+src should classify as runtime-feature (has src, not high risk)
+    assertEqual(result.gateReport.tasks[0].workerType, "runtime-feature", "mixed docs+src is runtime-feature");
+    // all scripts classifies as health-repair
+    assertEqual(result.gateReport.tasks[1].workerType, "health-repair", "all scripts is health-repair");
+  })();
+
   // --- Cleanup -----------------------------------------------------------------
 
   cleanup();
