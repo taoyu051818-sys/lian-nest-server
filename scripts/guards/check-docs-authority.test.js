@@ -24,6 +24,7 @@ const {
   checkMissingFrontmatter,
   checkStaleStatus,
   checkLegacySourceOfTruthDrift,
+  isCurrentStatus,
 } = require('./check-docs-authority');
 
 let passed = 0;
@@ -225,6 +226,20 @@ console.log('checkMissingFrontmatter');
   }
 }
 
+// isCurrentStatus
+console.log('isCurrentStatus');
+{
+  assert(isCurrentStatus(null) === true, 'null frontmatter is current');
+  assert(isCurrentStatus({}) === true, 'no status is current');
+  assert(isCurrentStatus({ status: 'current' }) === true, 'status current is current');
+  assert(isCurrentStatus({ status: 'active' }) === true, 'status active is current');
+  assert(isCurrentStatus({ status: 'Current' }) === true, 'case-insensitive current');
+  assert(isCurrentStatus({ status: 'superseded' }) === false, 'superseded is not current');
+  assert(isCurrentStatus({ status: 'archived' }) === false, 'archived is not current');
+  assert(isCurrentStatus({ status: 'draft' }) === false, 'draft is not current');
+  assert(isCurrentStatus({ status: 'retired' }) === false, 'retired is not current');
+}
+
 // checkDuplicateTopics
 console.log('checkDuplicateTopics');
 {
@@ -275,6 +290,140 @@ console.log('checkDuplicateTopics');
     ];
     const dups = checkDuplicateTopics(files);
     assert(dups.length === 0, 'skips files without topic frontmatter');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// --- Regression: superseded-current topic conflict ---
+
+console.log('checkDuplicateTopics (superseded-current regression)');
+
+// Two current docs with same topic → should flag
+{
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, 'docs/a/auth-a.md', '---\ntopic: auth\nstatus: current\n---\n# Auth A');
+    writeFile(tmp, 'docs/b/auth-b.md', '---\ntopic: auth\nstatus: current\n---\n# Auth B');
+
+    const files = [
+      path.join(tmp, 'docs/a/auth-a.md'),
+      path.join(tmp, 'docs/b/auth-b.md'),
+    ];
+    const dups = checkDuplicateTopics(files);
+    assert(dups.length === 1, 'flags duplicate topic between two current docs');
+    assert(dups[0].topic === 'auth', 'correct topic for two current docs');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// Current + active docs with same topic → should flag
+{
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, 'docs/a/auth-cur.md', '---\ntopic: auth\nstatus: current\n---\n# Auth Current');
+    writeFile(tmp, 'docs/b/auth-act.md', '---\ntopic: auth\nstatus: active\n---\n# Auth Active');
+
+    const files = [
+      path.join(tmp, 'docs/a/auth-cur.md'),
+      path.join(tmp, 'docs/b/auth-act.md'),
+    ];
+    const dups = checkDuplicateTopics(files);
+    assert(dups.length === 1, 'flags duplicate topic between current and active docs');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// Current + superseded same topic → should NOT flag (superseded is not current)
+{
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, 'docs/a/auth-cur.md', '---\ntopic: auth\nstatus: current\n---\n# Auth Current');
+    writeFile(tmp, 'docs/b/auth-old.md', '---\ntopic: auth\nstatus: superseded\n---\n# Auth Superseded');
+
+    const files = [
+      path.join(tmp, 'docs/a/auth-cur.md'),
+      path.join(tmp, 'docs/b/auth-old.md'),
+    ];
+    const dups = checkDuplicateTopics(files);
+    assert(dups.length === 0, 'does not flag topic conflict between current and superseded');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// Current + archived same topic → should NOT flag
+{
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, 'docs/a/auth-cur.md', '---\ntopic: auth\nstatus: current\n---\n# Auth Current');
+    writeFile(tmp, 'docs/b/auth-arc.md', '---\ntopic: auth\nstatus: archived\n---\n# Auth Archived');
+
+    const files = [
+      path.join(tmp, 'docs/a/auth-cur.md'),
+      path.join(tmp, 'docs/b/auth-arc.md'),
+    ];
+    const dups = checkDuplicateTopics(files);
+    assert(dups.length === 0, 'does not flag topic conflict between current and archived');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// Two superseded docs same topic → should NOT flag (neither is current)
+{
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, 'docs/a/auth-old1.md', '---\ntopic: auth\nstatus: superseded\n---\n# Auth Old 1');
+    writeFile(tmp, 'docs/b/auth-old2.md', '---\ntopic: auth\nstatus: superseded\n---\n# Auth Old 2');
+
+    const files = [
+      path.join(tmp, 'docs/a/auth-old1.md'),
+      path.join(tmp, 'docs/b/auth-old2.md'),
+    ];
+    const dups = checkDuplicateTopics(files);
+    assert(dups.length === 0, 'does not flag topic conflict between two superseded docs');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// No-status + superseded same topic → should NOT flag (superseded excluded, only one current)
+{
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, 'docs/a/auth.md', '---\ntopic: auth\n---\n# Auth');
+    writeFile(tmp, 'docs/b/auth-old.md', '---\ntopic: auth\nstatus: superseded\n---\n# Auth Old');
+
+    const files = [
+      path.join(tmp, 'docs/a/auth.md'),
+      path.join(tmp, 'docs/b/auth-old.md'),
+    ];
+    const dups = checkDuplicateTopics(files);
+    assert(dups.length === 0, 'does not flag when only one doc is current (other is superseded)');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// Three current docs same topic → should flag all three
+{
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, 'docs/a/auth1.md', '---\ntopic: auth\nstatus: current\n---\n# Auth 1');
+    writeFile(tmp, 'docs/b/auth2.md', '---\ntopic: auth\nstatus: active\n---\n# Auth 2');
+    writeFile(tmp, 'docs/c/auth3.md', '---\ntopic: auth\n---\n# Auth 3');
+
+    const files = [
+      path.join(tmp, 'docs/a/auth1.md'),
+      path.join(tmp, 'docs/b/auth2.md'),
+      path.join(tmp, 'docs/c/auth3.md'),
+    ];
+    const dups = checkDuplicateTopics(files);
+    assert(dups.length === 1, 'one duplicate group for three current docs');
+    assert(dups[0].files.length === 3, 'all three current docs reported');
   } finally {
     cleanup(tmp);
   }

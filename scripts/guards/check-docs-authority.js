@@ -140,6 +140,13 @@ function checkMissingFrontmatter(files) {
   return missing;
 }
 
+const NON_CURRENT_STATUSES = new Set(['superseded', 'archived', 'draft', 'retired']);
+
+function isCurrentStatus(fm) {
+  if (!fm || !fm.status) return true; // no status = assumed current
+  return !NON_CURRENT_STATUSES.has(fm.status.toLowerCase());
+}
+
 function checkDuplicateTopics(files) {
   const groups = new Map();
 
@@ -147,6 +154,10 @@ function checkDuplicateTopics(files) {
     const content = fs.readFileSync(file, 'utf-8');
     const fm = parseFrontmatter(content);
     if (!fm || !fm.topic) continue;
+
+    // Only consider current docs for duplicate topic detection.
+    // Superseded/archived/retired docs are not authoritative sources.
+    if (!isCurrentStatus(fm)) continue;
 
     const topic = fm.topic.toLowerCase();
     const rel = path.relative(ROOT, file);
@@ -341,5 +352,7 @@ module.exports = {
   checkStaleStatus,
   checkLegacySourceOfTruthDrift,
   LEGACY_REFERENCE_EXEMPT,
+  NON_CURRENT_STATUSES,
+  isCurrentStatus,
   run,
 };
