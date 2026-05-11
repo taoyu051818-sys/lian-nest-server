@@ -18,7 +18,7 @@
 const STATE_URL = '../../../../.github/ai-state/provider-pool.json';
 const POLICY_URL = '../../../../.github/ai-policy/provider-pool-policy.json';
 const WEBUI_STATE_URL = '../../../../.github/ai-state/provider-pool-webui.json';
-const PLANNING_URL = '../../../../.github/ai-state/planning-console.json';
+const PLANNING_URL = '/api/planning';
 const REFRESH_INTERVAL_MS = 30_000;
 
 // Action API endpoints (relative to WebUI server origin)
