@@ -1,0 +1,193 @@
+{
+  "id": "repository-boundary-negative",
+  "description": "Negative fixtures for repository boundary guard rules — violations that must be detected",
+  "rules": [
+    {
+      "id": "no-data-store-driver-outside-repositories",
+      "description": "Files outside src/repositories/ must not import data-store drivers",
+      "forbiddenPackages": [
+        "@prisma/client",
+        "prisma",
+        "ioredis",
+        "redis",
+        "pg",
+        "mysql2",
+        "better-sqlite3"
+      ],
+      "infraAllowlist": [
+        { "dir": "database", "packages": ["@prisma/client", "prisma"] },
+        { "dir": "redis", "packages": ["ioredis", "redis"] }
+      ],
+      "negativeCases": [
+        {
+          "id": "forbidden-prisma-in-feature-slice",
+          "input": "import { PrismaClient } from '@prisma/client';",
+          "filePath": "auth/auth.service.ts",
+          "expectedViolation": true,
+          "reason": "Feature slice must not import @prisma/client directly"
+        },
+        {
+          "id": "forbidden-redis-in-feature-slice",
+          "input": "import Redis from 'ioredis';",
+          "filePath": "messages/messages.service.ts",
+          "expectedViolation": true,
+          "reason": "Feature slice must not import ioredis directly"
+        },
+        {
+          "id": "forbidden-pg-in-any-business-module",
+          "input": "import { Pool } from 'pg';",
+          "filePath": "feed/feed.service.ts",
+          "expectedViolation": true,
+          "reason": "No business module may import pg driver"
+        },
+        {
+          "id": "allowed-prisma-in-database-dir",
+          "input": "import { PrismaClient } from '@prisma/client';",
+          "filePath": "database/prisma.service.ts",
+          "expectedViolation": false,
+          "reason": "Infrastructure allowlist permits @prisma/client in src/database/"
+        },
+        {
+          "id": "allowed-redis-in-redis-dir",
+          "input": "import Redis from 'ioredis';",
+          "filePath": "redis/redis.service.ts",
+          "expectedViolation": false,
+          "reason": "Infrastructure allowlist permits ioredis in src/redis/"
+        },
+        {
+          "id": "wrong-allowlist-package-in-database-dir",
+          "input": "import Redis from 'ioredis';",
+          "filePath": "database/cache.service.ts",
+          "expectedViolation": true,
+          "reason": "src/database/ only allows @prisma/client and prisma, not ioredis"
+        },
+        {
+          "id": "require-syntax-detected",
+          "input": "const { Pool } = require('pg');",
+          "filePath": "auth/auth.service.ts",
+          "expectedViolation": true,
+          "reason": "require() syntax must also be caught"
+        },
+        {
+          "id": "dynamic-import-not-caught",
+          "input": "const mod = await import('pg');",
+          "filePath": "auth/auth.service.ts",
+          "expectedViolation": false,
+          "notes": "Dynamic import() is not matched by the current regex — documented gap"
+        },
+        {
+          "id": "commented-import-false-positive",
+          "input": "// import { PrismaClient } from '@prisma/client';",
+          "filePath": "auth/auth.service.ts",
+          "expectedViolation": true,
+          "notes": "Commented imports ARE matched by the regex — known false positive limitation"
+        },
+        {
+          "id": "partial-package-name-no-match",
+          "input": "import { something } from '@prisma/client-extensions';",
+          "filePath": "auth/auth.service.ts",
+          "expectedViolation": false,
+          "reason": "Package pattern must not match partial names (strict regex)"
+        }
+      ]
+    },
+    {
+      "id": "no-fs-module-outside-repositories",
+      "description": "Files outside src/repositories/ must not import Node fs modules",
+      "forbiddenModules": ["fs", "fs/promises"],
+      "negativeCases": [
+        {
+          "id": "forbidden-fs-in-feature-slice",
+          "input": "import * as fs from 'fs';",
+          "filePath": "profile/profile.service.ts",
+          "expectedViolation": true,
+          "reason": "Feature slice must not import fs directly"
+        },
+        {
+          "id": "forbidden-fs-promises-in-feature-slice",
+          "input": "import { readFile } from 'fs/promises';",
+          "filePath": "tags/tags.service.ts",
+          "expectedViolation": true,
+          "reason": "Feature slice must not import fs/promises directly"
+        },
+        {
+          "id": "require-fs-syntax",
+          "input": "const fs = require('fs');",
+          "filePath": "posts/posts.service.ts",
+          "expectedViolation": true,
+          "reason": "require('fs') must be caught"
+        }
+      ]
+    },
+    {
+      "id": "no-direct-provider-import",
+      "description": "Business modules must use @Inject(REPOSITORY_TOKENS.*) — never import from repositories/providers/ directly",
+      "providerImportPattern": "(?:from\\s+|import\\s+|require\\s*\\()\\s*['\"][^'\"]*\\/repositories\\/providers\\/[^'\"]*['\"]",
+      "excludedDirs": ["database", "redis", "repositories", "nodebb", "common"],
+      "negativeCases": [
+        {
+          "id": "direct-provider-import-in-feature-slice",
+          "input": "import { AuthRepository } from '../repositories/providers/auth.repository';",
+          "filePath": "auth/auth.service.ts",
+          "expectedViolation": true,
+          "reason": "Feature slice must not import provider directly"
+        },
+        {
+          "id": "direct-provider-import-with-absolute-path",
+          "input": "import { SessionRepository } from '@/repositories/providers/session.repository';",
+          "filePath": "messages/messages.service.ts",
+          "expectedViolation": true,
+          "reason": "Absolute path provider import must be caught"
+        },
+        {
+          "id": "require-provider-syntax",
+          "input": "const repo = require('../../repositories/providers/auth.repository');",
+          "filePath": "feed/feed.controller.ts",
+          "expectedViolation": true,
+          "reason": "require() syntax for provider import must be caught"
+        },
+        {
+          "id": "provider-import-in-repositories-dir-allowed",
+          "input": "import { AuthRepository } from './providers/auth.repository';",
+          "filePath": "repositories/repository.module.ts",
+          "expectedViolation": false,
+          "reason": "src/repositories/ is excluded from this check"
+        },
+        {
+          "id": "provider-import-in-database-dir-allowed",
+          "input": "import { AuthRepository } from '../repositories/providers/auth.repository';",
+          "filePath": "database/database.module.ts",
+          "expectedViolation": false,
+          "reason": "src/database/ is an excluded infrastructure dir"
+        }
+      ]
+    },
+    {
+      "id": "feature-slice-completeness",
+      "description": "All 9 feature slices from scripts/check-repository-boundary.js must be covered",
+      "expectedSlices": [
+        "auth",
+        "categories",
+        "feed",
+        "messages",
+        "posts",
+        "profile",
+        "tags",
+        "topics",
+        "users"
+      ],
+      "negativeCases": [
+        {
+          "id": "spec-has-6-slices-script-has-9",
+          "description": "The Jest spec covers 6 slices; the script covers 9. Negative test verifies all 9 are present.",
+          "specSlices": ["auth", "feed", "messages", "posts", "profile", "tags"],
+          "scriptSlices": ["auth", "categories", "feed", "messages", "posts", "profile", "tags", "topics", "users"],
+          "missingFromSpec": ["categories", "topics", "users"],
+          "expectedViolation": true,
+          "reason": "Spec feature slice list must match the script for full coverage"
+        }
+      ]
+    }
+  ],
+  "notes": "These fixtures document negative boundary scenarios for repository guard rules. Each negativeCase describes an input string, file path, and whether a violation is expected. filePath values are relative to the src/ directory. The negative spec uses these scenarios to verify the detection logic catches violations correctly and respects allowlist exclusions."
+}
