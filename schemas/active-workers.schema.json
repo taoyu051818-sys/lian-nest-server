@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/active-workers.schema.json",
+  "title": "ActiveWorkers",
+  "description": "Schema for .github/ai-state/active-workers.json — the active workers projection consumed by the launch gate, state reconciler, batch launcher, and monitoring. Written by the state reconciler or batch launcher after each dispatch or completion event. See docs/ai-native/active-workers-schema.md for field-level documentation.",
+  "type": "object",
+  "required": [
+    "markerVersion",
+    "capturedAt",
+    "workers"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "markerVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1. Increment when the schema shape changes."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this projection was last written."
+    },
+    "workers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ActiveWorker"
+      },
+      "description": "Active worker entries. Empty array when no workers are running."
+    }
+  },
+  "definitions": {
+    "ActiveWorker": {
+      "type": "object",
+      "required": [
+        "conflictGroup"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "conflictGroup": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Conflict group identifier. Matches conflictGroup in task JSON. Used by the launch gate to detect scheduling conflicts with in-flight work."
+        },
+        "issue": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "GitHub issue number the worker is assigned to."
+        },
+        "branch": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "Git branch or worktree the worker is operating on."
+        }
+      }
+    }
+  }
+}
