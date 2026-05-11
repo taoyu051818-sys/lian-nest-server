@@ -1,0 +1,30 @@
+{
+  "stateVersion": 1,
+  "description": "Sanitized projection of API provider pool state. Contains no secrets — only provider ids, availability, and cooldown metadata. Updated by scripts/ai/update-provider-state.ps1.",
+
+  "providers": [
+    {
+      "id": "provider-default",
+      "status": "available",
+      "currentConcurrency": 0,
+      "maxConcurrency": 1,
+      "lastHealthCheckAt": null,
+      "lastFailureClass": null,
+      "cooldownExpiresAt": null,
+      "consecutiveFailures": 0,
+      "totalQuotaEvents": 0
+    }
+  ],
+
+  "global": {
+    "totalActiveWorkers": 0,
+    "globalMaxWorkers": 3,
+    "availableProviders": 1,
+    "exhaustedProviders": 0,
+    "disabledProviders": 0,
+    "lastUpdatedBy": "initial-state",
+    "capturedAt": "2026-05-11T00:00:00Z"
+  },
+
+  "notes": "This file is a sanitized state projection. It never contains API keys, tokens, account identifiers, or raw provider responses. The launcher and launch gate read this file to determine provider availability before dispatching workers."
+}
