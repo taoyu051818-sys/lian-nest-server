@@ -1,0 +1,36 @@
+{
+  "id": "search-empty",
+  "endpoint": "GET /api/search",
+  "description": "Search with non-matching term returns empty items",
+  "request": {
+    "method": "GET",
+    "path": "/api/search?term=zzzznonexistentterm",
+    "query": { "term": "zzzznonexistentterm" }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "term": "zzzznonexistentterm",
+      "items": [],
+      "total": 0,
+      "page": 1,
+      "pages": 0,
+      "source": "nodebb"
+    },
+    "bodySchema": {
+      "type": "object",
+      "required": ["term", "items", "total", "page", "pages", "source"],
+      "properties": {
+        "term": { "type": "string" },
+        "items": { "type": "array", "maxItems": 0 },
+        "total": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "minimum": 1 },
+        "pages": { "type": "integer", "minimum": 0 },
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "notes": "Non-matching term should return empty results with total=0."
+}
