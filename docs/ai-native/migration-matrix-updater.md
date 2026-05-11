@@ -118,6 +118,48 @@ non-zero exit, preventing stale summary counts from landing on `main`.
 
 Use this in CI or as a local pre-commit check to catch drift early.
 
+## Stale-Row Guard
+
+When the matrix updater suggests status advances, it should also flag stale
+route parity rows — rows whose lifecycle has stalled between statuses.
+
+### Detection Conditions
+
+The guard checks for these conditions against `route-parity-matrix.md`:
+
+| Condition | Meaning |
+|-----------|---------|
+| `impl_pr` set but status still `CONTRACTED` | PR merged, row not advanced |
+| `test_status` is `PASS` but status < `PARITY_TESTED` | Parity confirmed, status behind |
+| `status` is `PARITY_TESTED` but `shutdown_ready` is empty | Shutdown gate not evaluated |
+
+### Handoff to Planner
+
+When stale rows are detected:
+
+1. The updater emits a warning table in its markdown report.
+2. The warning includes row identifiers (endpoint, family, slice) so the
+   planning loop can emit `[stale-row]` review candidates.
+3. The updater **does not** auto-advance stale rows — it only surfaces them.
+
+### Integration with Planning Loop
+
+The stale-row guard runs between the updater's matrix suggestion step and the
+planner's prioritization step:
+
+```
+update-migration-matrix.ps1 -SliceMatrix    (suggest status advances)
+        |
+        v
+stale-row detection                         (flag stalled rows)
+        |
+        v
+plan-next-batch.ps1                         (emit stale-row candidates)
+```
+
+This ensures stale rows surface as high-priority review tasks before new
+implementation work is dispatched.
+
 ## See Also
 
 - [Migration Matrix](../migration/migration-matrix.md)
