@@ -3,7 +3,7 @@
 End-to-end smoke test for the full WebUI console — dashboard, planning-loop
 endpoints, action preview/execute flow, audit trail, and secret isolation.
 
-> **Closes:** #696
+> **Closes:** #696, #886
 
 ---
 
@@ -80,6 +80,27 @@ Runs as a standalone Node.js script with no external test framework.
 | `entries` array present | Response has entries array |
 | `total` is a number | Count is numeric |
 
+### Audit filters
+
+| Query | Expected status | Description |
+|---|---|---|
+| `?actionId=provider-rotation` | 200 | Filter by action ID |
+| `?status=success` | 200 | Filter by status |
+| `?limit=5` | 200 | Limit result count |
+| `?limit=abc` | 400 | Invalid limit rejected |
+| `?actionId=compile-tasks&status=success&limit=10` | 200 | Combined filters; response includes `filters` object echoing `actionId`, `status`, `limit` |
+
+### Planning endpoint
+
+| Assertion | Description |
+|---|---|
+| `GET /api/planning` returns 200 or 503 | Planning endpoint responds |
+| Returns JSON object | Valid response shape |
+| If `launchPlan` present: `selectedTasks` is array or undefined | Launch plan shape |
+| If `launchPlan` present: `rejectedTasks` is array or undefined | Rejected tasks shape |
+| If `launchPlan` present: `locksAcquired` is array or undefined | Locks shape |
+| If `launchPlan` present: `allAllowed` is boolean or undefined | All-allowed flag |
+
 ### Secret isolation
 
 All endpoints are scanned for patterns that should never appear:
@@ -90,7 +111,7 @@ All endpoints are scanned for patterns that should never appear:
 - `Bearer <token>` patterns
 - `-----BEGIN.*PRIVATE KEY-----` (private keys)
 
-Endpoints checked: health, state, policy, workers, resources, queue, actions, audit, dashboard HTML.
+Endpoints checked: health, state, policy, workers, resources, queue, actions, planning, audit, dashboard HTML.
 
 ### Security headers
 
@@ -107,9 +128,37 @@ Server responds on `127.0.0.1` — confirms loopback-only binding.
 
 `GET /api/nonexistent` returns 404 with `{ error: "Not found" }`.
 
+### Confirmation copy enhancement
+
+Reads static source files from disk to verify the confirmation warning UI infrastructure:
+
+**`public/app.js` checks:**
+
+| Assertion | Description |
+|---|---|
+| Contains `RISK_DESCRIPTIONS` map | Risk descriptions for dangerous actions |
+| Contains `confirmationWarningBanner` function | Warning banner rendering |
+| References `confirm-warning` CSS class | CSS class linkage |
+| References `execute-confirm__reason` classes | Reason input styling |
+| `RISK_DESCRIPTIONS` includes `provider.retry`, `provider.disable`, `queue.clearStale`, `global.refreshState` | Key risk entries present |
+| Prompt includes `"to confirm execution of"` | Action label context in confirmation |
+| Has `needsReason` validation logic | Reason input required for some actions |
+| Has `validateConfirm` function | Confirmation validation |
+
+**`public/styles.css` checks:**
+
+| Assertion | Description |
+|---|---|
+| Contains `confirm-warning--high` style | High-risk visual treatment |
+| Contains `confirm-warning--medium` style | Medium-risk visual treatment |
+| Contains `confirm-warning__body` style | Banner body layout |
+| Contains `confirm-warning__notice` style | Notice text styling |
+| Contains `execute-confirm__reason` style | Reason input styling |
+| Contains `confirm-warning__icon` style | Icon styling |
+
 ### Console readiness
 
-All 8 API endpoints (`health`, `state`, `policy`, `workers`, `resources`, `queue`, `actions`, `audit`) respond with 200 or 503 — none return unexpected error codes.
+All 9 API endpoints (`health`, `state`, `policy`, `workers`, `resources`, `queue`, `actions`, `audit`, `planning`) respond with 200 or 503 — none return unexpected error codes.
 
 ---
 
@@ -155,20 +204,32 @@ console-smoke.test.js
   +-- 7. Audit trail
   |     GET /api/audit
   |
-  +-- 8. Secret isolation
+  +-- 8. Audit filters
+  |     GET /api/audit?actionId=...
+  |     GET /api/audit?status=...
+  |     GET /api/audit?limit=... (valid + invalid)
+  |     GET /api/audit?combined filters
+  |
+  +-- 9. Planning endpoint
+  |     GET /api/planning
+  |
+  +-- 10. Secret isolation
   |     Scan all endpoint responses for secret patterns
   |
-  +-- 9. Security headers
+  +-- 11. Security headers
   |     X-Content-Type-Options, CORS
   |
-  +-- 10. Localhost binding
+  +-- 12. Localhost binding
   |     Verify 127.0.0.1 responds
   |
-  +-- 11. Unknown route
+  +-- 13. Unknown route
   |     GET /api/nonexistent -> 404
   |
-  +-- 12. Console readiness
-  |     All endpoints reachable (200 or 503)
+  +-- 14. Confirmation copy enhancement
+  |     Verify app.js risk descriptions + styles.css classes
+  |
+  +-- 15. Console readiness
+  |     All 9 endpoints reachable (200 or 503)
   |
   +-- Stop server, print summary
 ```
