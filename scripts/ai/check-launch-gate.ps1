@@ -13,6 +13,8 @@
     3. Applies the main-health launch policy matrix to decide allow / block.
     4. Detects duplicate conflictGroup values in the batch.
     5. Detects sharedLocks overlap between tasks (when the field is present).
+    6. Detects running-worker conflictGroup collisions (when a running tasks
+       manifest is provided).
 
     This is a dry-run checker only. It does NOT modify any files or launch
     workers. The orchestrator calls this before batch-launch.ps1.
@@ -29,6 +31,13 @@
     One of: green, yellow, red, black. Ignored when HealthFile exists and
     contains a valid state.
 
+.PARAMETER RunningTasksFile
+    Path to a JSON file listing currently active worker conflict groups.
+    Format: an array of objects with a "conflictGroup" string field, e.g.
+    [{ "conflictGroup": "auth-core", "issue": 258 }]
+    Tasks whose conflictGroup matches an active group will be blocked.
+    When omitted, running-worker conflict detection is skipped.
+
 .PARAMETER Json
     Output the report as JSON instead of console text.
 
@@ -39,6 +48,10 @@
 .EXAMPLE
     # Force a red state override for testing
     ./scripts/ai/check-launch-gate.ps1 -TaskFile ./tasks/batch-1.json -MainState red
+
+.EXAMPLE
+    # Check against running workers manifest
+    ./scripts/ai/check-launch-gate.ps1 -TaskFile ./tasks/batch-1.json -RunningTasksFile ./active-workers.json
 
 .EXAMPLE
     # JSON output for CI consumption
@@ -56,6 +69,8 @@ param(
 
     [ValidateSet("green", "yellow", "red", "black")]
     [string]$MainState = "",
+
+    [string]$RunningTasksFile = "",
 
     [switch]$Json
 )
@@ -136,6 +151,45 @@ if ($MainState -ne "") {
     }
 } else {
     Write-Warn "No health file at $HealthFile and no -MainState override. Assuming green."
+}
+
+# ---------------------------------------------------------------------------
+# Load running tasks manifest (optional)
+# ---------------------------------------------------------------------------
+
+$runningGroups = @{}
+
+if ($RunningTasksFile -ne "") {
+    if (-not (Test-Path $RunningTasksFile)) {
+        Write-Fail "Running tasks file not found: $RunningTasksFile"
+        exit 2
+    }
+
+    try {
+        $runningRaw = Get-Content -Path $RunningTasksFile -Raw -Encoding UTF8
+        $runningTasks = $runningRaw | ConvertFrom-Json
+
+        if ($runningTasks -is [System.Array]) {
+            $runningList = @($runningTasks)
+        } else {
+            $runningList = @($runningTasks)
+        }
+
+        foreach ($rt in $runningList) {
+            $rg = Get-Prop $rt "conflictGroup"
+            if ($rg -and $rg -ne "") {
+                $runningGroups[$rg] = [ordered]@{
+                    issue  = (Get-Prop $rt "issue" "?")
+                    branch = (Get-Prop $rt "branch" "")
+                }
+            }
+        }
+
+        Write-Step "Loaded $($runningGroups.Count) running conflict group(s) from $RunningTasksFile"
+    } catch {
+        Write-Fail "Could not parse running tasks file: $RunningTasksFile"
+        exit 2
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -304,6 +358,30 @@ foreach ($lock in $lockOwners.Keys) {
 }
 
 # ---------------------------------------------------------------------------
+# Detect running-worker conflictGroup collisions
+# ---------------------------------------------------------------------------
+
+$runningWorkerConflicts = @()
+
+if ($runningGroups.Count -gt 0) {
+    foreach ($r in $results) {
+        $g = $r.conflictGroup
+        if ($g -ne "" -and $runningGroups.ContainsKey($g)) {
+            $runningInfo = $runningGroups[$g]
+            $runningWorkerConflicts += [ordered]@{
+                conflictGroup = $g
+                taskIssue     = $r.targetIssue
+                runningIssue  = $runningInfo.issue
+                runningBranch = $runningInfo.branch
+            }
+            $r["allowed"] = $false
+            $r["reason"] = "Conflict group '$g' is already being worked on by active worker (issue #$($runningInfo.issue))."
+            $anyBlocked = $true
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Build report
 # ---------------------------------------------------------------------------
 
@@ -317,6 +395,7 @@ $report = [ordered]@{
     tasks         = $results
     duplicateConflictGroups = $duplicateGroups
     sharedLockConflicts     = $sharedLockConflicts
+    runningWorkerConflicts  = $runningWorkerConflicts
     allAllowed    = (-not $anyBlocked)
 }
 
@@ -371,6 +450,14 @@ if ($Json) {
         foreach ($sl in $sharedLockConflicts) {
             $issueList = ($sl.issues -join ", ")
             Write-Host "  lock '$($sl.sharedLock)' contested by issues: $issueList" -ForegroundColor Red
+        }
+        Write-Host ""
+    }
+
+    if ($runningWorkerConflicts.Count -gt 0) {
+        Write-Host "Running-worker conflicts:" -ForegroundColor Red
+        foreach ($rw in $runningWorkerConflicts) {
+            Write-Host "  group '$($rw.conflictGroup)' — task issue #$($rw.taskIssue) blocked by active worker issue #$($rw.runningIssue)" -ForegroundColor Red
         }
         Write-Host ""
     }
