@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Detects state drift between issues, PRs, and worker labels without mutating by default.
+    Detects state drift between issues, PRs, worker labels, and active-worker projection without mutating by default.
 .DESCRIPTION
     Reads issue/PR state from `gh` JSON or fixture files and detects obvious drift:
     - Running issue with no open PR (stale-running)
@@ -11,6 +11,10 @@
     - Merged PR but stale agent label (merged-pr-stale-label)
     - Done label but PR closed without merge (done-with-closed-pr)
     - Multiple agent labels on one issue (multiple-agent-labels)
+    When -ActiveWorkersPath is provided, also detects projection-vs-label drift:
+    - Worker in projection but issue is agent:done (stale-worker-projection)
+    - Issue is agent:running but missing from projection (running-missing-from-projection)
+    - Projection timestamp older than stale threshold (stale-projection)
     Dry-run by default; pass -Apply to suggest label transitions (still no auto-mutation).
     Pass -DryRun to explicitly confirm no mutation (conflicts with -Apply).
     Pass -Help to display usage and drift rule reference.
@@ -20,6 +24,7 @@
     ./scripts/ai/state-reconciler.ps1 -Repo "o/r" -IssueNumbers 113,114
     ./scripts/ai/state-reconciler.ps1 -FixturePath ./state-snapshot.json
     ./scripts/ai/state-reconciler.ps1 -FixtureDir ./tests/fixtures/state-reconciler/
+    ./scripts/ai/state-reconciler.ps1 -Repo "o/r" -ActiveWorkersPath ./.github/ai-state/active-workers.json
 #>
 
 [CmdletBinding()]
@@ -46,6 +51,9 @@ param(
     [switch]$DryRun,
 
     [Parameter(Mandatory = $false)]
+    [string]$ActiveWorkersPath,
+
+    [Parameter(Mandatory = $false)]
     [switch]$Help
 )
 
@@ -67,24 +75,30 @@ USAGE
     ./scripts/ai/state-reconciler.ps1 -FixtureDir ./tests/fixtures/state-reconciler/
 
 OPTIONS
-    -Repo <string>          GitHub owner/repo to scan
-    -IssueNumbers <int[]>   Limit scan to specific issue numbers
-    -FixturePath <string>   Load issues from a single JSON fixture (offline)
-    -FixtureDir <string>    Validate all fixtures in a directory (CI regression)
-    -StaleHours <int>       Hours before running/queued is considered stale (default: 72)
-    -Apply                  Print suggested gh issue edit commands (no auto-mutation)
-    -DryRun                 Confirm dry-run mode; conflicts with -Apply
-    -Help                   Show this help message
+    -Repo <string>              GitHub owner/repo to scan
+    -IssueNumbers <int[]>       Limit scan to specific issue numbers
+    -FixturePath <string>       Load issues from a single JSON fixture (offline)
+    -FixtureDir <string>        Validate all fixtures in a directory (CI regression)
+    -StaleHours <int>           Hours before running/queued is considered stale (default: 72)
+    -ActiveWorkersPath <string> Path to active-workers.json projection (enables projection drift rules)
+    -Apply                      Print suggested gh issue edit commands (no auto-mutation)
+    -DryRun                     Confirm dry-run mode; conflicts with -Apply
+    -Help                       Show this help message
 
-DRIFT RULES
-    stale-running           agent:running with no open PR for >StaleHours
-    done-without-merge      agent:done but no merged PR, issue open
-    merged-pr-open-issue    Merged PR exists, issue still open
-    stale-queued            agent:queued for >StaleHours without pickup
-    blocked-with-open-pr    agent:blocked with an open PR
-    merged-pr-stale-label   Merged PR but label not agent:done
-    done-with-closed-pr     agent:done but PR closed without merge
-    multiple-agent-labels   More than one agent:* label on same issue
+DRIFT RULES (label-based)
+    stale-running               agent:running with no open PR for >StaleHours
+    done-without-merge          agent:done but no merged PR, issue open
+    merged-pr-open-issue        Merged PR exists, issue still open
+    stale-queued                agent:queued for >StaleHours without pickup
+    blocked-with-open-pr        agent:blocked with an open PR
+    merged-pr-stale-label       Merged PR but label not agent:done
+    done-with-closed-pr         agent:done but PR closed without merge
+    multiple-agent-labels       More than one agent:* label on same issue
+
+DRIFT RULES (active-worker projection, requires -ActiveWorkersPath)
+    stale-worker-projection         Worker in projection but issue label is agent:done
+    running-missing-from-projection Issue is agent:running but not in active-workers projection
+    stale-projection                capturedAt older than StaleHours threshold
 
 DRY-RUN CONTRACT
     This script never calls gh issue edit or gh pr edit.
@@ -171,6 +185,20 @@ function Get-AgentLabel {
         if (Test-HasLabel -Issue $Issue -LabelName $label) { return $label }
     }
     return $null
+}
+
+function Get-ActiveWorkersProjection {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) {
+        Write-Error "Active workers file not found: $Path"
+        exit 1
+    }
+    $data = Get-Content $Path -Raw | ConvertFrom-Json
+    if ($null -eq $data.workers) {
+        Write-Error "Invalid active-workers schema: missing 'workers' array in $Path"
+        exit 1
+    }
+    return $data
 }
 
 # ---------------------------------------------------------------------------
@@ -317,6 +345,84 @@ function Find-StateDrift {
     return $drifts
 }
 
+function Find-ProjectionDrift {
+    param($Issues, $Projection, [int]$StaleThresholdHours)
+
+    $drifts = @()
+    $now = Get-Date
+    $workers = @($Projection.workers)
+
+    # Build lookup: issue number -> worker entry
+    $workerByIssue = @{}
+    foreach ($w in $workers) {
+        if ($w.issue) {
+            $workerByIssue[[int]$w.issue] = $w
+        }
+    }
+
+    # Build lookup: issue number -> issue object (from label scan)
+    $issueByNumber = @{}
+    foreach ($issue in $Issues) {
+        $issueByNumber[[int]$issue.number] = $issue
+    }
+
+    # Rule A: Worker in projection but issue label is agent:done
+    foreach ($w in $workers) {
+        if (-not $w.issue) { continue }
+        $issueNum = [int]$w.issue
+        $issue = $issueByNumber[$issueNum]
+        if ($issue) {
+            $agentLabel = Get-AgentLabel -Issue $issue
+            if ($agentLabel -eq "agent:done") {
+                $drifts += [PSCustomObject]@{
+                    Issue     = $issueNum
+                    Title     = if ($issue.title) { $issue.title } else { "(from projection)" }
+                    Rule      = "stale-worker-projection"
+                    Detail    = "Worker '$($w.conflictGroup)' in projection but issue #$issueNum is agent:done"
+                    Suggest   = "Remove worker from active-workers.json projection"
+                    Severity  = "warning"
+                }
+            }
+        }
+    }
+
+    # Rule B: Issue is agent:running but not in active-workers projection
+    foreach ($issue in $Issues) {
+        $agentLabel = Get-AgentLabel -Issue $issue
+        if ($agentLabel -eq "agent:running") {
+            $issueNum = [int]$issue.number
+            if (-not $workerByIssue.ContainsKey($issueNum)) {
+                $drifts += [PSCustomObject]@{
+                    Issue     = $issueNum
+                    Title     = $issue.title
+                    Rule      = "running-missing-from-projection"
+                    Detail    = "Issue #$issueNum is agent:running but has no entry in active-workers projection"
+                    Suggest   = "Add worker entry to active-workers.json or update issue label"
+                    Severity  = "info"
+                }
+            }
+        }
+    }
+
+    # Rule C: Projection timestamp is stale
+    if ($Projection.capturedAt) {
+        $capturedAt = [DateTime]::Parse($Projection.capturedAt)
+        $hoursSinceCapture = ($now - $capturedAt).TotalHours
+        if ($hoursSinceCapture -gt $StaleThresholdHours) {
+            $drifts += [PSCustomObject]@{
+                Issue     = 0
+                Title     = "active-workers.json"
+                Rule      = "stale-projection"
+                Detail    = "Projection capturedAt is $([int]$hoursSinceCapture)h old (threshold: ${StaleThresholdHours}h)"
+                Suggest   = "Refresh active-workers.json projection via reconciler or batch launcher"
+                Severity  = "warning"
+            }
+        }
+    }
+
+    return $drifts
+}
+
 # ---------------------------------------------------------------------------
 # Output formatting
 # ---------------------------------------------------------------------------
@@ -415,6 +521,12 @@ function Invoke-FixtureValidation {
         }
 
         $drifts = @(Find-StateDrift -Issues $issues -RepoName "" -StaleThresholdHours $StaleThresholdHours)
+
+        # If fixture includes activeWorkers projection, run projection drift too
+        if ($data.PSObject.Properties['activeWorkers'] -and $data.activeWorkers) {
+            $projectionDrifts = @(Find-ProjectionDrift -Issues $issues -Projection $data.activeWorkers -StaleThresholdHours $StaleThresholdHours)
+            $drifts = @($drifts + $projectionDrifts)
+        }
         $actualRules = @($drifts | ForEach-Object { $_.Rule })
         $actualCount = $drifts.Count
 
@@ -514,6 +626,17 @@ Write-Output ""
 
 # Detect drift
 $drifts = Find-StateDrift -Issues $issues -RepoName $Repo -StaleThresholdHours $StaleHours
+
+# Projection drift (optional, when -ActiveWorkersPath provided)
+if ($ActiveWorkersPath) {
+    Write-Output "Loading active workers projection: $ActiveWorkersPath"
+    $projection = Get-ActiveWorkersProjection -Path $ActiveWorkersPath
+    $workerCount = @($projection.workers).Count
+    Write-Output "  Workers in projection: $workerCount"
+    Write-Output ""
+    $projectionDrifts = @(Find-ProjectionDrift -Issues $issues -Projection $projection -StaleThresholdHours $StaleHours)
+    $drifts = @($drifts + $projectionDrifts)
+}
 
 # Output report
 Write-DriftReport -Drifts $drifts
