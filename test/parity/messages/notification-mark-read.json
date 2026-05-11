@@ -1,0 +1,15 @@
+{
+  "id": "notification-mark-read",
+  "endpoint": "POST /api/notifications/:nid/read",
+  "description": "Mark a single notification as read by nid",
+  "request": {
+    "method": "POST",
+    "path": "/api/notifications/:nid/read"
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": null
+  },
+  "notes": "Returns void on success. Throws BadRequestException when nid is empty/blank. Throws NotFoundException when provider returns NOT_FOUND. Throws Error with provider message on ERROR status."
+}
