@@ -190,6 +190,72 @@ console.log('\n-- Estimated token source');
   }
 }
 
+// Result with tokenUsage but NO source field — should default to log_parse/medium
+{
+  const tmpDir = makeTmpDir();
+  try {
+    const resultPath = path.join(tmpDir, 'result.json');
+    fs.writeFileSync(resultPath, JSON.stringify({
+      tokenUsage: {
+        inputTokens: 25000,
+        outputTokens: 5000,
+      },
+    }));
+    const rec = runCalc(`--result "${resultPath}" --dry-run`);
+    assertEq(rec.tokenUsage.source, 'log_parse', 'missing source defaults to log_parse');
+    assertEq(rec.tokenUsage.confidence, 'medium', 'missing confidence defaults to medium');
+    assertEq(rec.tokenUsage.inputTokens, 25000, 'inputTokens from result (no source)');
+    assertEq(rec.tokenUsage.outputTokens, 5000, 'outputTokens from result (no source)');
+    assertEq(rec.estimatedCost.pricingBasis, 'estimated', 'pricingBasis estimated for default log_parse');
+    assert(rec.estimatedCost.amountCents > 0, 'cost > 0 with tokens (no source)');
+  } finally {
+    cleanupTmpDir(tmpDir);
+  }
+}
+
+// Result with tokenUsage source explicitly 'estimate' — pricingBasis unknown
+{
+  const tmpDir = makeTmpDir();
+  try {
+    const resultPath = path.join(tmpDir, 'result.json');
+    fs.writeFileSync(resultPath, JSON.stringify({
+      tokenUsage: {
+        inputTokens: 12000,
+        outputTokens: 3000,
+        source: 'estimate',
+        confidence: 'low',
+      },
+    }));
+    const rec = runCalc(`--result "${resultPath}" --dry-run`);
+    assertEq(rec.tokenUsage.source, 'estimate', 'explicit estimate source preserved');
+    assertEq(rec.tokenUsage.confidence, 'low', 'explicit low confidence preserved');
+    assertEq(rec.estimatedCost.pricingBasis, 'unknown', 'pricingBasis unknown for estimate source');
+    assert(rec.estimatedCost.amountCents > 0, 'cost > 0 with tokens (estimate source)');
+  } finally {
+    cleanupTmpDir(tmpDir);
+  }
+}
+
+// Result file present but NO tokenUsage — falls back to estimate/low
+{
+  const tmpDir = makeTmpDir();
+  try {
+    const resultPath = path.join(tmpDir, 'result.json');
+    fs.writeFileSync(resultPath, JSON.stringify({
+      changedFiles: { count: 1, linesAdded: 10, linesRemoved: 0 },
+    }));
+    const rec = runCalc(`--result "${resultPath}" --dry-run`);
+    assertEq(rec.tokenUsage.source, 'estimate', 'no tokenUsage → source estimate');
+    assertEq(rec.tokenUsage.confidence, 'low', 'no tokenUsage → confidence low');
+    assertEq(rec.tokenUsage.inputTokens, 0, 'no tokenUsage → inputTokens 0');
+    assertEq(rec.tokenUsage.outputTokens, 0, 'no tokenUsage → outputTokens 0');
+    assertEq(rec.estimatedCost.pricingBasis, 'unknown', 'no tokenUsage → pricingBasis unknown');
+    assertEq(rec.changedFiles.count, 1, 'changedFiles still populated from result');
+  } finally {
+    cleanupTmpDir(tmpDir);
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 3. Sanitized output — no secrets or raw logs leaked
 // ═══════════════════════════════════════════════════════════════════════════
