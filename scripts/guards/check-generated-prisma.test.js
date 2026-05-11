@@ -109,6 +109,57 @@ console.log('\nclassifyChangedFiles:');
   assert(r.schema.length === 1, 'mixed: one schema');
 }
 
+// --- classifyChangedFiles regression: schema/migration vs unrelated generated ---
+
+console.log('\nclassifyChangedFiles — migration regression:');
+{
+  // Migration files are classified as schema
+  let r = classifyChangedFiles([
+    'prisma/migrations/20260511_add_users/migration.sql',
+  ]);
+  assert(r.schema.length === 1, 'migration file classified as schema');
+  assert(r.schema[0] === 'prisma/migrations/20260511_add_users/migration.sql', 'migration path preserved');
+  assert(r.generated.length === 0, 'migration file not classified as generated');
+
+  // Multiple migration files
+  r = classifyChangedFiles([
+    'prisma/migrations/20260511_init/migration.sql',
+    'prisma/migrations/20260512_add_posts/migration.sql',
+  ]);
+  assert(r.schema.length === 2, 'multiple migration files both classified as schema');
+
+  // Migration + schema.prisma both counted
+  r = classifyChangedFiles([
+    'prisma/schema.prisma',
+    'prisma/migrations/20260511_init/migration.sql',
+  ]);
+  assert(r.schema.length === 2, 'schema.prisma + migration both classified as schema');
+
+  // Unrelated generated directories NOT classified as Prisma generated
+  r = classifyChangedFiles([
+    'src/generated/graphql/types.ts',
+    'src/generated/graphql/resolvers.ts',
+  ]);
+  assert(r.generated.length === 0, 'graphql generated files not classified as Prisma generated');
+  assert(r.schema.length === 0, 'graphql generated files not classified as schema');
+
+  // Mixed: Prisma generated + unrelated generated
+  r = classifyChangedFiles([
+    'src/generated/prisma/client.ts',
+    'src/generated/graphql/types.ts',
+  ]);
+  assert(r.generated.length === 1, 'only Prisma generated counted, not graphql');
+  assert(r.generated[0] === 'src/generated/prisma/client.ts', 'Prisma generated path correct');
+
+  // Unrelated generated + migration
+  r = classifyChangedFiles([
+    'src/generated/graphql/types.ts',
+    'prisma/migrations/20260511_init/migration.sql',
+  ]);
+  assert(r.generated.length === 0, 'unrelated generated ignored with migration');
+  assert(r.schema.length === 1, 'migration counted as schema with unrelated generated');
+}
+
 // --- runGuard tests ---
 
 console.log('\nrunGuard — no changes:');
@@ -211,6 +262,63 @@ console.log('\nrunGuard — deleted schema without generated → warn:');
     base: 'main',
   });
   assert(code === 0, 'deleted schema only → exit 0 (warn)');
+}
+
+// --- runGuard regression: migration + generated distinction ---
+
+console.log('\nrunGuard — migration + generated → pass:');
+{
+  let code = runGuard({
+    files: [
+      'prisma/migrations/20260511_init/migration.sql',
+      'src/generated/prisma/client.ts',
+    ],
+    base: 'main',
+  });
+  assert(code === 0, 'migration + generated → exit 0');
+}
+
+console.log('\nrunGuard — only migration → warn:');
+{
+  let code = runGuard({
+    files: ['prisma/migrations/20260511_init/migration.sql'],
+    base: 'main',
+  });
+  assert(code === 0, 'migration only → exit 0 (warn)');
+}
+
+console.log('\nrunGuard — only unrelated generated → pass:');
+{
+  let code = runGuard({
+    files: ['src/generated/graphql/types.ts', 'src/generated/graphql/resolvers.ts'],
+    base: 'main',
+  });
+  assert(code === 0, 'unrelated generated → exit 0 (no violation)');
+}
+
+console.log('\nrunGuard — unrelated + Prisma generated without schema → fail:');
+{
+  let code = runGuard({
+    files: [
+      'src/generated/graphql/types.ts',
+      'src/generated/prisma/client.ts',
+    ],
+    base: 'main',
+  });
+  assert(code === 1, 'unrelated + Prisma generated without schema → exit 1');
+}
+
+console.log('\nrunGuard — migration + schema + generated → pass:');
+{
+  let code = runGuard({
+    files: [
+      'prisma/schema.prisma',
+      'prisma/migrations/20260511_init/migration.sql',
+      'src/generated/prisma/client.ts',
+    ],
+    base: 'main',
+  });
+  assert(code === 0, 'schema + migration + generated → exit 0');
 }
 
 // --- JSON output test ---
