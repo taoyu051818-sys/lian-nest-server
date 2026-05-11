@@ -358,6 +358,7 @@ All requests go through the existing security model:
 
 ## References
 
+- [Provider Key Management API Contract](../contracts/provider-key-management-api.md) — endpoint contract for testKey and rotateKey
 - [Provider Pool WebUI API](provider-pool-webui-api.md) — API contract
 - [Provider Pool WebUI Operation Console](provider-pool-webui-operation-console.md) — action console
 - [Provider UI Policy](provider-ui-policy.md) — display and mutation rules
