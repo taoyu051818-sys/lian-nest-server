@@ -1,0 +1,94 @@
+{
+  "id": "notification-mark-read-edge",
+  "endpoint": "POST /api/notifications/:nid/read",
+  "description": "Edge cases for marking a notification as read: empty nid, whitespace nid, NOT_FOUND, provider ERROR with message, provider ERROR with null message, and success propagation",
+  "cases": [
+    {
+      "id": "empty-nid",
+      "description": "Empty string nid throws BadRequestException",
+      "input": { "uid": 1, "nid": "" },
+      "expected": {
+        "exceptionType": "BadRequestException",
+        "statusCode": 400,
+        "message": "nid is required"
+      },
+      "notes": "Provider must NOT be called when nid is empty"
+    },
+    {
+      "id": "whitespace-nid",
+      "description": "Whitespace-only nid throws BadRequestException",
+      "input": { "uid": 1, "nid": "   " },
+      "expected": {
+        "exceptionType": "BadRequestException",
+        "statusCode": 400,
+        "message": "nid is required"
+      },
+      "notes": "nid.trim() must be falsy for rejection"
+    },
+    {
+      "id": "provider-not-found",
+      "description": "Provider returns NOT_FOUND status maps to NotFoundException",
+      "input": { "uid": 1, "nid": "missing-nid" },
+      "providerResponse": {
+        "status": "not_found",
+        "statusCode": 404,
+        "data": null,
+        "error": "Notification not found"
+      },
+      "expected": {
+        "exceptionType": "NotFoundException",
+        "statusCode": 404,
+        "message": "Notification missing-nid not found"
+      }
+    },
+    {
+      "id": "provider-error-with-message",
+      "description": "Provider returns ERROR with error message throws generic Error",
+      "input": { "uid": 1, "nid": "test-nid" },
+      "providerResponse": {
+        "status": "error",
+        "statusCode": 500,
+        "data": null,
+        "error": "NodeBB unreachable"
+      },
+      "expected": {
+        "exceptionType": "Error",
+        "statusCode": 500,
+        "message": "NodeBB unreachable"
+      },
+      "notes": "Generic Error is caught by GlobalExceptionFilter and returned as 500"
+    },
+    {
+      "id": "provider-error-null-message",
+      "description": "Provider returns ERROR with null error message uses fallback message",
+      "input": { "uid": 1, "nid": "test-nid" },
+      "providerResponse": {
+        "status": "error",
+        "statusCode": 500,
+        "data": null,
+        "error": null
+      },
+      "expected": {
+        "exceptionType": "Error",
+        "statusCode": 500,
+        "message": "Failed to mark notification as read"
+      },
+      "notes": "Fallback message used when res.error is null"
+    },
+    {
+      "id": "success",
+      "description": "Provider returns OK status resolves with void",
+      "input": { "uid": 1, "nid": "valid-nid" },
+      "providerResponse": {
+        "status": "ok",
+        "statusCode": 200,
+        "data": null,
+        "error": null
+      },
+      "expected": {
+        "returnValue": null
+      },
+      "notes": "Successful mark-read returns void (undefined)"
+    }
+  ]
+}
