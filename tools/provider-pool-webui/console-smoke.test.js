@@ -395,6 +395,18 @@ function assertNoSecrets(json, label) {
       assert(res.status === 200, "planning: returns 200");
       const data = JSON.parse(res.body);
       assertNoSecrets(data, "planning");
+      assert(typeof data === "object", "planning returns JSON object");
+      // launch plan structure may or may not be present
+      if (data.launchPlan) {
+        assert(Array.isArray(data.launchPlan.selectedTasks) || data.launchPlan.selectedTasks === undefined,
+          "launchPlan has selectedTasks array or undefined");
+        assert(Array.isArray(data.launchPlan.rejectedTasks) || data.launchPlan.rejectedTasks === undefined,
+          "launchPlan has rejectedTasks array or undefined");
+        assert(Array.isArray(data.launchPlan.locksAcquired) || data.launchPlan.locksAcquired === undefined,
+          "launchPlan has locksAcquired array or undefined");
+        assert(typeof data.launchPlan.allAllowed === "boolean" || data.launchPlan.allAllowed === undefined,
+          "launchPlan has allAllowed boolean or undefined");
+      }
     }
 
     // Audit endpoint
