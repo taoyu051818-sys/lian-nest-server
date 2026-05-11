@@ -1,0 +1,96 @@
+{
+  "id": "groups-controller-edge",
+  "endpoint": "GET /api/groups",
+  "description": "Groups controller edge stability: response key set, field types, source enum, and fallback propagation",
+  "cases": [
+    {
+      "id": "response-key-stability",
+      "description": "Response object always has exactly two keys: groups and source",
+      "expected": {
+        "keys": ["groups", "source"]
+      }
+    },
+    {
+      "id": "source-enum-constraint",
+      "description": "Source field is constrained to 'nodebb' or 'fallback' regardless of upstream state",
+      "expected": {
+        "sourceEnum": ["nodebb", "fallback"]
+      }
+    },
+    {
+      "id": "group-item-field-types",
+      "description": "Each group item has correct stable types: string, string, string, integer, boolean, boolean, integer",
+      "expected": {
+        "fieldTypes": {
+          "name": "string",
+          "slug": "string",
+          "description": "string",
+          "memberCount": "integer",
+          "hidden": "boolean",
+          "deleted": "boolean",
+          "createtime": "integer"
+        }
+      }
+    },
+    {
+      "id": "empty-with-source-nodebb",
+      "description": "When upstream returns empty array with OK status, source remains 'nodebb' and groups is empty",
+      "mock": {
+        "providerStatus": "ok",
+        "providerData": []
+      },
+      "expected": {
+        "groups": [],
+        "source": "nodebb"
+      }
+    },
+    {
+      "id": "fallback-on-provider-throw",
+      "description": "When provider throws, controller returns fallback shape with empty groups",
+      "mock": {
+        "providerThrows": true
+      },
+      "expected": {
+        "groups": [],
+        "source": "fallback"
+      }
+    },
+    {
+      "id": "fallback-on-error-status",
+      "description": "When provider returns error status, controller returns fallback shape",
+      "mock": {
+        "providerStatus": "error",
+        "providerData": null
+      },
+      "expected": {
+        "groups": [],
+        "source": "fallback"
+      }
+    },
+    {
+      "id": "result-passthrough-identity",
+      "description": "Controller returns the exact same object reference from usecase without modification",
+      "expected": {
+        "passthrough": true
+      }
+    },
+    {
+      "id": "multiple-call-stability",
+      "description": "Sequential calls return consistent shape (two keys, groups is array, source is string) regardless of varying upstream state",
+      "expected": {
+        "stableKeys": ["groups", "source"],
+        "groupsType": "array",
+        "sourceType": "string"
+      }
+    },
+    {
+      "id": "groups-array-stability",
+      "description": "Groups field is always an array (never null/undefined) and preserves mixed hidden/deleted items without mutation",
+      "expected": {
+        "isArray": true,
+        "preservesReference": true
+      }
+    }
+  ],
+  "notes": "Edge stability tests ensure the controller layer adds no extra keys, coerces no types, and faithfully propagates usecase output. The usecase handles filtering and fallback logic; the controller must be a transparent delegate."
+}
