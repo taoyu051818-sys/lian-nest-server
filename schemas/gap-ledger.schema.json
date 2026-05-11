@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/gap-ledger.schema.json",
+  "title": "GapLedgerEntry",
+  "description": "Single NDJSON line from the gap ledger (.github/ai-state/gap-ledger.ndjson). Each entry records a discrete gap event from the planning loop — a worker failure, health gate block, launch rejection, plan drift, or stale migration row. Aligned with docs/ai-native/gap-ledger.md and docs/ai-native/gap-ledger-schema.md.",
+  "type": "object",
+  "required": [
+    "entryVersion",
+    "recordedAt",
+    "gapType",
+    "severity",
+    "description"
+  ],
+  "properties": {
+    "entryVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1."
+    },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when the gap was recorded."
+    },
+    "gapType": {
+      "type": "string",
+      "enum": [
+        "worker-failed",
+        "worker-stale",
+        "health-gate-fail",
+        "launch-blocked",
+        "plan-drift",
+        "stale-row"
+      ],
+      "description": "Category of gap event."
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "description": "Severity of the gap. low for stale rows and plan drift, medium for launch blocks, high for worker failures and stale workers, critical for health gate failures."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable description of the gap."
+    },
+    "issue": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "GitHub issue number related to the gap."
+    },
+    "pr": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "GitHub PR number related to the gap."
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Git branch or worktree name associated with the gap."
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,40}$",
+      "description": "Git commit SHA (7-40 hex characters)."
+    },
+    "meta": {
+      "type": "object",
+      "description": "Arbitrary key-value metadata for downstream analysis (e.g. conflict group, blocking issue, exit code)."
+    }
+  },
+  "additionalProperties": false
+}
