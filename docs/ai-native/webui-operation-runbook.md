@@ -174,6 +174,101 @@ from issues if needed.
 
 ---
 
+## Merge Queue Operations
+
+The merge queue manages PR merges via `.ai/merge-queue.json`.
+Operators interact with it through the Operation Console.
+
+### View Merge Queue Status
+
+**When:** Checking which PRs are queued, processed, or failed.
+
+| Step | Action |
+|------|--------|
+| 1 | Open Operation Console tab |
+| 2 | Find **Merge Queue** section |
+| 3 | Queue status shows: pending PRs, processed PRs, failed PRs, and current state (`idle` / `running`) |
+
+Status is read-only — no confirmation required.
+
+### Add PRs to the Queue
+
+**When:** PRs are approved and ready to merge in order.
+
+| Step | Action |
+|------|--------|
+| 1 | Open Operation Console tab |
+| 2 | Find **Merge Queue** section |
+| 3 | Click **Add to Queue** — preview shows PR numbers and priority order |
+| 4 | Verify the preview lists the correct PRs |
+| 5 | Type `ADD` in the confirmation field |
+| 6 | Click **Execute** |
+
+PRs are added to `.ai/merge-queue.json` with ascending priority.
+The queue file supports priority ordering — lower numbers merge first.
+
+**Rollback:** Edit `.ai/merge-queue.json` directly to remove unwanted entries.
+
+### Process the Merge Queue
+
+**When:** Merging queued PRs in priority order.
+
+| Step | Action |
+|------|--------|
+| 1 | Verify health is **green** |
+| 2 | Check the **Action Readiness** panel — `drain-queue` must not be blocked |
+| 3 | Open Operation Console tab |
+| 4 | Find **Merge Queue** section |
+| 5 | Click **Process Queue** — preview shows the batch plan (PRs, priority, provider) |
+| 6 | Verify the preview lists the expected PRs in priority order |
+| 7 | Type `MERGE` in the confirmation field |
+| 8 | Click **Execute** |
+
+Processing runs `ops:merge-queue` with `--execute`. PRs are merged
+sequentially with `--squash --delete-branch`. Processing stops on the
+first failure.
+
+**Blocked when:** Health not green, queue empty, or PRs have `FAILURE`/`CANCELLED` checks.
+
+**Rollback:** Use `git revert` on main. Merge manifests in
+`.ai/merge-batch-manifests/` record each batch for traceability.
+
+### Retry Failed Merge Entries
+
+**When:** Merge queue state shows failed PRs that should be retried.
+
+| Step | Action |
+|------|--------|
+| 1 | Open Operation Console tab |
+| 2 | Find **Merge Queue** section |
+| 3 | Click **Retry Failed** — preview shows the failed PR list |
+| 4 | Verify the failed PRs have been fixed (checks passing, mergeable) |
+| 5 | Type `RETRY` in the confirmation field |
+| 6 | Click **Execute** |
+
+**Rollback:** Failed PRs remain in the failed list. Investigate root
+cause before re-retrying.
+
+### Reset Merge Queue State
+
+**When:** Queue state is stale or corrupted after an interruption.
+
+| Step | Action |
+|------|--------|
+| 1 | Open Operation Console tab |
+| 2 | Find **Merge Queue** section |
+| 3 | Click **Reset Queue** — preview shows current state and what will be cleared |
+| 4 | Type `RESET` in the confirmation field |
+| 5 | Click **Execute** |
+
+This clears `.ai/merge-queue-state.json`, allowing all PRs in the
+queue file to be reprocessed. Queue file entries are preserved.
+
+**Rollback:** Not needed — queue file is unchanged; only tracking
+state is reset.
+
+---
+
 ## Global Operations
 
 ### Refresh State
@@ -328,6 +423,10 @@ If the system is in a bad state and no individual rollback applies:
 | `provider.disable` | `DISABLE` |
 | `queue.retryBlocked` | `RETRY` |
 | `queue.clearStale` | `CLEAR` |
+| `mergeQueue.add` | `ADD` |
+| `mergeQueue.process` | `MERGE` |
+| `mergeQueue.retryFailed` | `RETRY` |
+| `mergeQueue.reset` | `RESET` |
 | `global.refreshState` | `REFRESH` |
 | `global.exportAudit` | `EXPORT` |
 
@@ -346,7 +445,10 @@ If the system is in a bad state and no individual rollback applies:
 | Path | Contents |
 |------|----------|
 | `.github/ai-state/main-health.json` | Main branch health marker |
+| `.ai/merge-queue.json` | Merge queue PR list with priorities |
+| `.ai/merge-queue-state.json` | Merge queue tracking state |
 | `.ai/merge-batch-manifests/` | Merge batch manifests |
+| `.ai/webui-merge-manifests/` | WebUI merge control manifests |
 | `.claude/worktrees/` | Worker worktrees |
 | `docs/ai-native/` | Governance docs |
 
@@ -364,5 +466,11 @@ If the system is in a bad state and no individual rollback applies:
   CLI-level operator checklist
 - [Controlled Auto-Merge](controlled-auto-merge.md) — batch merge
   script safety guarantees
+- [Auto-Merge Queue Mode](auto-merge-queue-mode.md) — queue-based
+  merge processing and state management
+- [Merge Queue Assistant](merge-queue-assistant.md) — PR eligibility
+  discovery and merge commands
+- [WebUI Merge Control](webui-merge-control.md) — preview-first
+  merge control wrapper for the WebUI console
 - [Planning Console](webui-planning-console-view.md) — planning
   visibility surface
