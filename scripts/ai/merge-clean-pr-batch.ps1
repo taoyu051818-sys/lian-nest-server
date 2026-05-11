@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
     Controlled auto-merge for allowlisted CLEAN, non-draft PRs with
-    optional pre-merge guard integration and manifest write support.
+    optional pre-merge guard integration, manifest write support, and
+    queue mode for orchestration exit.
 
 .DESCRIPTION
     Merges an explicit set of PRs after verifying each is non-draft, CLEAN
@@ -21,6 +22,12 @@
     merge to enforce task boundaries, PR handoff structure, docs authority,
     and generated Prisma freshness. Guard failures block merge (fail-closed).
     Guards are skipped when their required inputs are not present.
+
+    Queue mode (-QueueMode) enables continuous processing of PRs from a
+    queue file (.ai/merge-queue.json). This is the final control-loop layer
+    that allows Codex to exit routine orchestration. Queue mode defaults to
+    dry-run, processes PRs in priority order, tracks state between batches,
+    and supports configurable exit conditions (max batches, max failures).
 
 .PARAMETER PRs
     One or more PR numbers to merge. Cannot be combined with -AllowlistFile.
@@ -91,6 +98,30 @@
 .EXAMPLE
     # Run self-test to validate manifest write behavior
     .\scripts\ai\merge-clean-pr-batch.ps1 -SelfTest
+
+.EXAMPLE
+    # Run queue self-test to validate queue mode behavior
+    .\scripts\ai\merge-clean-pr-batch.ps1 -QueueSelfTest
+
+.EXAMPLE
+    # Queue mode dry-run (default) — validate queue file
+    .\scripts\ai\merge-clean-pr-batch.ps1 -QueueMode -Repo owner/name
+
+.EXAMPLE
+    # Queue mode execute — process queue with real merges
+    .\scripts\ai\merge-clean-pr-batch.ps1 -QueueMode -Repo owner/name -Execute
+
+.EXAMPLE
+    # Queue mode with custom queue file and limits
+    .\scripts\ai\merge-clean-pr-batch.ps1 -QueueMode -Repo owner/name -QueueFile .\my-queue.json -MaxBatches 3 -MaxFailures 2
+
+.EXAMPLE
+    # Show queue status
+    .\scripts\ai\merge-clean-pr-batch.ps1 -QueueStatus
+
+.EXAMPLE
+    # Reset queue state
+    .\scripts\ai\merge-clean-pr-batch.ps1 -QueueReset
 #>
 
 [CmdletBinding(DefaultParameterSetName = 'InlinePRs')]
@@ -110,6 +141,12 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = 'SelfTest')]
     [switch]$SelfTest,
 
+    [Parameter(Mandatory = $true, ParameterSetName = 'QueueSelfTest')]
+    [switch]$QueueSelfTest,
+
+    [Parameter(Mandatory = $true, ParameterSetName = 'QueueMode')]
+    [switch]$QueueMode,
+
     [string]$Repo,
 
     [switch]$DryRun,
@@ -120,7 +157,17 @@ param(
 
     [string]$PostHealthCommand,
 
-    [switch]$RunGuards
+    [switch]$RunGuards,
+
+    [string]$QueueFile,
+
+    [int]$MaxBatches = 1,
+
+    [int]$MaxFailures = 1,
+
+    [switch]$QueueStatus,
+
+    [switch]$QueueReset
 )
 
 Set-StrictMode -Version Latest
@@ -308,6 +355,455 @@ function Test-GeneratedPrismaFreshness {
         return @('generated Prisma client changed without schema update')
     }
     return @()
+}
+
+# ---------------------------------------------------------------------------
+# Queue helpers
+# ---------------------------------------------------------------------------
+
+$DEFAULT_QUEUE_FILE = '.ai/merge-queue.json'
+$DEFAULT_QUEUE_STATE_FILE = '.ai/merge-queue-state.json'
+
+function Get-QueueFilePath {
+    if ($QueueFile) { return $QueueFile }
+    return Join-Path (Get-Location) $DEFAULT_QUEUE_FILE
+}
+
+function Get-QueueStateFilePath {
+    $queuePath = Get-QueueFilePath
+    $dir = Split-Path $queuePath -Parent
+    return Join-Path $dir 'merge-queue-state.json'
+}
+
+function Read-Queue {
+    $queuePath = Get-QueueFilePath
+    if (-not (Test-Path $queuePath)) {
+        Write-Error "Queue file not found: $queuePath"
+        exit 1
+    }
+    try {
+        $queue = Get-Content $queuePath -Raw | ConvertFrom-Json
+        return $queue
+    }
+    catch {
+        Write-Error "Failed to parse queue file: $_"
+        exit 1
+    }
+}
+
+function Read-QueueState {
+    $statePath = Get-QueueStateFilePath
+    if (-not (Test-Path $statePath)) {
+        return @{
+            processedPRs    = @()
+            failedPRs       = @()
+            totalBatches    = 0
+            totalMerged     = 0
+            totalFailed     = 0
+            lastBatchId     = $null
+            lastRunTimestamp = $null
+            state           = 'idle'
+        }
+    }
+    try {
+        $state = Get-Content $statePath -Raw | ConvertFrom-Json
+        return $state
+    }
+    catch {
+        Write-Warning "Could not parse queue state, starting fresh: $_"
+        return @{
+            processedPRs    = @()
+            failedPRs       = @()
+            totalBatches    = 0
+            totalMerged     = 0
+            totalFailed     = 0
+            lastBatchId     = $null
+            lastRunTimestamp = $null
+            state           = 'idle'
+        }
+    }
+}
+
+function Write-QueueState {
+    param($State)
+
+    $statePath = Get-QueueStateFilePath
+    $dir = Split-Path $statePath -Parent
+    if (-not (Test-Path $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+
+    $State.lastRunTimestamp = (Get-Date).ToUniversalTime().ToString('o')
+    $State | ConvertTo-Json -Depth 5 | Set-Content $statePath -Encoding UTF8
+    Write-Host "Queue state written to: $statePath"
+}
+
+function Write-QueueFile {
+    param($Queue)
+
+    $queuePath = Get-QueueFilePath
+    $dir = Split-Path $queuePath -Parent
+    if (-not (Test-Path $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+
+    $Queue | ConvertTo-Json -Depth 5 | Set-Content $queuePath -Encoding UTF8
+    Write-Host "Queue file written to: $queuePath"
+}
+
+function Get-NextQueueBatch {
+    param($Queue, $State, [int]$BatchSize = 10)
+
+    $processedSet = @{}
+    if ($State.processedPRs) {
+        foreach ($pr in $State.processedPRs) { $processedSet[$pr] = $true }
+    }
+    if ($State.failedPRs) {
+        foreach ($pr in $State.failedPRs) { $processedSet[$pr] = $true }
+    }
+
+    $pending = @()
+    if ($Queue.queue) {
+        foreach ($item in $Queue.queue) {
+            if (-not $processedSet.ContainsKey($item.pr)) {
+                $pending += $item
+            }
+        }
+    }
+
+    # Sort by priority (lower = higher priority)
+    $pending = $pending | Sort-Object { $_.priority }
+
+    # Take up to BatchSize
+    if ($pending.Count -gt $BatchSize) {
+        return $pending[0..($BatchSize - 1)]
+    }
+    return $pending
+}
+
+function Show-QueueStatus {
+    $queue = Read-Queue
+    $state = Read-QueueState
+
+    Write-Banner "Queue Status"
+
+    $queuePath = Get-QueueFilePath
+    Write-Host "  Queue file  : $queuePath"
+
+    $totalItems = 0
+    if ($queue.queue) { $totalItems = $queue.queue.Count }
+
+    $processedCount = 0
+    if ($state.processedPRs) { $processedCount = $state.processedPRs.Count }
+
+    $failedCount = 0
+    if ($state.failedPRs) { $failedCount = $state.failedPRs.Count }
+
+    $pendingCount = $totalItems - $processedCount - $failedCount
+
+    Write-Host "  State       : $($state.state)"
+    Write-Host "  Total PRs   : $totalItems"
+    Write-Host "  Pending     : $pendingCount"
+    Write-Host "  Processed   : $processedCount"
+    Write-Host "  Failed      : $failedCount"
+    Write-Host "  Batches run : $($state.totalBatches)"
+    Write-Host "  Total merged: $($state.totalMerged)"
+    Write-Host ""
+
+    if ($state.lastBatchId) {
+        Write-Host "  Last batch  : $($state.lastBatchId)"
+    }
+    if ($state.lastRunTimestamp) {
+        Write-Host "  Last run    : $($state.lastRunTimestamp)"
+    }
+
+    # Show pending PRs
+    if ($pendingCount -gt 0) {
+        Write-Host ""
+        Write-Host "  Pending PRs:"
+        $pending = Get-NextQueueBatch -Queue $queue -State $state -BatchSize 100
+        foreach ($item in $pending) {
+            Write-Host "    PR #$($item.pr) (priority: $($item.priority))"
+        }
+    }
+
+    # Show failed PRs
+    if ($failedCount -gt 0) {
+        Write-Host ""
+        Write-Host "  Failed PRs:"
+        foreach ($pr in $state.failedPRs) {
+            Write-Host "    PR #$pr"
+        }
+    }
+}
+
+function Reset-QueueState {
+    $statePath = Get-QueueStateFilePath
+    if (Test-Path $statePath) {
+        Remove-Item $statePath -Force
+        Write-Host "Queue state reset: $statePath"
+    }
+    else {
+        Write-Host "No queue state file to reset."
+    }
+}
+
+function Invoke-QueueMode {
+    # Validate queue file exists
+    $queuePath = Get-QueueFilePath
+    if (-not (Test-Path $queuePath)) {
+        Write-Error "Queue file not found: $queuePath"
+        Write-Host "Create a queue file with format:"
+        Write-Host '  {'
+        Write-Host '    "queue": ['
+        Write-Host '      { "pr": 42, "priority": 1 },'
+        Write-Host '      { "pr": 45, "priority": 2 }'
+        Write-Host '    ]'
+        Write-Host '  }'
+        exit 1
+    }
+
+    $queue = Read-Queue
+    $state = Read-QueueState
+
+    # Resolve repository
+    if (-not $Repo) {
+        $Repo = $env:GH_REPO
+    }
+    if (-not $Repo) {
+        Write-Error "Error: -Repo is required (or set GH_REPO env var)."
+        exit 1
+    }
+
+    # Resolve mode
+    $isExecute = $Execute.IsPresent
+    $modeLabel = if ($isExecute) { 'EXECUTE' } else { 'DRY-RUN' }
+
+    Write-Banner "Queue Mode — $modeLabel"
+    Write-Host "  Repository   : $Repo"
+    Write-Host "  Mode         : $modeLabel"
+    Write-Host "  Max batches  : $MaxBatches"
+    Write-Host "  Max failures : $MaxFailures"
+    Write-Host "  Queue file   : $queuePath"
+    Write-Host ""
+
+    $state.state = 'running'
+    Write-QueueState -State $state
+
+    $batchCount = 0
+    $failureCount = 0
+    $resolvedHealthCommand = if ($PostHealthCommand) { $PostHealthCommand } else { (Join-Path $PSScriptRoot '..' '..' 'scripts' 'post-merge-health-gate.js') }
+
+    while ($true) {
+        # Check exit conditions
+        if ($MaxBatches -gt 0 -and $batchCount -ge $MaxBatches) {
+            Write-Host ""
+            Write-Host "EXIT: Max batches reached ($MaxBatches)"
+            break
+        }
+
+        if ($MaxFailures -gt 0 -and $failureCount -ge $MaxFailures) {
+            Write-Host ""
+            Write-Host "EXIT: Max failures reached ($MaxFailures)"
+            break
+        }
+
+        # Get next batch from queue
+        $batch = Get-NextQueueBatch -Queue $queue -State $state
+        if ($batch.Count -eq 0) {
+            Write-Host ""
+            Write-Host "EXIT: No more pending PRs in queue"
+            break
+        }
+
+        $batchCount++
+        Write-Banner "Queue Batch #$batchCount"
+        Write-Host "Processing $($batch.Count) PR(s)..."
+        Write-Host ""
+
+        # Collect PR numbers for this batch
+        $batchPRs = @($batch | ForEach-Object { $_.pr })
+
+        # Run the merge batch
+        $batchArgs = @{
+            PRs = $batchPRs
+            Repo = $Repo
+        }
+        if ($isExecute) { $batchArgs.Execute = $true }
+        if ($RunHealthGate.IsPresent) { $batchArgs.RunHealthGate = $true }
+        if ($PostHealthCommand) { $batchArgs.PostHealthCommand = $PostHealthCommand }
+        if ($RunGuards.IsPresent) { $batchArgs.RunGuards = $true }
+
+        # Execute batch by calling the main merge logic
+        # We need to run the batch and capture the result
+        $batchSuccess = $false
+        try {
+            # Run batch logic inline
+            $eligible = @()
+            $excluded = @()
+
+            foreach ($prNum in $batchPRs) {
+                Write-Host ">> Checking PR #$prNum ..."
+                try {
+                    $info = Get-PRInfo -PRNumber $prNum -Repository $Repo
+                }
+                catch {
+                    Write-Host "   ERROR: Could not fetch PR #$prNum — $_"
+                    $excluded += @{ PR = @{ number = $prNum; title = "fetch error" }; Reasons = @("fetch error: $_") }
+                    continue
+                }
+
+                $reasons = Test-PREligible -PRInfo $info
+
+                # Run guard checks if enabled
+                if ($RunGuards.IsPresent -and $reasons.Count -eq 0) {
+                    $manifestPath = Join-Path (Get-Location) '.ai' 'task-manifest.json'
+                    $handoffPath = Join-Path (Get-Location) '.ai' 'pr-body.md'
+                    $changedFiles = @()
+                    if ($info.files) {
+                        $changedFiles = @($info.files | ForEach-Object { $_.path })
+                    }
+
+                    if (Test-Path $manifestPath) {
+                        $guardReasons = Test-TaskBoundary -ChangedFiles $changedFiles -ManifestPath $manifestPath
+                        $reasons += $guardReasons
+                    }
+
+                    if ($reasons.Count -eq 0) {
+                        $guardReasons = Test-PRHandoff -Body $info.body -FilePath $handoffPath
+                        $reasons += $guardReasons
+                    }
+
+                    if ($reasons.Count -eq 0) {
+                        $guardReasons = Test-GeneratedPrismaFreshness -ChangedFiles $changedFiles
+                        $reasons += $guardReasons
+                    }
+                }
+
+                if ($reasons.Count -eq 0) {
+                    Write-Host "   ELIGIBLE: #$prNum — $($info.title)"
+                    $eligible += $info
+                }
+                else {
+                    Write-Host "   EXCLUDED: #$prNum — $($info.title)"
+                    Write-Host "            reasons: $($reasons -join ', ')"
+                    $excluded += @{ PR = $info; Reasons = $reasons }
+                }
+            }
+
+            # If any excluded, fail this batch
+            if ($excluded.Count -gt 0) {
+                foreach ($item in $excluded) {
+                    $state.failedPRs += $item.PR.number
+                }
+                $failureCount++
+                Write-Host ""
+                Write-Host "Batch #$batchCount FAILED: $($excluded.Count) PR(s) excluded"
+                Write-QueueState -State $state
+                continue
+            }
+
+            if ($eligible.Count -eq 0) {
+                Write-Host "No eligible PRs in batch"
+                $failureCount++
+                Write-QueueState -State $state
+                continue
+            }
+
+            # Dry-run stops here
+            if (-not $isExecute) {
+                Write-Host ""
+                Write-Host "DRY-RUN — batch #$batchCount validated. No merges performed."
+                foreach ($pr in $eligible) {
+                    $state.processedPRs += $pr.number
+                }
+                $state.totalBatches++
+                Write-QueueState -State $state
+                continue
+            }
+
+            # Execute merges
+            $preMergeCommit = (git rev-parse HEAD 2>$null)
+            $mergeOutcomes = @()
+            $batchFailed = $false
+
+            foreach ($pr in $eligible) {
+                Write-Host ">> Merging #$($pr.number) — $($pr.title)"
+                try {
+                    $output = Invoke-PRMerge -PRNumber $pr.number -Repository $Repo
+                    Write-Host "   OK: $(if ($output) { $output } else { 'merged' })"
+                    $mergeOutcomes += @{ number = $pr.number; title = $pr.title; status = 'merged' }
+                    $state.processedPRs += $pr.number
+                    $state.totalMerged++
+                }
+                catch {
+                    Write-Host "   FAILED: $($_.Exception.Message)"
+                    $mergeOutcomes += @{ number = $pr.number; title = $pr.title; status = "failed: $($_.Exception.Message)" }
+                    $state.failedPRs += $pr.number
+                    $state.totalFailed++
+                    $failureCount++
+                    $batchFailed = $true
+                    break
+                }
+            }
+
+            $postMergeCommit = if (-not $batchFailed) { (git rev-parse HEAD 2>$null) } else { $null }
+
+            # Health gate
+            $healthResult = 'skipped'
+            if (-not $batchFailed -and $RunHealthGate.IsPresent) {
+                if (Test-Path $resolvedHealthCommand) {
+                    & node $resolvedHealthCommand --quick
+                    $healthResult = if ($LASTEXITCODE -eq 0) { 'pass' } else { 'fail' }
+                    if ($healthResult -eq 'fail') {
+                        $failureCount++
+                    }
+                }
+                else {
+                    $healthResult = 'not-found'
+                }
+            }
+
+            Write-MergeManifest -PreCommit $preMergeCommit -PostCommit $postMergeCommit -Outcomes $mergeOutcomes -HealthResult $healthResult -HealthCommand $resolvedHealthCommand -BlockedPRs @() -FailureReason $(if ($batchFailed) { "Merge failed in batch #$batchCount" } else { $null })
+
+            $state.totalBatches++
+            Write-QueueState -State $state
+
+            if ($batchFailed) {
+                Write-Host ""
+                Write-Host "Batch #$batchCount FAILED during merge"
+            }
+            else {
+                Write-Host ""
+                Write-Host "Batch #$batchCount completed successfully"
+                $batchSuccess = $true
+            }
+        }
+        catch {
+            Write-Host "ERROR in batch #${batchCount}: $_"
+            $failureCount++
+            $state.totalFailed++
+            Write-QueueState -State $state
+        }
+    }
+
+    # Final status
+    $state = Read-QueueState
+    $state.state = 'idle'
+    Write-QueueState -State $state
+
+    Write-Banner "Queue Mode Complete"
+    Write-Host "  Batches processed: $batchCount"
+    Write-Host "  Failures: $failureCount"
+    Write-Host "  Total merged: $($state.totalMerged)"
+    Write-Host "  Total failed: $($state.totalFailed)"
+    Write-Host ""
+
+    if ($failureCount -gt 0) {
+        Write-Host "Queue finished with failures. Check queue state for details."
+        exit 1
+    }
+    Write-Host "Queue finished successfully."
 }
 
 # ---------------------------------------------------------------------------
@@ -751,6 +1247,173 @@ function Invoke-SelfTest {
     Write-Host "SELF-TEST PASSED"
 }
 
+function Invoke-QueueSelfTest {
+    Write-Banner "Self-Test: Queue Mode Behavior"
+
+    $testDir = Join-Path ([System.IO.Path]::GetTempPath()) "queue-selftest-$(Get-Date -Format 'yyyyMMddHHmmss')"
+    New-Item -ItemType Directory -Path $testDir -Force | Out-Null
+
+    $pass = 0
+    $fail = 0
+
+    # Test 1: Queue file creation and reading
+    Write-Host "TEST 1: Queue file creation and reading"
+    $queueFile = Join-Path $testDir 'merge-queue.json'
+    $queueData = @{
+        queue = @(
+            @{ pr = 42; priority = 1 },
+            @{ pr = 45; priority = 2 },
+            @{ pr = 50; priority = 3 }
+        )
+    }
+    $queueData | ConvertTo-Json -Depth 5 | Set-Content $queueFile -Encoding UTF8
+
+    # Override queue file path for testing
+    $script:QueueFile = $queueFile
+    $queue = Read-Queue
+
+    if ($queue.queue.Count -eq 3) {
+        Write-Host "  PASS: Queue file read correctly (3 items)"
+        $pass++
+    } else {
+        Write-Host "  FAIL: Queue file read incorrect: $($queue.queue.Count) items"
+        $fail++
+    }
+
+    # Test 2: Queue state initialization
+    Write-Host ""
+    Write-Host "TEST 2: Queue state initialization"
+    $state = Read-QueueState
+
+    if ($state.state -eq 'idle') {
+        Write-Host "  PASS: Initial state is idle"
+        $pass++
+    } else {
+        Write-Host "  FAIL: Initial state is not idle: $($state.state)"
+        $fail++
+    }
+
+    if ($state.totalBatches -eq 0) {
+        Write-Host "  PASS: Initial totalBatches is 0"
+        $pass++
+    } else {
+        Write-Host "  FAIL: Initial totalBatches is not 0: $($state.totalBatches)"
+        $fail++
+    }
+
+    # Test 3: Queue state persistence
+    Write-Host ""
+    Write-Host "TEST 3: Queue state persistence"
+    $state.state = 'running'
+    $state.totalBatches = 1
+    $state.totalMerged = 2
+    $state.processedPRs = @(42, 45)
+    Write-QueueState -State $state
+
+    $loadedState = Read-QueueState
+    if ($loadedState.state -eq 'running') {
+        Write-Host "  PASS: State persisted correctly (running)"
+        $pass++
+    } else {
+        Write-Host "  FAIL: State not persisted: $($loadedState.state)"
+        $fail++
+    }
+
+    if ($loadedState.totalBatches -eq 1) {
+        Write-Host "  PASS: totalBatches persisted correctly"
+        $pass++
+    } else {
+        Write-Host "  FAIL: totalBatches not persisted: $($loadedState.totalBatches)"
+        $fail++
+    }
+
+    if ($loadedState.processedPRs.Count -eq 2) {
+        Write-Host "  PASS: processedPRs persisted correctly"
+        $pass++
+    } else {
+        Write-Host "  FAIL: processedPRs not persisted: $($loadedState.processedPRs.Count)"
+        $fail++
+    }
+
+    # Test 4: Next batch extraction
+    Write-Host ""
+    Write-Host "TEST 4: Next batch extraction"
+    $batch = Get-NextQueueBatch -Queue $queue -State $loadedState -BatchSize 10
+
+    if ($batch.Count -eq 1) {
+        Write-Host "  PASS: Next batch has 1 pending PR"
+        $pass++
+    } else {
+        Write-Host "  FAIL: Next batch should have 1 PR, got: $($batch.Count)"
+        $fail++
+    }
+
+    if ($batch[0].pr -eq 50) {
+        Write-Host "  PASS: Next batch has correct PR (50)"
+        $pass++
+    } else {
+        Write-Host "  FAIL: Next batch has wrong PR: $($batch[0].pr)"
+        $fail++
+    }
+
+    # Test 5: Queue state reset
+    Write-Host ""
+    Write-Host "TEST 5: Queue state reset"
+    $script:QueueFile = $queueFile
+    Reset-QueueState
+
+    $resetState = Read-QueueState
+    if ($resetState.state -eq 'idle') {
+        Write-Host "  PASS: State reset to idle"
+        $pass++
+    } else {
+        Write-Host "  FAIL: State not reset: $($resetState.state)"
+        $fail++
+    }
+
+    if ($resetState.totalBatches -eq 0) {
+        Write-Host "  PASS: totalBatches reset to 0"
+        $pass++
+    } else {
+        Write-Host "  FAIL: totalBatches not reset: $($resetState.totalBatches)"
+        $fail++
+    }
+
+    # Test 6: Queue file update
+    Write-Host ""
+    Write-Host "TEST 6: Queue file update"
+    $updatedQueue = @{
+        queue = @(
+            @{ pr = 42; priority = 1 },
+            @{ pr = 45; priority = 2 },
+            @{ pr = 50; priority = 3 },
+            @{ pr = 60; priority = 4 }
+        )
+    }
+    Write-QueueFile -Queue $updatedQueue
+
+    $reloadedQueue = Read-Queue
+    if ($reloadedQueue.queue.Count -eq 4) {
+        Write-Host "  PASS: Queue file updated correctly (4 items)"
+        $pass++
+    } else {
+        Write-Host "  FAIL: Queue file update incorrect: $($reloadedQueue.queue.Count) items"
+        $fail++
+    }
+
+    # Cleanup
+    Remove-Item -Path $testDir -Recurse -Force -ErrorAction SilentlyContinue
+
+    # Summary
+    Write-Host ""
+    Write-Host "Results: $pass passed, $fail failed"
+    if ($fail -gt 0) {
+        Write-Host "QUEUE SELF-TEST FAILED"
+        exit 1
+    }
+    Write-Host "QUEUE SELF-TEST PASSED"
+}
+
 function Main {
     # Show fixtures and exit
     if ($ShowFixtures.IsPresent) {
@@ -767,6 +1430,30 @@ function Main {
     # Run self-test and exit
     if ($SelfTest.IsPresent) {
         Invoke-SelfTest
+        exit 0
+    }
+
+    # Run queue self-test and exit
+    if ($QueueSelfTest.IsPresent) {
+        Invoke-QueueSelfTest
+        exit 0
+    }
+
+    # Queue status
+    if ($QueueStatus.IsPresent) {
+        Show-QueueStatus
+        exit 0
+    }
+
+    # Queue reset
+    if ($QueueReset.IsPresent) {
+        Reset-QueueState
+        exit 0
+    }
+
+    # Queue mode
+    if ($QueueMode.IsPresent) {
+        Invoke-QueueMode
         exit 0
     }
 
