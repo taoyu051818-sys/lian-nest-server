@@ -130,15 +130,18 @@ function stripSecrets(policy) {
 
 // --- Action modules ---------------------------------------------------------
 
-function loadActionModules() {
-  if (!fs.existsSync(ACTIONS_DIR)) return [];
-  const modules = [];
-  let files;
+function listActionModuleFiles() {
   try {
-    files = fs.readdirSync(ACTIONS_DIR).filter((f) => f.endsWith(".js"));
+    return fs.readdirSync(ACTIONS_DIR).filter((f) => f.endsWith(".js") && !f.endsWith(".test.js"));
   } catch {
     return [];
   }
+}
+
+function loadActionModules() {
+  if (!fs.existsSync(ACTIONS_DIR)) return [];
+  const modules = [];
+  const files = listActionModuleFiles();
   for (const file of files) {
     try {
       const mod = require(path.join(ACTIONS_DIR, file));
@@ -159,12 +162,7 @@ function loadActionModules() {
 
 function resolveAction(actionId) {
   if (!fs.existsSync(ACTIONS_DIR)) return null;
-  let files;
-  try {
-    files = fs.readdirSync(ACTIONS_DIR).filter((f) => f.endsWith(".js"));
-  } catch {
-    return null;
-  }
+  const files = listActionModuleFiles();
   for (const file of files) {
     try {
       const mod = require(path.join(ACTIONS_DIR, file));

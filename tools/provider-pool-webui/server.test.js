@@ -351,6 +351,7 @@ console.log("\nEADDRINUSE tests\n");
       const data = JSON.parse(res.body);
       assert(Array.isArray(data.actions), "GET /api/actions has actions array");
       assert(data.actions.length >= 1, "GET /api/actions discovers action modules");
+      assert(!data.actions.some((action) => String(action.id || "").endsWith(".test")), "GET /api/actions does not expose test files as actions");
     }
 
     // POST /api/actions/preview — missing actionId
