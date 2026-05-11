@@ -1,0 +1,31 @@
+{
+  "id": "user-posts-pagination",
+  "endpoint": "GET /api/users/:uid/posts",
+  "description": "User posts pagination with page and perPage query params",
+  "request": {
+    "method": "GET",
+    "path": "/api/users/<USER_UID>/posts?page=2&perPage=5",
+    "params": { "uid": "<USER_UID>" },
+    "query": { "page": "2", "perPage": "5" }
+  },
+  "expected": {
+    "status": 200,
+    "contentType": "application/json",
+    "bodySchema": {
+      "type": "object",
+      "required": ["posts", "source", "totalPosts", "page", "perPage"],
+      "properties": {
+        "posts": {
+          "type": "array",
+          "maxItems": 5
+        },
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] },
+        "totalPosts": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "const": 2 },
+        "perPage": { "type": "integer", "const": 5 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "notes": "When page and perPage are provided, response includes sliced posts and correct pagination metadata."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "user-posts-pagination-invalid",
+  "endpoint": "GET /api/users/:uid/posts",
+  "description": "User posts rejects invalid pagination query with 400",
+  "request": {
+    "method": "GET",
+    "path": "/api/users/42/posts?page=abc",
+    "params": { "uid": "42" },
+    "query": { "page": "abc" }
+  },
+  "expected": {
+    "status": 400,
+    "contentType": "application/json"
+  },
+  "notes": "Regression: non-numeric page query must return 400, not 500 or silent corruption."
+}

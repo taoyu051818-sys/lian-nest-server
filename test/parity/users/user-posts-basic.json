@@ -1,7 +1,7 @@
 {
   "id": "user-posts-basic",
   "endpoint": "GET /api/users/:uid/posts",
-  "description": "User posts by uid returns mapped post fields",
+  "description": "User posts by uid returns mapped post fields with pagination metadata",
   "request": {
     "method": "GET",
     "path": "/api/users/<USER_UID>/posts",
@@ -33,10 +33,13 @@
             "additionalProperties": false
           }
         },
-        "source": { "type": "string", "enum": ["nodebb", "fallback"] }
+        "source": { "type": "string", "enum": ["nodebb", "fallback"] },
+        "totalPosts": { "type": "integer", "minimum": 0 },
+        "page": { "type": "integer", "minimum": 1 },
+        "perPage": { "type": "integer", "minimum": 1, "maximum": 100 }
       },
       "additionalProperties": false
     }
   },
-  "notes": "USER_UID must reference a valid seeded user with posts during test runs."
+  "notes": "USER_UID must reference a valid seeded user with posts during test runs. Pagination metadata is always present."
 }
