@@ -143,6 +143,89 @@ When `-PlanFirst` is set, the runner calls `plan-next-batch.ps1 -Json`, displays
 
 This provides migration matrix awareness and slice readiness filtering that the runner's built-in issue discovery (Step 0) does not include.
 
+## Stale-Row Detection
+
+Route parity matrix rows can become stale when their lifecycle stalls between
+statuses. The planner flags these before proposing a batch so operators can
+address drift before launching workers.
+
+### Staleness Conditions
+
+A route parity row is considered stale when **any** of the following hold:
+
+| Condition | Detection | Meaning |
+|-----------|-----------|---------|
+| `impl_pr` set but status still `CONTRACTED` | PR merged, row not advanced | Status drift — worker finished, matrix not updated |
+| `test_status` is `PASS` but status < `PARITY_TESTED` | Parity confirmed, status behind | Test results landed, matrix step skipped |
+| `status` is `IMPLEMENTED` for > 14 days with no `test_status` change | Timestamp heuristic (manual or script-assessed) | Implementation exists but parity work stalled |
+| `status` is `PARITY_TESTED` but `shutdown_ready` is empty | Shutdown gate not evaluated | Ready-for-shutdown row not yet retired |
+
+### Planner Behavior on Stale Rows
+
+1. **Detection pass.** Before prioritization (Step 4), the planner scans
+   `route-parity-matrix.md` for stale conditions above.
+2. **Emit stale candidates.** Each stale row becomes a synthetic task candidate
+   with `taskType: "review"`, `risk: "low"`, and `conflictGroup` matching the
+   row's family. The candidate title is prefixed with `[stale-row]`.
+3. **Prioritization override.** Stale-row candidates sort **ahead** of normal
+   implementation tasks to unblock downstream work.
+4. **No auto-mutation.** The planner proposes; it never writes to the matrix.
+   The operator or a follow-up script must advance the row.
+
+### Stale-Row Candidate Output Fields
+
+| Field | Value |
+|-------|-------|
+| `taskType` | `review` |
+| `risk` | `low` |
+| `actorRole` | `state-reconciler` |
+| `allowedFiles` | `docs/migration/route-parity-matrix.md` |
+| `validationCommands` | `["node scripts/check-route-parity.js"]` |
+| `readiness` | `ready` |
+| `readinessNote` | `Stale row detected: <condition>` |
+
+## Handoff Rules: Row → Task → Retire
+
+Route parity rows follow a three-phase lifecycle that the planner and matrix
+updater must honor:
+
+### Phase 1: Row → Task Candidate
+
+A row becomes a task candidate when its slice is `CONTRACTED` or later and the
+row's `status` is not yet `LEGACY_DISABLED`. The planner maps rows to candidates
+by family and slice:
+
+- All rows in the same family and slice share a single conflict group.
+- A row with `status: CONTRACTED` and no `impl_pr` produces an **implementation**
+  candidate.
+- A row with `status: IMPLEMENTED` and `test_status: --` produces a **parity
+  test** candidate.
+- A stale row (see above) produces a **review** candidate.
+
+### Phase 2: Task Completion → Matrix Update
+
+When a worker PR merges that advances one or more rows:
+
+1. The orchestrator runs `update-migration-matrix.ps1` with the slice and target
+   status.
+2. The script suggests row-level updates (dry-run by default).
+3. The operator applies the suggestions with `-Write` or manually edits.
+4. `check-route-parity.js` validates that the Progress Summary counts still
+   match.
+
+### Phase 3: Row Retirement
+
+A row is retired when it reaches `LEGACY_DISABLED`. At that point:
+
+- The row is excluded from all future task candidate generation.
+- The planner's Step 4 filter removes `LEGACY_DISABLED` rows before
+  prioritization.
+- The `check-route-parity.js` guard confirms the Progress Summary reflects the
+  retirement.
+
+A row must not skip statuses. The matrix updater enforces linear transitions:
+`CONTRACTED` → `IMPLEMENTED` → `PARITY_TESTED` → `LEGACY_DISABLED`.
+
 ## Exit Codes
 
 | Code | Meaning |
