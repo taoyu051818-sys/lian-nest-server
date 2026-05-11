@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": 1,
+  "description": "Risk policy for AI worker scheduling and merge gates. Defines high-risk categories that require extra review or block automated merges.",
+  "categories": {
+    "auth-session": {
+      "risk": "high",
+      "label": "Auth / Session",
+      "filePatterns": [
+        "src/**/auth/**",
+        "src/**/session/**",
+        "src/**/jwt/**",
+        "src/**/passport/**",
+        "src/**/guard/**"
+      ],
+      "mergeGate": "architect-review",
+      "launchRestriction": "foundation-fix-or-higher",
+      "notes": "Changes to authentication, session management, JWT handling, or guards require architect review before merge."
+    },
+    "db-schema-migration": {
+      "risk": "high",
+      "label": "DB / Schema / Migration",
+      "filePatterns": [
+        "prisma/**",
+        "src/generated/prisma/**",
+        "src/**/migration*/**"
+      ],
+      "mergeGate": "architect-review",
+      "launchRestriction": "foundation-fix-or-higher",
+      "notes": "Schema changes and migrations affect all downstream services. Requires architect review and passing prisma generate + typecheck."
+    },
+    "nodebb-auth-mode": {
+      "risk": "high",
+      "label": "NodeBB Auth Mode",
+      "filePatterns": [
+        "src/**/nodebb/**",
+        "src/**/forum-auth/**",
+        "src/**/sso/**"
+      ],
+      "mergeGate": "architect-review",
+      "launchRestriction": "foundation-fix-or-higher",
+      "notes": "NodeBB authentication mode changes can break forum integration. Requires architect review."
+    },
+    "security-policy": {
+      "risk": "high",
+      "label": "Security Policy",
+      "filePatterns": [
+        "src/**/middleware/**",
+        "src/**/interceptor/**",
+        "src/**/filter/**",
+        ".github/**"
+      ],
+      "mergeGate": "architect-review",
+      "launchRestriction": "foundation-fix-or-higher",
+      "notes": "Middleware, interceptors, exception filters, and CI/policy config affect the entire request pipeline."
+    },
+    "production-deployment": {
+      "risk": "high",
+      "label": "Production Deployment Defaults",
+      "filePatterns": [
+        "src/main.ts",
+        "src/**/config/**",
+        ".env.example",
+        "docker*",
+        "Dockerfile*",
+        "docker-compose*"
+      ],
+      "mergeGate": "architect-review",
+      "launchRestriction": "foundation-fix-or-higher",
+      "notes": "Bootstrap, configuration, and deployment defaults directly affect production behavior."
+    },
+    "destructive-data": {
+      "risk": "high",
+      "label": "Destructive Data Changes",
+      "filePatterns": [
+        "prisma/migrations/**"
+      ],
+      "mergeGate": "architect-review-plus-dry-run",
+      "launchRestriction": "foundation-fix-or-higher",
+      "notes": "Migration files that drop columns, tables, or alter data require dry-run validation and architect review."
+    },
+    "legacy-cutover": {
+      "risk": "high",
+      "label": "Legacy Cutover",
+      "filePatterns": [
+        "src/**/legacy/**",
+        "src/**/compat/**",
+        "src/**/v1/**"
+      ],
+      "mergeGate": "architect-review",
+      "launchRestriction": "foundation-fix-or-higher",
+      "notes": "Legacy compatibility layers and cutover logic require careful sequencing and architect review."
+    },
+    "automation-policy": {
+      "risk": "high",
+      "label": "Automation Policy",
+      "filePatterns": [
+        ".github/ai-policy/**",
+        ".github/ai-state/**",
+        "docs/ai-native/*policy*.md",
+        "docs/ai-native/*gate*.md"
+      ],
+      "mergeGate": "architect-review",
+      "launchRestriction": "any-worker",
+      "notes": "Policy and automation config changes affect all workers. Requires architect review but any worker type may propose changes."
+    }
+  },
+  "globalDefaults": {
+    "defaultRisk": "low",
+    "defaultMergeGate": "auto-merge",
+    "defaultLaunchRestriction": "any-worker"
+  },
+  "mergeGateDefinitions": {
+    "auto-merge": {
+      "label": "Auto-merge",
+      "description": "PR may be auto-merged after passing all checks."
+    },
+    "architect-review": {
+      "label": "Architect Review",
+      "description": "PR requires explicit approval from a reviewer with the architecture-review role before merge."
+    },
+    "architect-review-plus-dry-run": {
+      "label": "Architect Review + Dry Run",
+      "description": "PR requires architect review AND a dry-run validation of the migration or destructive operation before merge."
+    }
+  },
+  "launchRestrictionDefinitions": {
+    "any-worker": {
+      "label": "Any Worker",
+      "description": "Any worker type may be dispatched for this category."
+    },
+    "foundation-fix-or-higher": {
+      "label": "Foundation Fix or Higher",
+      "description": "Only foundation-fix, health-repair, or recovery workers may be dispatched. Runtime feature workers are blocked."
+    }
+  }
+}
