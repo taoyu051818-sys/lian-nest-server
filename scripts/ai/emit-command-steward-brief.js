@@ -24,7 +24,7 @@ const path = require('path');
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const STATE_DIR = path.join(REPO_ROOT, '.github', 'ai-state');
+const STATE_DIR = process.env.COMMAND_STEWARD_STATE_DIR || path.join(REPO_ROOT, '.github', 'ai-state');
 const DEFAULT_OUT = path.join(STATE_DIR, 'command-steward-brief.json');
 
 const SCHEMA_VERSION = 1;

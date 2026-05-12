@@ -21,6 +21,10 @@ const { execFileSync } = require('child_process');
 
 const EMITTER = path.resolve(__dirname, 'emit-command-steward-brief.js');
 
+// Isolate tests from local .github/ai-state files
+const CLEAN_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'cmd-steward-brief-'));
+const CHILD_ENV = { ...process.env, COMMAND_STEWARD_STATE_DIR: CLEAN_STATE_DIR };
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function run(args) {
@@ -29,6 +33,7 @@ function run(args) {
       encoding: 'utf8',
       timeout: 15_000,
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: CHILD_ENV,
     });
     return { stdout, stderr: '', exitCode: 0 };
   } catch (err) {
