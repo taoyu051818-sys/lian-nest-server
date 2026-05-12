@@ -29,6 +29,7 @@ const {
   inferBlockedReason,
   projectTasks,
   buildProjection,
+  discoverGaps,
 } = require(SCRIPT);
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -609,6 +610,134 @@ test('edge: discussion entry has correct shape', () => {
   assert.strictEqual(d.worker, null);
   assert.strictEqual(d.blockedReason, null);
   assert.strictEqual(d.linkedPR, null);
+});
+
+// ── discoverGaps tests ──────────────────────────────────────────────────────
+
+test('discoverGaps: schema version and shape', () => {
+  const proj = buildProjection([], [], null, null);
+  const gaps = discoverGaps(proj);
+  assert.strictEqual(gaps.schemaVersion, 1);
+  assert.strictEqual(typeof gaps.capturedAt, 'string');
+  assert.ok(Array.isArray(gaps.signals));
+  assert.strictEqual(typeof gaps.summary, 'object');
+});
+
+test('discoverGaps: detects blocked lanes', () => {
+  const issues = [
+    { number: 10, title: 'Blocked A', body: '', labels: [{ name: 'agent:blocked' }] },
+    { number: 20, title: 'Blocked B', body: 'blocked reason: waiting on dep', labels: [{ name: 'agent:blocked' }] },
+  ];
+  const proj = buildProjection(issues, [], null, null);
+  const gaps = discoverGaps(proj);
+  assert.strictEqual(gaps.summary.blockedCount, 2);
+  const blockedSignals = gaps.signals.filter(s => s.type === 'blocked-lane');
+  assert.strictEqual(blockedSignals.length, 2);
+  assert.strictEqual(blockedSignals[0].issue, 10);
+  assert.strictEqual(blockedSignals[1].issue, 20);
+  assert.strictEqual(blockedSignals[1].reason, 'waiting on dep');
+});
+
+test('discoverGaps: detects empty-ready lane', () => {
+  const issues = [
+    { number: 1, title: 'Running', body: '', labels: [{ name: 'agent:running' }] },
+  ];
+  const proj = buildProjection(issues, [], null, null);
+  const gaps = discoverGaps(proj, { readyThreshold: 3 });
+  assert.strictEqual(gaps.summary.emptyReady, true);
+  assert.strictEqual(gaps.summary.readyCount, 0);
+  const readySignal = gaps.signals.find(s => s.type === 'empty-ready');
+  assert.ok(readySignal !== null);
+  assert.strictEqual(readySignal.deficit, 3);
+});
+
+test('discoverGaps: no empty-ready when threshold met', () => {
+  const issues = [
+    { number: 1, title: 'A', body: '', labels: [{ name: 'agent:queued' }] },
+    { number: 2, title: 'B', body: '', labels: [{ name: 'agent:queued' }] },
+    { number: 3, title: 'C', body: '', labels: [{ name: 'agent:queued' }] },
+  ];
+  const proj = buildProjection(issues, [], null, null);
+  const gaps = discoverGaps(proj, { readyThreshold: 3 });
+  assert.strictEqual(gaps.summary.emptyReady, false);
+  const readySignal = gaps.signals.find(s => s.type === 'empty-ready');
+  assert.strictEqual(readySignal, undefined);
+});
+
+test('discoverGaps: detects stale-running with no heartbeat', () => {
+  const issues = [{ number: 50, title: 'A', body: '', labels: [{ name: 'agent:running' }] }];
+  const workers = { workers: [{ issue: 50, branch: 'b', claimant: 'c', claimedAt: 't' }] };
+  const proj = buildProjection(issues, [], workers, null);
+  const gaps = discoverGaps(proj);
+  const stale = gaps.signals.find(s => s.type === 'stale-running');
+  assert.ok(stale !== null);
+  assert.strictEqual(stale.reason, 'no-heartbeat');
+});
+
+test('discoverGaps: detects stale-running with old heartbeat', () => {
+  const issues = [{ number: 60, title: 'A', body: '', labels: [{ name: 'agent:running' }] }];
+  const workers = { workers: [{ issue: 60, branch: 'b', claimant: 'c', claimedAt: '2026-01-01T00:00:00Z', lastHeartbeat: '2026-01-01T00:01:00Z', expiresAt: '2026-01-01T01:00:00Z' }] };
+  const proj = buildProjection(issues, [], workers, null);
+  const now = new Date('2026-01-01T00:15:00Z').getTime();
+  const gaps = discoverGaps(proj, { staleHeartbeatMs: 60000, now });
+  const stale = gaps.signals.find(s => s.type === 'stale-running');
+  assert.ok(stale !== null);
+  assert.strictEqual(stale.reason, 'heartbeat-stale');
+  assert.strictEqual(stale.ageMinutes, 14);
+});
+
+test('discoverGaps: no stale-running with fresh heartbeat', () => {
+  const issues = [{ number: 70, title: 'A', body: '', labels: [{ name: 'agent:running' }] }];
+  const workers = { workers: [{ issue: 70, branch: 'b', claimant: 'c', claimedAt: '2026-01-01T00:00:00Z', lastHeartbeat: '2026-01-01T00:05:00Z', expiresAt: '2026-01-01T01:00:00Z' }] };
+  const proj = buildProjection(issues, [], workers, null);
+  const now = new Date('2026-01-01T00:10:00Z').getTime();
+  const gaps = discoverGaps(proj, { staleHeartbeatMs: 600000, now });
+  const stale = gaps.signals.filter(s => s.type === 'stale-running');
+  assert.strictEqual(stale.length, 0);
+  assert.strictEqual(gaps.summary.staleRunningCount, 0);
+});
+
+test('discoverGaps: excludes discussions from summary', () => {
+  const issues = [
+    { number: 96, title: 'Discussion', body: '', labels: [{ name: 'discussion' }] },
+    { number: 200, title: 'Feature', body: '', labels: [{ name: 'agent:queued' }] },
+  ];
+  const proj = buildProjection(issues, [], null, null);
+  const gaps = discoverGaps(proj);
+  assert.strictEqual(gaps.summary.totalTasks, 1);
+});
+
+test('discoverGaps: mixed scenario with all signal types', () => {
+  const issues = [
+    { number: 10, title: 'Blocked', body: '', labels: [{ name: 'agent:blocked' }] },
+    { number: 20, title: 'Running stale', body: '', labels: [{ name: 'agent:running' }] },
+    { number: 30, title: 'Ready', body: '', labels: [{ name: 'agent:queued' }] },
+    { number: 40, title: 'Done', body: '', labels: [{ name: 'agent:done' }] },
+  ];
+  const workers = { workers: [{ issue: 20, branch: 'b', claimant: 'c', claimedAt: '2026-01-01T00:00:00Z', lastHeartbeat: '2026-01-01T00:01:00Z', expiresAt: '2026-01-01T01:00:00Z' }] };
+  const proj = buildProjection(issues, [], workers, null);
+  const now = new Date('2026-01-01T00:15:00Z').getTime();
+  const gaps = discoverGaps(proj, { readyThreshold: 3, staleHeartbeatMs: 60000, now });
+  assert.strictEqual(gaps.summary.blockedCount, 1);
+  assert.strictEqual(gaps.summary.readyCount, 1);
+  assert.strictEqual(gaps.summary.runningCount, 1);
+  assert.strictEqual(gaps.summary.emptyReady, true);
+  assert.strictEqual(gaps.summary.staleRunningCount, 1);
+  const types = new Set(gaps.signals.map(s => s.type));
+  assert.ok(types.has('blocked-lane'));
+  assert.ok(types.has('empty-ready'));
+  assert.ok(types.has('stale-running'));
+});
+
+test('discoverGaps: empty projection', () => {
+  const proj = buildProjection([], [], null, null);
+  const gaps = discoverGaps(proj);
+  assert.strictEqual(gaps.summary.totalTasks, 0);
+  assert.strictEqual(gaps.summary.blockedCount, 0);
+  assert.strictEqual(gaps.summary.readyCount, 0);
+  assert.strictEqual(gaps.summary.emptyReady, true);
+  assert.strictEqual(gaps.signals.length, 1);
+  assert.strictEqual(gaps.signals[0].type, 'empty-ready');
 });
 
 // ── Report ───────────────────────────────────────────────────────────────────
