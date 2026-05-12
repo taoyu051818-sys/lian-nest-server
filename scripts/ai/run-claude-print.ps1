@@ -211,10 +211,20 @@ Write-Step "Working directory: $Worktree"
 $env:CLAUDE_WORKING_DIRECTORY = $Worktree
 $env:CLAUDE_CODE_ENTRYPOINT = "batch-launcher"
 
-# Execute claude
-$process = Start-Process -FilePath "claude" -ArgumentList $claudeArgs -WorkingDirectory $Worktree -NoNewWindow -PassThru -Wait -RedirectStandardOutput "$Worktree/.claude-output.txt" -RedirectStandardError "$Worktree/.claude-error.txt"
+# Execute claude in this worker process. Avoid Start-Process here: on
+# Windows, the npm PowerShell shim plus a long multi-line prompt can be
+# truncated or re-quoted, causing Claude to receive an empty prompt.
+$claudeCommand = Get-Command "claude" -ErrorAction Stop
 
-$exitCode = $process.ExitCode
+Push-Location $Worktree
+try {
+    $stdoutText = & $claudeCommand.Source @claudeArgs 2> ".claude-error.txt"
+    $exitCode = $LASTEXITCODE
+    $stdoutText | Out-String | Set-Content -Encoding UTF8 ".claude-output.txt"
+} finally {
+    Pop-Location
+}
+
 $stdout = if (Test-Path "$Worktree/.claude-output.txt") { Get-Content "$Worktree/.claude-output.txt" -Raw } else { "" }
 $stderr = if (Test-Path "$Worktree/.claude-error.txt") { Get-Content "$Worktree/.claude-error.txt" -Raw } else { "" }
 
@@ -239,6 +249,11 @@ Write-Host ""
 Write-Host "[sanitization] Output above is for local debugging only." -ForegroundColor DarkYellow
 Write-Host "[sanitization] Do NOT paste raw logs into issues, PRs, or comments." -ForegroundColor DarkYellow
 Write-Host "[sanitization] Use publish-agent-result.ps1 to publish sanitized results." -ForegroundColor DarkYellow
+
+# ── Cleanup temp files before staging ────────────────────────────────────────
+
+Remove-Item "$Worktree/.claude-output.txt" -ErrorAction SilentlyContinue
+Remove-Item "$Worktree/.claude-error.txt" -ErrorAction SilentlyContinue
 
 # ── Commit if changes exist ──────────────────────────────────────────────────
 
@@ -270,10 +285,5 @@ try {
 } finally {
     Pop-Location
 }
-
-# ── Cleanup temp files ───────────────────────────────────────────────────────
-
-Remove-Item "$Worktree/.claude-output.txt" -ErrorAction SilentlyContinue
-Remove-Item "$Worktree/.claude-error.txt" -ErrorAction SilentlyContinue
 
 Write-Step "Worker complete for issue #$issueNum"
