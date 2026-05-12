@@ -1,0 +1,235 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Opportunity Signal",
+  "description": "Structured signal capturing an external reality observation, a falsifiable hypothesis, and the experiment to validate it before committing worker capacity.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "signalId",
+    "createdAt",
+    "status",
+    "sourceFacts",
+    "hypothesis",
+    "expectedImpact",
+    "experiment",
+    "risk",
+    "acceptanceGate"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Increment when the shape changes."
+    },
+    "signalId": {
+      "type": "string",
+      "pattern": "^opp-[a-f0-9-]+$",
+      "description": "Unique identifier. Format: opp-<short-uuid>."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when this signal was created."
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp of last modification."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "validated", "accepted", "scheduled", "rejected"],
+      "description": "Lifecycle state."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Freeform labels for filtering."
+    },
+    "promotedTaskId": {
+      "type": ["string", "null"],
+      "description": "Task ID if this signal was promoted to a scheduled task."
+    },
+    "rejectionReason": {
+      "type": ["string", "null"],
+      "description": "Why the signal was rejected. Present only when status is rejected."
+    },
+    "sourceFacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/SourceFact" },
+      "description": "Evidence backing this signal. At least one required."
+    },
+    "hypothesis": { "$ref": "#/definitions/Hypothesis" },
+    "expectedImpact": { "$ref": "#/definitions/ExpectedImpact" },
+    "experiment": { "$ref": "#/definitions/Experiment" },
+    "risk": { "$ref": "#/definitions/Risk" },
+    "acceptanceGate": { "$ref": "#/definitions/AcceptanceGate" }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "SourceFact": {
+      "type": "object",
+      "required": ["factId", "description", "source"],
+      "properties": {
+        "factId": {
+          "type": "string",
+          "pattern": "^fact:[a-z0-9-]+:[a-z0-9-]+$",
+          "description": "Unique identifier. Format: fact:<domain>:<slug>."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of what was observed."
+        },
+        "source": {
+          "type": "string",
+          "description": "Where the fact came from."
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the observation was made."
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["high", "medium", "low"],
+          "description": "Reliability of the observation. Defaults to medium."
+        }
+      },
+      "additionalProperties": false
+    },
+    "Hypothesis": {
+      "type": "object",
+      "required": ["claim", "reasoning"],
+      "properties": {
+        "claim": {
+          "type": "string",
+          "description": "A single sentence stating what the signal asserts. Must be testable."
+        },
+        "reasoning": {
+          "type": "string",
+          "description": "Why the source facts suggest this claim."
+        },
+        "alternativesConsidered": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Other explanations for the observed facts."
+        }
+      },
+      "additionalProperties": false
+    },
+    "ExpectedImpact": {
+      "type": "object",
+      "required": ["metric", "currentValue", "targetValue"],
+      "properties": {
+        "metric": {
+          "type": "string",
+          "description": "What will be measured."
+        },
+        "currentValue": {
+          "type": "string",
+          "description": "The observed baseline."
+        },
+        "targetValue": {
+          "type": "string",
+          "description": "The desired outcome."
+        },
+        "timeToImpact": {
+          "type": "string",
+          "description": "Estimated time to see the effect after the experiment."
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["high", "medium", "low"],
+          "description": "How confident in the target. Defaults to medium."
+        }
+      },
+      "additionalProperties": false
+    },
+    "Experiment": {
+      "type": "object",
+      "required": ["type", "description", "scope", "successCriteria"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["code-change", "config-change", "data-collection", "prototype", "ab-test"],
+          "description": "Kind of experiment."
+        },
+        "description": {
+          "type": "string",
+          "description": "What the experiment does."
+        },
+        "scope": {
+          "type": "string",
+          "description": "Boundary of the change."
+        },
+        "duration": {
+          "type": "string",
+          "description": "How long the experiment runs."
+        },
+        "rollbackPlan": {
+          "type": "string",
+          "description": "How to undo if the experiment goes wrong."
+        },
+        "successCriteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "Specific, measurable conditions that confirm the hypothesis."
+        }
+      },
+      "additionalProperties": false
+    },
+    "Risk": {
+      "type": "object",
+      "required": ["level", "concerns"],
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Risk severity."
+        },
+        "concerns": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "Specific risks."
+        },
+        "mitigations": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "How each concern is addressed."
+        }
+      },
+      "additionalProperties": false
+    },
+    "AcceptanceGate": {
+      "type": "object",
+      "required": ["requiredReviewRoles", "acceptanceOwner", "criteria"],
+      "properties": {
+        "requiredReviewRoles": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "Roles that must sign off."
+        },
+        "acceptanceOwner": {
+          "type": "string",
+          "description": "Who has final authority to promote or reject."
+        },
+        "criteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "Specific pass/fail checks."
+        },
+        "healthGate": {
+          "type": "string",
+          "enum": ["gate-all", "gate-docs-only", "gate-none"],
+          "description": "Health checks required before the experiment can run. Defaults to gate-all."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
