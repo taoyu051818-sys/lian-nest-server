@@ -19,9 +19,9 @@ const EMITTER = path.resolve(__dirname, 'emit-command-steward-autonomy-readiness
 const CLEAN_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'cmd-steward-readiness-'));
 const CHILD_ENV = { ...process.env, COMMAND_STEWARD_STATE_DIR: CLEAN_STATE_DIR };
 
-function run(args) {
+function run(args, opts) {
   try {
-    const stdout = execFileSync(process.execPath, [EMITTER, ...args], { encoding: 'utf8', timeout: 15_000, stdio: ['pipe', 'pipe', 'pipe'], env: CHILD_ENV });
+    const stdout = execFileSync(process.execPath, [EMITTER, ...args], { encoding: 'utf8', timeout: 15_000, stdio: ['pipe', 'pipe', 'pipe'], env: (opts && opts.env) || CHILD_ENV });
     return { stdout, stderr: '', exitCode: 0 };
   } catch (err) { return { stdout: err.stdout || '', stderr: err.stderr || '', exitCode: err.status || 1 }; }
 }
@@ -88,6 +88,43 @@ test('codexDuties: duty-5 and duty-6 always met (structural)', () => {
   assert.strictEqual(duties.find(d => d.id === 'duty-6').status, 'met');
 });
 
+test('codexDuties: duty-7 blocked when retirement file missing', () => {
+  const { stdout } = run(['--stdout']);
+  const duties = JSON.parse(stdout).codexDuties.duties;
+  const d7 = duties.find(d => d.id === 'duty-7');
+  assert.strictEqual(d7.status, 'blocked');
+  assert.ok(d7.evidence.includes('missing'));
+});
+
+test('codexDuties: duty-7 met when retirement status complete', () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'duty7-complete-'));
+  const retirementPath = path.join(stateDir, 'legacy-orchestration-retirement.json');
+  fs.writeFileSync(retirementPath, JSON.stringify({
+    markerVersion: 1, capturedAt: '2026-05-12T00:00:00Z', status: 'complete',
+    duties: { 'duty-7': { name: 'Legacy orchestration retired', status: 'met' } },
+    blockingDutiesMet: 6, blockingDutiesTotal: 6,
+  }), 'utf8');
+  try {
+    const { stdout } = run(['--stdout'], { env: { ...CHILD_ENV, COMMAND_STEWARD_STATE_DIR: stateDir } });
+    const duties = JSON.parse(stdout).codexDuties.duties;
+    assert.strictEqual(duties.find(d => d.id === 'duty-7').status, 'met');
+  } finally { fs.rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('codexDuties: duty-7 blocked when retirement status pending', () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'duty7-pending-'));
+  const retirementPath = path.join(stateDir, 'legacy-orchestration-retirement.json');
+  fs.writeFileSync(retirementPath, JSON.stringify({
+    markerVersion: 1, capturedAt: '2026-05-12T00:00:00Z', status: 'pending',
+    duties: {}, blockingDutiesMet: 0, blockingDutiesTotal: 6,
+  }), 'utf8');
+  try {
+    const { stdout } = run(['--stdout'], { env: { ...CHILD_ENV, COMMAND_STEWARD_STATE_DIR: stateDir } });
+    const duties = JSON.parse(stdout).codexDuties.duties;
+    assert.strictEqual(duties.find(d => d.id === 'duty-7').status, 'blocked');
+  } finally { fs.rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 // ── Health section ───────────────────────────────────────────────────────────
 
 test('health: has required fields and valid state', () => {
@@ -146,7 +183,7 @@ test('blockers: health and codex-duty blockers present when inputs missing', () 
 test('inputSources: all expected boolean flags present', () => {
   const { stdout } = run(['--stdout']);
   const is = JSON.parse(stdout).inputSources;
-  for (const k of ['healthLoaded', 'activeWorkersLoaded', 'metaSignalsLoaded', 'providerPoolLoaded', 'workerTrustLoaded', 'queueLoaded'])
+  for (const k of ['healthLoaded', 'activeWorkersLoaded', 'metaSignalsLoaded', 'providerPoolLoaded', 'workerTrustLoaded', 'queueLoaded', 'legacyRetirementLoaded'])
     assert.strictEqual(typeof is[k], 'boolean');
 });
 
