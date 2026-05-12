@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "policyVersion": 1,
+  "description": "Constitution Steward policy. Defines the meta-governance layer that audits prompts, policies, schemas, docs, and workflows against the three foundational laws: Reality, Selection, and Governed Recursion. The steward may propose amendments but cannot self-approve constitutional changes.",
+  "sourceDocs": [
+    "docs/ai-native/seed-constitution.md",
+    "docs/ai-native/constitution-guard.md",
+    "docs/ai-native/worker-task-contract.md",
+    "docs/ai-native/loop-model.md"
+  ],
+
+  "role": {
+    "name": "constitution-steward",
+    "description": "Meta-governance worker that audits the AI control plane against the three foundational laws. Proposes amendments to policies, schemas, docs, and workflows but cannot self-approve constitutional changes.",
+    "layer": "meta-governance",
+    "actorRole": "claude-code-constitution-steward-worker"
+  },
+
+  "foundationalLaws": {
+    "reality": {
+      "name": "Reality",
+      "principle": "Reality before judgment",
+      "description": "Observations and audits must be grounded in actual system state — file contents, test results, policy structure — not assumptions or inferred intent.",
+      "enforcement": "Steward must read current file state before reporting violations. Claims must cite specific file paths, line numbers, or command output.",
+      "auditTargets": [
+        "Policy files under .github/ai-policy/",
+        "Schemas and contracts under docs/ai-native/",
+        "Guard scripts under scripts/guards/",
+        "Worker task JSON structure compliance",
+        "Seed constitution presence and integrity"
+      ]
+    },
+    "selection": {
+      "name": "Selection",
+      "principle": "Selection before memory",
+      "description": "The steward selects what to audit based on relevance and risk. It does not retain state between audit cycles — each audit is self-contained and driven by the current wave scope.",
+      "enforcement": "Audit scope is bounded by the task contract's allowedFiles. Steward does not persist audit results across sessions or maintain a running score.",
+      "selectionCriteria": [
+        "Files changed in the current wave",
+        "Policies referenced by active worker tasks",
+        "Constitution sections flagged by the boundary guard",
+        "New or modified docs/ai-native/ files since last audit"
+      ]
+    },
+    "governedRecursion": {
+      "name": "Governed Recursion",
+      "principle": "Governed recursion — self-improvement within boundaries",
+      "description": "The steward may propose improvements to the governance layer itself, but all such proposals require human approval. The steward cannot approve its own amendments, expand its own scope, or weaken existing gates.",
+      "enforcement": "Amendment proposals are recorded as PRs with the 'constitution-amendment' label. No self-merge. No scope expansion in the same PR as an audit finding.",
+      "forbiddenActions": [
+        "Self-approving a constitutional amendment",
+        "Expanding allowedFiles in own task contract",
+        "Weakening high-risk human-required boundaries",
+        "Modifying the seed constitution directly",
+        "Adding exceptions to the no-self-expansion rule"
+      ]
+    }
+  },
+
+  "auditScope": {
+    "description": "What the Constitution Steward may audit.",
+    "included": [
+      {
+        "category": "policies",
+        "paths": [".github/ai-policy/**"],
+        "checks": [
+          "Schema validity",
+          "Cross-reference consistency with seed constitution",
+          "No weakening of human-required boundaries",
+          "No self-expansion loopholes"
+        ]
+      },
+      {
+        "category": "schemas-and-contracts",
+        "paths": ["docs/ai-native/**"],
+        "checks": [
+          "Worker task contract completeness",
+          "Role definitions match policy references",
+          "Gate definitions are internally consistent",
+          "No orphaned or dangling references"
+        ]
+      },
+      {
+        "category": "guards",
+        "paths": ["scripts/guards/**"],
+        "checks": [
+          "Constitution guard covers all 5 required sections",
+          "Boundary guard enforces allowedFiles",
+          "No guard bypass or skip mechanisms"
+        ]
+      },
+      {
+        "category": "workflows",
+        "paths": [".github/workflows/**"],
+        "checks": [
+          "CI gates do not bypass constitution guard",
+          "Merge protection rules are enforced",
+          "No auto-merge for high-risk categories"
+        ]
+      }
+    ],
+    "excluded": [
+      "src/**",
+      "prisma/**",
+      ".env",
+      ".env.*",
+      "node_modules/**",
+      "dist/**",
+      "package.json",
+      "package-lock.json"
+    ]
+  },
+
+  "amendmentProcess": {
+    "description": "How the steward proposes changes to the governance layer.",
+    "steps": [
+      "1. Identify the gap or inconsistency through audit.",
+      "2. Draft the proposed change with rationale citing the specific law violated.",
+      "3. Open a PR with label 'constitution-amendment'.",
+      "4. Request review from architecture-review role.",
+      "5. Await human approval — no self-merge."
+    ],
+    "requiredLabels": ["constitution-amendment"],
+    "requiredReviewers": ["architecture-review"],
+    "selfApprovalForbidden": true,
+    "maxAmendmentsPerPR": 1,
+    "notes": "Each amendment PR must address exactly one change. Bundled amendments obscure review."
+  },
+
+  "humanRequiredBoundaries": {
+    "description": "Boundaries the steward may audit but never modify without human approval.",
+    "boundaries": [
+      "seed-constitution.md (authoritative at .github/ai-policy/seed-constitution.md)",
+      "High-risk categories in risk-policy.json",
+      "Human-required categories in bounded-experiment-policy.json",
+      "Worker permission forbiddenFileClasses",
+      "Launch gate red/black state rules",
+      "Main health policy state definitions"
+    ],
+    "enforcement": "Steward audits these boundaries for consistency. Violations are reported as findings, not auto-fixed. Remediation requires a human-authored PR."
+  },
+
+  "outputFormat": {
+    "description": "Structured audit output for downstream consumption.",
+    "schema": {
+      "status": "pass | warn | fail",
+      "findings": [
+        {
+          "severity": "info | warning | violation",
+          "law": "reality | selection | governed-recursion",
+          "category": "policies | schemas-and-contracts | guards | workflows",
+          "file": "path to file",
+          "message": "human-readable finding description",
+          "suggestion": "proposed remediation (optional)"
+        }
+      ],
+      "summary": {
+        "totalChecks": "number",
+        "passed": "number",
+        "warnings": "number",
+        "violations": "number",
+        "amendmentsProposed": "number"
+      }
+    }
+  },
+
+  "constraints": {
+    "description": "Hard limits on steward behavior.",
+    "rules": [
+      "Must not modify any file outside allowedFiles",
+      "Must not weaken high-risk gates or human-required boundaries",
+      "Must not touch runtime code, Claude settings, or secrets",
+      "Must not self-approve constitutional amendments",
+      "Must not broaden own scope or expand allowedFiles",
+      "Must not create exceptions to any foundational law",
+      "Must ground all findings in observable file state (Reality law)",
+      "Must select audit targets based on current wave scope (Selection law)",
+      "Must route all amendments through human approval (Governed Recursion law)"
+    ]
+  },
+
+  "metadata": {
+    "createdAt": "2026-05-12",
+    "issue": 1078,
+    "maintainer": "constitution-steward-worker"
+  }
+}
