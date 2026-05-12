@@ -1,0 +1,140 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/risk-signal.schema.json",
+  "title": "RiskSignalSnapshot",
+  "description": "External risk signal snapshot consumed by the planning loop for risk-aware prioritization. Each entry captures an external risk observation across compliance, security, product, runtime, and market domains. Aligned with docs/ai-native/risk-signal-schema.md.",
+  "type": "object",
+  "required": [
+    "signalVersion",
+    "capturedAt",
+    "signals"
+  ],
+  "properties": {
+    "signalVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this snapshot was assembled."
+    },
+    "source": {
+      "type": "string",
+      "description": "Human-readable origin of the snapshot (e.g. \"manual\", \"planner-intake\")."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Free-text context for the snapshot."
+    },
+    "signals": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RiskSignal"
+      },
+      "description": "Array of individual risk signal entries."
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "RiskSignal": {
+      "type": "object",
+      "required": [
+        "id",
+        "domain",
+        "severity",
+        "title",
+        "detectedAt",
+        "status",
+        "source"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable identifier for deduplication (e.g. \"CVE-2026-1234\", \"GDPR-ART-17\")."
+        },
+        "domain": {
+          "type": "string",
+          "enum": [
+            "compliance",
+            "security",
+            "product",
+            "runtime",
+            "market"
+          ],
+          "description": "Risk domain."
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low",
+            "info"
+          ],
+          "description": "Impact level."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short human-readable summary."
+        },
+        "detectedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the signal was first observed or published."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "acknowledged",
+            "mitigated",
+            "accepted",
+            "expired"
+          ],
+          "description": "Current state of the risk signal."
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "External origin (e.g. \"NVD\", \"internal-audit\", \"support-escalation\")."
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed explanation of the risk."
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "URLs, CVE IDs, or document references supporting the signal."
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the signal should be considered stale."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Freeform labels for filtering (e.g. [\"pci-dss\", \"auth\", \"p0\"])."
+        },
+        "affectedAreas": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "File patterns or module names at risk (e.g. [\"src/**/auth/**\"])."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
