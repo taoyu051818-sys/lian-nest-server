@@ -58,6 +58,7 @@ const {
   applyPolicyGate,
   buildOutput,
   buildIssueBody,
+  fetchMergedPRs,
 } = require('./propose-self-cycle-issues.js');
 
 // ── Subprocess helper ────────────────────────────────────────────────────────
@@ -292,6 +293,70 @@ test('deduplicate: passes through non-overlapping candidates', () => {
   const openIssues = [{ title: 'Other issue', body: '', labels: [] }];
   const result = deduplicate(candidates, openIssues, []);
   assert.strictEqual(result.proposed.length, 1);
+  assert.strictEqual(result.skipped.length, 0);
+});
+
+test('deduplicate: removes candidates with conflictGroup in open PR body', () => {
+  const candidates = [
+    makeCandidate({ title: 'Unique auth task', conflictGroup: 'auth-core' }),
+  ];
+  const openPRs = [{
+    title: 'Auth refactor PR',
+    body: 'Conflict group: auth-core\nCONTROL APPENDIX',
+    headRefName: 'auth-refactor',
+  }];
+  const result = deduplicate(candidates, [], openPRs);
+  assert.strictEqual(result.proposed.length, 0, 'should skip candidate matching PR conflictGroup');
+  assert.strictEqual(result.skipped.length, 1);
+  assert.ok(result.skipped[0].reason.includes('auth-core'));
+});
+
+test('deduplicate: removes candidates with conflictGroup in merged PR body', () => {
+  const candidates = [
+    makeCandidate({ title: 'Feed improvement task', conflictGroup: 'feed' }),
+  ];
+  const mergedPRs = [{
+    title: 'Feed optimization PR',
+    body: 'Conflict group: feed\nCONTROL APPENDIX',
+    headRefName: 'feed-opt',
+  }];
+  const result = deduplicate(candidates, [], [], mergedPRs);
+  assert.strictEqual(result.proposed.length, 0, 'should skip candidate matching merged PR conflictGroup');
+  assert.strictEqual(result.skipped.length, 1);
+  assert.ok(result.skipped[0].reason.includes('feed'));
+});
+
+test('deduplicate: removes candidates with title overlap against merged PRs', () => {
+  const candidates = [
+    makeCandidate({ title: 'Feed optimization for performance' }),
+  ];
+  const mergedPRs = [{
+    title: 'Feed optimization for speed',
+    body: '',
+    headRefName: 'feed-speed',
+  }];
+  const result = deduplicate(candidates, [], [], mergedPRs);
+  assert.strictEqual(result.proposed.length, 0, 'should skip candidate with merged PR title overlap');
+  assert.strictEqual(result.skipped.length, 1);
+  assert.ok(result.skipped[0].reason.includes('title overlap'));
+});
+
+test('deduplicate: passes through candidates with no PR or issue conflicts', () => {
+  const candidates = [
+    makeCandidate({ title: 'Brand new feature', conflictGroup: 'new-group' }),
+  ];
+  const openPRs = [{
+    title: 'Unrelated PR',
+    body: 'Conflict group: other-group\nCONTROL APPENDIX',
+    headRefName: 'other',
+  }];
+  const mergedPRs = [{
+    title: 'Old merged PR',
+    body: 'Conflict group: old-group\nCONTROL APPENDIX',
+    headRefName: 'old',
+  }];
+  const result = deduplicate(candidates, [], openPRs, mergedPRs);
+  assert.strictEqual(result.proposed.length, 1, 'should pass through non-conflicting candidate');
   assert.strictEqual(result.skipped.length, 0);
 });
 

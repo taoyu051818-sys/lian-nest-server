@@ -146,7 +146,8 @@ USAGE
 
 OPTIONS
     --repo <owner/n>  GitHub repository (or set GH_REPO env var).
-                      When provided, fetches open issues/PRs for dedup.
+                      When provided, fetches open issues/PRs and recently
+                      merged PRs for dedup (title overlap + conflictGroup).
     --max <n>         Maximum proposals. Default: ${DEFAULT_MAX}.
     --execute         Auto-create low/medium-risk issues on GitHub.
                       Default: dry-run (preview only).
@@ -266,6 +267,16 @@ function fetchOpenIssues(repo) {
 function fetchOpenPRs(repo) {
   const repoFlag = repo ? `--repo ${repo}` : '';
   const cmd = `gh pr list --state open --limit 200 ${repoFlag} --json number,title,body,headRefName`;
+  try {
+    return JSON.parse(execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }));
+  } catch {
+    return [];
+  }
+}
+
+function fetchMergedPRs(repo, limit) {
+  const repoFlag = repo ? `--repo ${repo}` : '';
+  const cmd = `gh pr list --state merged --limit ${limit} ${repoFlag} --json number,title,body,headRefName,mergedAt`;
   try {
     return JSON.parse(execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }));
   } catch {
@@ -565,26 +576,36 @@ function generateAllCandidates(facts) {
   ];
 }
 
-function deduplicate(candidates, openIssues, openPRs) {
+function deduplicate(candidates, openIssues, openPRs, mergedPRs) {
   const proposed = [];
   const skipped = [];
 
-  // Build sets for dedup
-  const openTitles = (openIssues || []).map(i => i.title || '');
-  const openConflictGroups = new Set();
-  for (const issue of openIssues || []) {
+  const openIssueList = openIssues || [];
+  const openPRList = openPRs || [];
+  const mergedPRList = mergedPRs || [];
+
+  // Build title lists for overlap check
+  const openTitles = openIssueList.map(i => i.title || '');
+  const prTitles = openPRList.map(p => p.title || '');
+  const mergedTitles = mergedPRList.map(p => p.title || '');
+  const allTitles = [...openTitles, ...prTitles, ...mergedTitles];
+
+  // Build conflict group set from issues AND PRs (open + merged)
+  const existingConflictGroups = new Set();
+  for (const issue of openIssueList) {
     const cg = extractConflictGroupFromIssueBody(issue.body || '');
-    if (cg) openConflictGroups.add(cg.toLowerCase());
+    if (cg) existingConflictGroups.add(cg.toLowerCase());
   }
-  // Also check PR titles
-  const prTitles = (openPRs || []).map(p => p.title || '');
-  const allTitles = [...openTitles, ...prTitles];
+  for (const pr of [...openPRList, ...mergedPRList]) {
+    const cg = extractConflictGroupFromIssueBody(pr.body || '');
+    if (cg) existingConflictGroups.add(cg.toLowerCase());
+  }
 
   for (const candidate of candidates) {
     let isDuplicate = false;
     let reason = '';
 
-    // Check title overlap
+    // Check title overlap against all existing titles (issues + open PRs + merged PRs)
     for (const existingTitle of allTitles) {
       if (titleOverlap(candidate.title, existingTitle) > 0.5) {
         isDuplicate = true;
@@ -593,10 +614,10 @@ function deduplicate(candidates, openIssues, openPRs) {
       }
     }
 
-    // Check conflictGroup
-    if (!isDuplicate && candidate.conflictGroup && openConflictGroups.has(candidate.conflictGroup.toLowerCase())) {
+    // Check conflictGroup against issues and PRs (open + merged)
+    if (!isDuplicate && candidate.conflictGroup && existingConflictGroups.has(candidate.conflictGroup.toLowerCase())) {
       isDuplicate = true;
-      reason = `conflictGroup "${candidate.conflictGroup}" already exists in open issues`;
+      reason = `conflictGroup "${candidate.conflictGroup}" already exists in open issues or PRs`;
     }
 
     if (isDuplicate) {
@@ -866,6 +887,27 @@ function runSelfTest() {
   assert(cgDedup.proposed.length === 0, 'deduplicate by conflictGroup: 0 proposed (both collide)');
   assert(cgDedup.skipped.length === 2, 'deduplicate by conflictGroup: 2 skipped');
 
+  // Test: deduplicate by conflictGroup in PR body (open PR)
+  const prCgCandidates = [makeCandidate({ title: 'Unique title C', conflictGroup: 'auth-core' })];
+  const prCgOpenPRs = [{ title: 'Auth refactor PR', body: 'Conflict group: auth-core\nCONTROL APPENDIX', headRefName: 'auth-refactor' }];
+  const prCgDedup = deduplicate(prCgCandidates, [], prCgOpenPRs);
+  assert(prCgDedup.proposed.length === 0, 'deduplicate by PR conflictGroup: 0 proposed');
+  assert(prCgDedup.skipped.length === 1, 'deduplicate by PR conflictGroup: 1 skipped');
+
+  // Test: deduplicate by conflictGroup in merged PR body
+  const mergedCgCandidates = [makeCandidate({ title: 'Unique title D', conflictGroup: 'feed' })];
+  const mergedPRs = [{ title: 'Feed optimization PR', body: 'Conflict group: feed\nCONTROL APPENDIX', headRefName: 'feed-opt' }];
+  const mergedDedup = deduplicate(mergedCgCandidates, [], [], mergedPRs);
+  assert(mergedDedup.proposed.length === 0, 'deduplicate by merged PR conflictGroup: 0 proposed');
+  assert(mergedDedup.skipped.length === 1, 'deduplicate by merged PR conflictGroup: 1 skipped');
+
+  // Test: deduplicate by title overlap with merged PR
+  const mergedTitleCandidates = [makeCandidate({ title: 'Feed optimization for performance' })];
+  const mergedTitlePRs = [{ title: 'Feed optimization for speed', body: '', headRefName: 'feed-speed' }];
+  const mergedTitleDedup = deduplicate(mergedTitleCandidates, [], [], mergedTitlePRs);
+  assert(mergedTitleDedup.proposed.length === 0, 'deduplicate by merged PR title: 0 proposed');
+  assert(mergedTitleDedup.skipped.length === 1, 'deduplicate by merged PR title: 1 skipped');
+
   // Test: applyPolicyGate blocks high-risk
   const highRisk = [makeCandidate({ title: 'Dangerous change', risk: 'high' })];
   const gateResult = applyPolicyGate(highRisk);
@@ -942,15 +984,16 @@ function main() {
   // Read facts
   const facts = readFacts(args.stateDir);
 
-  // Fetch open issues/PRs for dedup (only when repo is provided)
+  // Fetch open issues/PRs and recently merged PRs for dedup (only when repo is provided)
   const openIssues = args.repo ? fetchOpenIssues(args.repo) : [];
   const openPRs = args.repo ? fetchOpenPRs(args.repo) : [];
+  const mergedPRs = args.repo ? fetchMergedPRs(args.repo, 50) : [];
 
   // Generate candidates from gaps
   const allCandidates = generateAllCandidates(facts);
 
   // Deduplicate
-  const { proposed, skipped } = deduplicate(allCandidates, openIssues, openPRs);
+  const { proposed, skipped } = deduplicate(allCandidates, openIssues, openPRs, mergedPRs);
 
   // Apply policy gate
   const { autoCreatable, humanRequired } = applyPolicyGate(proposed);
@@ -1048,4 +1091,5 @@ module.exports = {
   extractConflictGroupFromIssueBody,
   makeCandidate,
   writeAuditEvent,
+  fetchMergedPRs,
 };
