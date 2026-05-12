@@ -219,6 +219,197 @@ function renderPressureSection(pressure) {
   return el('div', { className: 'pressure-section' }, children);
 }
 
+// ── resource pressure cards (CPU / Memory / Disk) ─────────────────────
+
+function renderResourcePressureCards(resources) {
+  if (!resources) return null;
+  const utilization = resources.utilization;
+  const concurrency = resources.concurrency;
+  if (!utilization && !concurrency) return null;
+
+  const container = el('div', { className: 'resource-pressure-section' });
+  container.append(el('h2', { textContent: 'CPU / Memory / Disk Pressure' }));
+
+  const grid = el('div', { className: 'resource-pressure-grid' });
+
+  // CPU card — derived from concurrency utilization
+  const cpuPct = utilization?.percentage ?? 0;
+  const cpuLevel = utilization?.level ?? 'normal';
+  grid.append(renderResourcePressureCard('CPU', cpuPct, cpuLevel, {
+    active: concurrency?.currentActiveWorkers,
+    max: concurrency?.globalMaxWorkers,
+    headroom: concurrency?.headroom,
+  }));
+
+  // Memory card — derived from headroom ratio
+  const memMax = concurrency?.globalMaxWorkers ?? 0;
+  const memHeadroom = concurrency?.headroom ?? 0;
+  const memPct = memMax > 0 ? Math.round(((memMax - memHeadroom) / memMax) * 100) : 0;
+  const memLevel = memPct >= 90 ? 'critical' : memPct >= 70 ? 'elevated' : 'normal';
+  grid.append(renderResourcePressureCard('Memory', memPct, memLevel, {
+    headroom: memHeadroom,
+    max: memMax,
+  }));
+
+  // Disk card — placeholder when no disk data available
+  grid.append(renderResourcePressureCard('Disk', null, 'normal', { note: 'No disk metrics available' }));
+
+  container.append(grid);
+  return container;
+}
+
+function renderResourcePressureCard(name, pct, level, details) {
+  const levelClass = level === 'critical' ? 'status-disabled'
+    : level === 'elevated' ? 'status-exhausted'
+    : 'status-available';
+  const barClass = level === 'critical' ? 'bar-fill--red'
+    : level === 'elevated' ? 'bar-fill--yellow'
+    : 'bar-fill--green';
+
+  const card = el('div', { className: 'resource-pressure-card' });
+  card.append(el('div', { className: 'resource-pressure-card__header' }, [
+    el('span', { className: 'resource-pressure-card__name', textContent: name }),
+    el('span', { className: `resource-pressure-card__level ${levelClass}`, textContent: (level ?? '—').toUpperCase() }),
+  ]));
+
+  if (pct !== null) {
+    card.append(el('div', { className: 'resource-pressure-card__bar' }, [
+      el('div', { className: 'bar-track' }, [
+        el('div', { className: `bar-fill ${barClass}`, style: `width:${Math.min(pct, 100)}%` }),
+      ]),
+      el('span', { className: 'resource-pressure-card__pct', textContent: `${pct}%` }),
+    ]));
+  }
+
+  if (details) {
+    const meta = el('div', { className: 'resource-pressure-card__meta' });
+    if (details.active != null && details.max != null) {
+      meta.append(el('span', { textContent: `Active: ${details.active} / ${details.max}` }));
+    }
+    if (details.headroom != null) {
+      meta.append(el('span', { textContent: `Headroom: ${details.headroom}` }));
+    }
+    if (details.note) {
+      meta.append(el('span', { className: 'resource-pressure-card__note', textContent: details.note }));
+    }
+    card.append(meta);
+  }
+
+  return card;
+}
+
+// ── command steward dashboard ─────────────────────────────────────────
+
+function renderCommandStewardSection(allData, planningData) {
+  const container = el('div', { className: 'command-steward-section' });
+  container.append(el('h2', { textContent: 'Command Steward' }));
+
+  // Steward status banner
+  const stewardReady = planningData?.launchPlan?.allAllowed !== false;
+  const statusBanner = el('div', {
+    className: `command-steward__status ${stewardReady ? 'command-steward__status--clear' : 'command-steward__status--blocked'}`,
+  }, [
+    el('span', { className: 'command-steward__status-dot' }),
+    el('span', { className: 'command-steward__status-text', textContent: stewardReady ? 'ALL CLEAR' : 'BLOCKED' }),
+    el('span', { className: 'command-steward__status-detail', textContent: stewardReady
+      ? 'All gates passed — commands may proceed'
+      : 'One or more gates blocking command dispatch' }),
+  ]);
+  container.append(statusBanner);
+
+  // Readiness grid — show which action categories are ready
+  const readinessGrid = el('div', { className: 'command-steward__readiness-grid' });
+
+  const categories = [
+    { id: 'launch', label: 'Launch', icon: '▶' },
+    { id: 'worker', label: 'Worker', icon: '⚙' },
+    { id: 'provider', label: 'Provider', icon: '◈' },
+    { id: 'merge', label: 'Merge', icon: '⊕' },
+    { id: 'compile', label: 'Compile', icon: '▸' },
+    { id: 'plan', label: 'Plan', icon: '◇' },
+  ];
+
+  const serverActionIds = (cachedServerActions || []).map(a => a.id);
+  const hasLaunchAction = serverActionIds.includes('launch-batch');
+  const hasWorkerAction = serverActionIds.includes('worker.control');
+  const hasMergeAction = serverActionIds.includes('merge-prs');
+  const hasCompileAction = serverActionIds.includes('compile-tasks');
+  const hasPlanAction = serverActionIds.includes('plan.next.batch');
+
+  const readinessMap = {
+    launch: hasLaunchAction && stewardReady,
+    worker: hasWorkerAction,
+    provider: (allData.state?.providers || []).length > 0,
+    merge: hasMergeAction && stewardReady,
+    compile: hasCompileAction,
+    plan: hasPlanAction,
+  };
+
+  for (const cat of categories) {
+    const ready = readinessMap[cat.id] ?? false;
+    readinessGrid.append(el('div', {
+      className: `command-steward__readiness-card ${ready ? '' : 'command-steward__readiness-card--blocked'}`,
+    }, [
+      el('span', { className: 'command-steward__readiness-icon', textContent: cat.icon }),
+      el('span', { className: 'command-steward__readiness-label', textContent: cat.label }),
+      el('span', {
+        className: `command-steward__readiness-status ${ready ? 'status-available' : 'status-disabled'}`,
+        textContent: ready ? 'READY' : 'N/A',
+      }),
+    ]));
+  }
+  container.append(readinessGrid);
+
+  // Steward decisions — from planning launch plan
+  if (planningData?.launchPlan) {
+    const plan = planningData.launchPlan;
+    const selected = plan.selectedTasks || [];
+    const rejected = plan.rejectedTasks || [];
+    const locks = plan.locksAcquired || [];
+
+    if (selected.length > 0 || rejected.length > 0) {
+      const decisionsSection = el('div', { className: 'command-steward__decisions' });
+      decisionsSection.append(el('h3', { textContent: 'Steward Decisions' }));
+
+      const decisionsGrid = el('div', { className: 'command-steward__decisions-grid' }, [
+        el('div', { className: 'command-steward__decision-card' }, [
+          el('span', { className: 'command-steward__decision-value status-available', textContent: String(selected.length) }),
+          el('span', { className: 'command-steward__decision-label', textContent: 'Cleared' }),
+        ]),
+        el('div', { className: 'command-steward__decision-card' }, [
+          el('span', {
+            className: `command-steward__decision-value ${rejected.length > 0 ? 'status-exhausted' : ''}`,
+            textContent: String(rejected.length),
+          }),
+          el('span', { className: 'command-steward__decision-label', textContent: 'Rejected' }),
+        ]),
+        el('div', { className: 'command-steward__decision-card' }, [
+          el('span', { className: 'command-steward__decision-value', textContent: String(locks.length) }),
+          el('span', { className: 'command-steward__decision-label', textContent: 'Locks Held' }),
+        ]),
+      ]);
+      decisionsSection.append(decisionsGrid);
+
+      // Health indicator
+      if (plan.mainHealth) {
+        const mh = plan.mainHealth;
+        decisionsSection.append(el('div', { className: 'command-steward__health' }, [
+          el('span', { className: 'command-steward__health-label', textContent: 'Main Health' }),
+          el('span', {
+            className: `badge ${healthStateColor(mh.state)}`,
+            textContent: (mh.state || '—').toUpperCase(),
+          }),
+          mh.reason ? el('span', { className: 'command-steward__health-reason', textContent: mh.reason }) : null,
+        ].filter(Boolean)));
+      }
+
+      container.append(decisionsSection);
+    }
+  }
+
+  return container;
+}
+
 function renderQueueSection(queue, queueEntries) {
   if (!queue && !queueEntries) return null;
   const children = [el('h2', { textContent: 'Queue' })];
@@ -2584,6 +2775,15 @@ async function refresh(root) {
     );
     if (workersEl) dashboardChildren.push(workersEl);
   }
+
+  // Resource pressure cards (CPU / Memory / Disk)
+  const resourcePressureEl = renderResourcePressureCards(webuiState);
+  if (resourcePressureEl) dashboardChildren.push(resourcePressureEl);
+
+  // Command Steward section
+  const allDataForSteward = { state, policy, webuiState };
+  const stewardEl = renderCommandStewardSection(allDataForSteward, planningData);
+  if (stewardEl) dashboardChildren.push(stewardEl);
 
   // Build operation console panel
   const allData = { state, policy, webuiState };
