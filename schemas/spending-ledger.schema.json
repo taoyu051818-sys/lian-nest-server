@@ -1,0 +1,246 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/taoyu051818-sys/lian-nest-server/schemas/spending-ledger.schema.json",
+  "title": "SpendingLedgerEntry",
+  "description": "Append-only NDJSON ledger entry recording worker token, time, cost, provider, and budget events. See docs/ai-native/spending-ledger.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "entryId",
+    "recordedAt",
+    "taskId",
+    "issueNumber",
+    "agentId",
+    "providerAlias",
+    "eventType",
+    "description"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version pinned to 1."
+    },
+    "entryId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier for this ledger entry."
+    },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this entry was recorded."
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Worker task identifier."
+    },
+    "issueNumber": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "GitHub issue number this spending event targets."
+    },
+    "prNumber": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1,
+      "description": "GitHub pull request number produced by this work, if any."
+    },
+    "agentId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier of the worker or agent that incurred the spend."
+    },
+    "role": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "description": "Worker role from the task contract role packet."
+    },
+    "providerAlias": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Provider pool alias or routing identity used for this work."
+    },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "description": "Model identifier used for cost estimation or routing."
+    },
+    "eventType": {
+      "type": "string",
+      "enum": [
+        "start",
+        "checkpoint",
+        "complete",
+        "budget-warning",
+        "budget-critical"
+      ],
+      "description": "Lifecycle or budget event type."
+    },
+    "elapsedMs": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "Measured wall-clock elapsed time in milliseconds."
+    },
+    "tokenUsage": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "inputTokens",
+        "outputTokens",
+        "source",
+        "confidence"
+      ],
+      "properties": {
+        "inputTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outputTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "actual",
+            "estimated",
+            "unknown"
+          ]
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "actual",
+            "estimated",
+            "unknown"
+          ]
+        }
+      },
+      "description": "Token usage snapshot for the event."
+    },
+    "estimatedCost": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "amountCents",
+        "currency",
+        "pricingBasis"
+      ],
+      "properties": {
+        "amountCents": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "currency": {
+          "type": "string",
+          "const": "USD"
+        },
+        "pricingBasis": {
+          "type": "string",
+          "enum": [
+            "api-list",
+            "estimated",
+            "unknown"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      },
+      "description": "Estimated cost snapshot. Cost remains an estimate, not a billing fact."
+    },
+    "budget": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "limit",
+        "used",
+        "unit",
+        "state"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "token",
+            "time",
+            "cost"
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "used": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unit": {
+          "type": "string",
+          "enum": [
+            "tokens",
+            "ms",
+            "cents"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "nominal",
+            "warning",
+            "critical",
+            "exceeded"
+          ]
+        },
+        "percentUsed": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "description": "Budget snapshot associated with the event."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable description of the spending event."
+    },
+    "meta": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Arbitrary extra metadata. Must not contain secrets, tokens, or raw logs."
+    }
+  }
+}
