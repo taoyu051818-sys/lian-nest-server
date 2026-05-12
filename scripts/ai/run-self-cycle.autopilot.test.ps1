@@ -485,6 +485,75 @@ $plan = $planRaw | ConvertFrom-Json
 }
 
 # ===========================================================================
+# Scenario 16: Array normalization for issue metadata extraction (regression #1315)
+# ===========================================================================
+
+& {
+    Write-Host "--- Scenario 16: Issue metadata array normalization (regression #1315)" -ForegroundColor DarkCyan
+
+    # Simulate the regex extraction pattern from run-self-cycle.ps1 issue discovery.
+    # Under StrictMode, a pipeline that produces a single result yields a scalar,
+    # not an array. Wrapping in @() guarantees array type so .Count never throws.
+
+    # Single allowed file
+    $singleAllowedBody = "- scripts/ai/run-self-cycle.ps1"
+    $singleAllowed = @(($singleAllowedBody -split "`n") |
+        Where-Object { $_ -match '^- ' } |
+        ForEach-Object { $_ -replace '^- ', '' } |
+        Where-Object { $_ -ne '' })
+    Assert-True ($singleAllowed -is [array]) "scenario 16: single allowed file is array type"
+    Assert-True ($singleAllowed.Count -eq 1) "scenario 16: single allowed file Count is 1"
+
+    # Multiple allowed files
+    $multiAllowedBody = "- scripts/ai/run-self-cycle.ps1`n- scripts/ai/seed-and-plan-self-cycle.ps1"
+    $multiAllowed = @(($multiAllowedBody -split "`n") |
+        Where-Object { $_ -match '^- ' } |
+        ForEach-Object { $_ -replace '^- ', '' } |
+        Where-Object { $_ -ne '' })
+    Assert-True ($multiAllowed -is [array]) "scenario 16: multiple allowed files is array type"
+    Assert-True ($multiAllowed.Count -eq 2) "scenario 16: multiple allowed files Count is 2"
+
+    # Empty pipeline (no matches after filter)
+    $emptyBody = "some header text with no list items"
+    $emptyResult = @(($emptyBody -split "`n") |
+        Where-Object { $_ -match '^- ' } |
+        ForEach-Object { $_ -replace '^- ', '' } |
+        Where-Object { $_ -ne '' })
+    Assert-True ($emptyResult -is [array]) "scenario 16: empty pipeline result is array type"
+    Assert-True ($emptyResult.Count -eq 0) "scenario 16: empty pipeline result Count is 0"
+
+    # Single forbidden file
+    $singleForbidden = @(("src/**" -split "`n") |
+        Where-Object { $_ -match '^- ' } |
+        ForEach-Object { $_ -replace '^- ', '' } |
+        Where-Object { $_ -ne '' })
+    # Note: "src/**" has no "- " prefix so filter removes it → empty array
+    Assert-True ($singleForbidden.Count -eq 0) "scenario 16: non-prefixed line filtered to empty array"
+
+    # Single validation command
+    $singleValBody = "- npm run check"
+    $singleVal = @(($singleValBody -split "`n") |
+        Where-Object { $_ -match '^- ' } |
+        ForEach-Object { $_ -replace '^- ', '' } |
+        Where-Object { $_ -ne '' })
+    Assert-True ($singleVal -is [array]) "scenario 16: single validation command is array type"
+    Assert-True ($singleVal.Count -eq 1) "scenario 16: single validation command Count is 1"
+    Assert-True ($singleVal[0] -eq "npm run check") "scenario 16: single validation command value correct"
+
+    # Verify .Count does not throw under StrictMode for any of the above
+    $noErrors = $true
+    try {
+        $null = $singleAllowed.Count
+        $null = $multiAllowed.Count
+        $null = $emptyResult.Count
+        $null = $singleVal.Count
+    } catch {
+        $noErrors = $false
+    }
+    Assert-True $noErrors "scenario 16: .Count access never throws under StrictMode"
+}
+
+# ===========================================================================
 # Summary
 # ===========================================================================
 

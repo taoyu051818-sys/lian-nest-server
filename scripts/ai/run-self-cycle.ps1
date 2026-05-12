@@ -515,28 +515,28 @@ if ($IssueLabel) {
             # Extract allowed files
             $allowedMatch = [regex]::Match($body, '(?s)Allowed files:\s*\n((?:- .+\n?)+)')
             if ($allowedMatch.Success) {
-                $allowedFiles = ($allowedMatch.Groups[1].Value -split "`n") |
+                $allowedFiles = @(($allowedMatch.Groups[1].Value -split "`n") |
                     Where-Object { $_ -match '^- ' } |
                     ForEach-Object { $_ -replace '^- ', '' } |
-                    Where-Object { $_ -ne '' }
+                    Where-Object { $_ -ne '' })
             }
 
             # Extract forbidden files
             $forbiddenMatch = [regex]::Match($body, '(?s)Forbidden files:\s*\n((?:- .+\n?)+)')
             if ($forbiddenMatch.Success) {
-                $forbiddenFiles = ($forbiddenMatch.Groups[1].Value -split "`n") |
+                $forbiddenFiles = @(($forbiddenMatch.Groups[1].Value -split "`n") |
                     Where-Object { $_ -match '^- ' } |
                     ForEach-Object { $_ -replace '^- ', '' } |
-                    Where-Object { $_ -ne '' }
+                    Where-Object { $_ -ne '' })
             }
 
             # Extract validation commands
             $valMatch = [regex]::Match($body, '(?s)Validation commands:\s*\n((?:- .+\n?)+)')
             if ($valMatch.Success) {
-                $validationCommands = ($valMatch.Groups[1].Value -split "`n") |
+                $validationCommands = @(($valMatch.Groups[1].Value -split "`n") |
                     Where-Object { $_ -match '^- ' } |
                     ForEach-Object { $_ -replace '^- ', '' } |
-                    Where-Object { $_ -ne '' }
+                    Where-Object { $_ -ne '' })
             }
 
             # Extract risk level
