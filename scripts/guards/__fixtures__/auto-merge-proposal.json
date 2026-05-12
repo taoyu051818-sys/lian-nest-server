@@ -1,0 +1,16 @@
+{
+  "title": "CI pipeline optimization",
+  "description": "Enable auto-merge for all CI-passing PRs to speed up the release cycle.",
+  "type": "process",
+  "changes": [
+    {
+      "file": ".github/workflows/ci.yml",
+      "action": "modify",
+      "description": "Add auto_approve step when all checks pass"
+    }
+  ],
+  "automation": {
+    "auto_merge_on_green": true,
+    "human_approval": false
+  }
+}

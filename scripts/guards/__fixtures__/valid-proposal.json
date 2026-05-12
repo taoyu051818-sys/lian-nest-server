@@ -1,0 +1,16 @@
+{
+  "title": "Add new API endpoint for user profiles",
+  "description": "This proposal adds a GET /users/:id/profile endpoint.",
+  "type": "feature",
+  "changes": [
+    {
+      "file": "src/users/users.controller.ts",
+      "action": "add",
+      "description": "New profile endpoint with authentication guard"
+    }
+  ],
+  "humanApproval": {
+    "required": true,
+    "reviewer": "team-lead"
+  }
+}
