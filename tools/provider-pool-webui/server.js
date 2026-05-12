@@ -23,6 +23,7 @@ const QUEUE_STATE_PATH = path.join(REPO_ROOT, ".github/ai-state/webui-queue-stat
 const PLANNING_CONSOLE_PATH = path.join(REPO_ROOT, ".github/ai-state/webui-planning-console.json");
 const ACTIONS_DIR = path.join(__dirname, "actions");
 const AUDIT_PATH = path.join(__dirname, ".audit-log.json");
+const PUBLIC_DIR = path.join(__dirname, "public");
 
 // --- CLI -------------------------------------------------------------------
 
@@ -302,8 +303,17 @@ function handleRequest(req, res) {
   res.setHeader("X-Content-Type-Options", "nosniff");
 
   if (route === "/" || route === "/index.html") {
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(dashboardHtml());
+    servePublicFile(res, "index.html", "text/html; charset=utf-8");
+    return;
+  }
+
+  if (route === "/app.js") {
+    servePublicFile(res, "app.js", "application/javascript; charset=utf-8");
+    return;
+  }
+
+  if (route === "/styles.css") {
+    servePublicFile(res, "styles.css", "text/css; charset=utf-8");
     return;
   }
 
@@ -621,6 +631,22 @@ function handleRequest(req, res) {
 
   res.writeHead(404, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ error: "Not found" }));
+}
+
+function servePublicFile(res, fileName, contentType) {
+  const filePath = path.join(PUBLIC_DIR, fileName);
+  fs.readFile(filePath, "utf-8", (err, data) => {
+    if (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Failed to read public asset" }));
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": contentType,
+      "Cache-Control": "no-store",
+    });
+    res.end(data);
+  });
 }
 
 // --- Main ------------------------------------------------------------------
