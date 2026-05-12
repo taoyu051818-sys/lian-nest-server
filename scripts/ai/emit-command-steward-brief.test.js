@@ -79,7 +79,7 @@ test('dry-run: prints DRY RUN banner with valid JSON and all top-level keys', ()
   assert.ok(typeof snapshot.capturedAt === 'string');
   const keys = ['schemaVersion', 'capturedAt', 'systemStatus', 'providerSummary',
     'workerSummary', 'trustSummary', 'lockSummary', 'metaSignalsSummary',
-    'riskSignalsSummary', 'opportunitySignalsSummary', 'blockers',
+    'riskSignalsSummary', 'opportunitySignalsSummary', 'budgetSummary', 'blockers',
     'recommendedNextActions', 'humanRequiredItems', 'inputSources'];
   for (const key of keys) { assert.ok(key in snapshot, `missing key: ${key}`); }
 });
@@ -139,6 +139,26 @@ test('count sections have count or activeLocks field', () => {
   assert.strictEqual(typeof snapshot.opportunitySignalsSummary.count, 'number', 'opportunitySignalsSummary.count');
 });
 
+test('budgetSummary: has expected shape when telemetry absent', () => {
+  const { stdout } = run(['--stdout']);
+  const snapshot = JSON.parse(stdout);
+  assert.strictEqual(snapshot.budgetSummary.loaded, false, 'budgetSummary.loaded');
+  assert.strictEqual(snapshot.budgetSummary.recentWorkerCount, 0, 'recentWorkerCount');
+  assert.strictEqual(snapshot.budgetSummary.avgWallClockMs, null, 'avgWallClockMs');
+  assert.strictEqual(snapshot.budgetSummary.slowestWallClockMs, null, 'slowestWallClockMs');
+  assert.ok(typeof snapshot.budgetSummary.tokenSummary === 'object', 'tokenSummary is object');
+  assert.ok(typeof snapshot.budgetSummary.costEstimate === 'object', 'costEstimate is object');
+  assert.ok(Array.isArray(snapshot.budgetSummary.budgetBlockers), 'budgetBlockers is array');
+  // Token summary has all confidence buckets
+  for (const bucket of ['high', 'medium', 'low', 'unknown']) {
+    assert.ok(bucket in snapshot.budgetSummary.tokenSummary, `tokenSummary.${bucket}`);
+    assert.strictEqual(typeof snapshot.budgetSummary.tokenSummary[bucket].inputTokens, 'number', `${bucket}.inputTokens`);
+    assert.strictEqual(typeof snapshot.budgetSummary.tokenSummary[bucket].outputTokens, 'number', `${bucket}.outputTokens`);
+  }
+  assert.strictEqual(typeof snapshot.budgetSummary.costEstimate.totalCents, 'number', 'costEstimate.totalCents');
+  assert.strictEqual(typeof snapshot.budgetSummary.costEstimate.pricingBasis, 'string', 'costEstimate.pricingBasis');
+});
+
 // ── Blockers shape ───────────────────────────────────────────────────────────
 
 test('blockers: array with source, severity, message on each entry', () => {
@@ -184,13 +204,14 @@ test('humanRequiredItems: array with required fields and always has next-wave-sc
 
 // ── Input sources ────────────────────────────────────────────────────────────
 
-test('inputSources: has all 9 boolean flags', () => {
+test('inputSources: has all 10 boolean flags', () => {
   const { stdout } = run(['--stdout']);
   const snapshot = JSON.parse(stdout);
   const expected = [
     'healthLoaded', 'providerPoolLoaded', 'localResourceLoaded',
     'activeWorkersLoaded', 'workerTrustLoaded', 'metaSignalsLoaded',
     'riskSignalsLoaded', 'opportunitySignalsLoaded', 'launchLocksLoaded',
+    'workerTelemetryLoaded',
   ];
   for (const key of expected) {
     assert.strictEqual(typeof snapshot.inputSources[key], 'boolean', `inputSources.${key}`);
@@ -273,7 +294,7 @@ test('self-test: --self-test exits 0', () => {
 test('consistency: blockers have valid sources; human actions appear in humanRequiredItems', () => {
   const { stdout } = run(['--stdout']);
   const snapshot = JSON.parse(stdout);
-  const validSources = ['health', 'resources', 'providers', 'trust', 'meta-signals'];
+  const validSources = ['health', 'resources', 'providers', 'trust', 'meta-signals', 'budget'];
   for (const b of snapshot.blockers) {
     assert.ok(validSources.includes(b.source), `valid source: ${b.source}`);
   }
