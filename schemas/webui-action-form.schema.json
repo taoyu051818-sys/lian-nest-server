@@ -1,0 +1,218 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/webui-action-form.schema.json",
+  "title": "WebUIActionFormDescriptor",
+  "description": "Schema for a WebUI action form descriptor. Describes the form fields, risk classification, confirmation requirements, and preview/execute labels for a single action rendered in the operation console. Derived from the action registry by action-form-schema.js. See docs/ai-native/webui-action-form-schema.md and docs/ai-native/webui-action-form-contract.md.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "actionId",
+    "title",
+    "description",
+    "category",
+    "risk",
+    "riskBadge",
+    "privileged",
+    "readOnly",
+    "defaultPreview",
+    "fields",
+    "hasConfirmMessage",
+    "submitLabel",
+    "previewLabel"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1."
+    },
+    "actionId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9._-]+$",
+      "description": "Dot-delimited action identifier (e.g. 'provider.cooldown.reset', 'launch-batch')."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Human-readable action name shown as the form heading."
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "One-line purpose of this action, shown below the title."
+    },
+    "category": {
+      "type": "string",
+      "enum": ["view", "provider", "worker", "resources", "queue", "settings"],
+      "description": "Action category used for grouping in the UI."
+    },
+    "risk": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"],
+      "description": "Risk classification. Controls confirmation escalation: low = single click, medium = dialog, high = dialog with preview, critical = typed phrase + reason."
+    },
+    "riskBadge": {
+      "$ref": "#/definitions/riskBadge"
+    },
+    "privileged": {
+      "type": "boolean",
+      "description": "When true, the action requires elevated privileges. Submit label becomes 'Execute (Privileged)'."
+    },
+    "readOnly": {
+      "type": "boolean",
+      "description": "When true, the action is read-only with no side effects. Submit label becomes 'View' and preview is not required."
+    },
+    "defaultPreview": {
+      "type": "boolean",
+      "description": "When true, the form defaults to preview mode before execute. True for all mutating actions."
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/fieldDescriptor"
+      },
+      "description": "Ordered list of form field descriptors. Each field maps to a parameter the action requires."
+    },
+    "hasConfirmMessage": {
+      "type": "boolean",
+      "description": "When true, the action has a confirmation message shown before execute."
+    },
+    "confirmPhrase": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Exact phrase the operator must type to confirm execution (e.g. 'LAUNCH', 'MERGE'). Present for high-risk and critical actions."
+    },
+    "docsUrl": {
+      "type": "string",
+      "format": "uri",
+      "description": "Link to relevant documentation for this action (e.g. a governance doc or operation runbook)."
+    },
+    "riskHint": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Human-readable hint explaining the risk or consequences of this action, shown in the confirmation warning banner."
+    },
+    "submitLabel": {
+      "type": "string",
+      "enum": ["View", "Execute", "Execute (Privileged)"],
+      "description": "Label for the primary submit button."
+    },
+    "previewLabel": {
+      "type": "string",
+      "const": "Preview",
+      "description": "Label for the preview button. Always 'Preview'."
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "riskBadge": {
+      "type": "object",
+      "description": "Visual risk badge metadata for rendering in the UI.",
+      "required": ["level", "color", "label", "cssClass"],
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"],
+          "description": "Risk level identifier."
+        },
+        "color": {
+          "type": "string",
+          "enum": ["green", "yellow", "orange", "red"],
+          "description": "Badge display color."
+        },
+        "label": {
+          "type": "string",
+          "enum": ["Low Risk", "Medium Risk", "High Risk", "Critical Risk"],
+          "description": "Human-readable badge label."
+        },
+        "cssClass": {
+          "type": "string",
+          "enum": ["risk-low", "risk-medium", "risk-high", "risk-critical"],
+          "description": "CSS class for badge styling."
+        }
+      },
+      "additionalProperties": false
+    },
+    "fieldDescriptor": {
+      "type": "object",
+      "description": "Descriptor for a single form field. Maps to a parameter the action requires.",
+      "required": ["name", "type", "label", "required"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-zA-Z][a-zA-Z0-9]*$",
+          "description": "Parameter key (e.g. 'providerId', 'workerId')."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["text", "number", "select", "textarea", "object"],
+          "description": "Field input type."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable label for the field."
+        },
+        "placeholder": {
+          "type": "string",
+          "description": "Example or hint text shown in the input."
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether the field must be filled before submit. Always true for action form fields."
+        },
+        "autocomplete": {
+          "type": "string",
+          "enum": ["provider", "worker", "off"],
+          "description": "Autocomplete source hint for the input."
+        },
+        "min": {
+          "type": "number",
+          "description": "Minimum value for number fields."
+        },
+        "step": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Step increment for number fields."
+        },
+        "helpText": {
+          "type": "string",
+          "description": "Supplementary help text shown below the field."
+        },
+        "hint": {
+          "type": "string",
+          "description": "Short hint shown inline or as a tooltip."
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "required": ["value", "label"],
+                "properties": {
+                  "value": { "type": "string" },
+                  "label": { "type": "string" }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "description": "Options for select fields. Each item is either a string or a {value, label} object."
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/fieldDescriptor"
+          },
+          "description": "Nested field descriptors for object-type fields."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
