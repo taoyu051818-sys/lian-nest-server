@@ -348,6 +348,10 @@ Actor role: automation-cycle-worker
 
 When these fields are absent, the runner uses safe defaults and logs a warning.
 
+Each list section (`Allowed files`, `Forbidden files`, `Validation commands`) is
+parsed as a bounded block — the regex matches only `- ` prefixed lines until the
+next section header. This prevents cross-contamination between sections.
+
 ## Plan-First Workflow
 
 The `-PlanFirst` flag connects the self-cycle runner to `plan-next-batch.ps1` for a dry-run proposal before any task compilation or pipeline execution.
