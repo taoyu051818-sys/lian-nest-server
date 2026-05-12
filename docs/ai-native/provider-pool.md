@@ -186,6 +186,26 @@ provider-pool.json: all providers exhausted → gate blocks → batch delayed
 provider-pool.json: 1 provider available   → gate passes → batch dispatched
 ```
 
+### Current Controlled Rehearsal Capacity
+
+For the current local self-cycle rehearsal, `provider-default` is projected
+with `maxConcurrency: 30`, and `globalMaxWorkers` is also 30. This does not
+store or expose credentials; it only lets the launch gate schedule up to the
+validated local operating target when resource, conflict, risk, review, and
+merge gates also allow it.
+
+The effective worker count can still be lower than 30 when:
+
+- local resource state is stale, constrained, or critical;
+- active workers already consume provider capacity;
+- tasks share a `conflictGroup` or `sharedLocks`;
+- risk policy serializes a task;
+- review or merge capacity is saturated.
+
+Do not raise this value to bypass provider exhaustion. If Claude Code reports
+quota or rate-limit failures, mark the provider exhausted and let the launcher
+fail closed.
+
 ### Worker Telemetry
 
 Workers record provider metadata in `worker-telemetry.ndjson`:

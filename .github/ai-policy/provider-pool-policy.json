@@ -9,13 +9,13 @@
       "source": "local-claude-settings",
       "sourcePath": "C:\\Users\\LENOVO\\.claude (local-only, never committed)",
       "capabilities": ["claude-code", "print-mode", "batch-mode"],
-      "maxConcurrency": 1,
-      "notes": "The original single-provider setup. Treated as the baseline."
+      "maxConcurrency": 30,
+      "notes": "Local Claude Code credential capacity for the current controlled self-cycle rehearsal. Secrets remain local; this value only declares scheduling capacity."
     }
   ],
 
   "concurrency": {
-    "globalMaxWorkers": 3,
+    "globalMaxWorkers": 30,
     "providerSelectionStrategy": "least-loaded",
     "fallbackStrategy": "fail-closed",
     "notes": "Global cap is the hard ceiling. Per-provider maxConcurrency is the soft cap. When all providers are exhausted or at capacity, new worker launches are blocked (fail-closed)."
