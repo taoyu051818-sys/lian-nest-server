@@ -1,0 +1,337 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/constitution-check-result.schema.json",
+  "title": "ConstitutionCheckResult",
+  "description": "Structured output from a Constitution Steward audit. Captures evaluation of prompts, policies, schemas, docs, and workflows against the three constitutional laws: Reality, Selection, and Governed Recursion. The steward may propose amendments but cannot self-approve constitutional changes — human review is always required for amendment acceptance. See docs/ai-native/seed-constitution.md for the authoritative constitution and docs/ai-native/constitution-guard.md for the guard that validates constitution integrity.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "checkId",
+    "checkType",
+    "decision",
+    "capturedAt",
+    "lawsEvaluated",
+    "checks"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1."
+    },
+    "checkId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9._-]+$",
+      "description": "Machine-readable idempotency marker for this check run (e.g. constitution-audit-wave32, constitution-guard-pre-merge)."
+    },
+    "checkType": {
+      "type": "string",
+      "enum": [
+        "full-audit",
+        "targeted-audit",
+        "pre-merge",
+        "pre-launch",
+        "amendment-review"
+      ],
+      "description": "Type of constitution check. full-audit = comprehensive review, targeted-audit = scoped to specific files or policies, pre-merge = before PR merge, pre-launch = before worker dispatch, amendment-review = evaluating a proposed amendment."
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "warn",
+        "block"
+      ],
+      "description": "Check outcome. pass = all laws satisfied. warn = advisory findings, no hard violations. block = constitutional violation found, action must not proceed without resolution."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when the constitution check completed."
+    },
+    "targetScope": {
+      "type": "object",
+      "description": "Optional scope constraint for targeted audits.",
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Specific files evaluated in this check."
+        },
+        "policies": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Specific policy documents evaluated."
+        },
+        "taskIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Task contract IDs evaluated."
+        }
+      },
+      "additionalProperties": false
+    },
+    "lawsEvaluated": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "reality",
+          "selection",
+          "governed-recursion"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Constitutional laws evaluated in this check. reality = does it match the real state? selection = is it the right choice? governed-recursion = does it follow recursion boundaries?"
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "law",
+          "pass"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Machine-readable check name (e.g. seed-constitution-present, no-scope-expansion, human-boundary-respected)."
+          },
+          "law": {
+            "type": "string",
+            "enum": [
+              "reality",
+              "selection",
+              "governed-recursion"
+            ],
+            "description": "Which constitutional law this check evaluates."
+          },
+          "pass": {
+            "type": "boolean",
+            "description": "Whether this individual check passed."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable explanation of the check outcome."
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "source",
+                "summary"
+              ],
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Path or URL to the evidence source."
+                },
+                "summary": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "One-line summary of what was found."
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Evidence sources consulted for this check."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Individual constitution checks performed."
+    },
+    "violations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "law",
+          "severity",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Machine-readable violation code (e.g. SCOPE_EXPANSION, HUMAN_BOUNDARY_BREACH, SELF_APPROVAL_ATTEMPT)."
+          },
+          "law": {
+            "type": "string",
+            "enum": [
+              "reality",
+              "selection",
+              "governed-recursion"
+            ],
+            "description": "Which constitutional law was violated."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "error",
+              "critical"
+            ],
+            "description": "Violation severity. error = blocks action. critical = security or governance breach requiring immediate human attention."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable explanation of the violation."
+          },
+          "file": {
+            "type": ["string", "null"],
+            "description": "File path where the violation was found, if applicable."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Hard constitutional violations that block the action."
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "law",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Machine-readable warning code."
+          },
+          "law": {
+            "type": "string",
+            "enum": [
+              "reality",
+              "selection",
+              "governed-recursion"
+            ],
+            "description": "Which constitutional law the warning relates to."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable explanation of the warning."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Advisory findings that do not block the action."
+    },
+    "proposedAmendments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "amendmentId",
+          "targetFile",
+          "description",
+          "status"
+        ],
+        "properties": {
+          "amendmentId": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9._-]+$",
+            "description": "Unique identifier for this proposed amendment."
+          },
+          "targetFile": {
+            "type": "string",
+            "minLength": 1,
+            "description": "File that would be modified if the amendment is accepted."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Description of the proposed change and why it is needed."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "proposed",
+              "accepted",
+              "rejected",
+              "superseded"
+            ],
+            "description": "Amendment status. proposed = awaiting human review. accepted = human approved. rejected = human declined. superseded = replaced by a newer amendment."
+          },
+          "justification": {
+            "type": "string",
+            "description": "Why this amendment is needed, referencing the specific violation or gap."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Amendments proposed by the steward. The steward may propose but NEVER self-approve — all amendments require human review."
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "totalChecks",
+        "passedChecks",
+        "failedChecks",
+        "violationCount",
+        "warningCount",
+        "amendmentCount"
+      ],
+      "properties": {
+        "totalChecks": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of individual checks performed."
+        },
+        "passedChecks": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of checks that passed."
+        },
+        "failedChecks": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of checks that failed."
+        },
+        "violationCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of hard constitutional violations."
+        },
+        "warningCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of advisory warnings."
+        },
+        "amendmentCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of proposed amendments."
+        },
+        "humanReviewRequired": {
+          "type": "boolean",
+          "description": "True if any amendments are proposed or any critical violations exist. Always true when amendments are present — the steward cannot self-approve."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
