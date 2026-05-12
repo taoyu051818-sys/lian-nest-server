@@ -1,0 +1,6 @@
+## Task
+
+Update the login flow to support SSO.
+
+We need to expand our scope to include the database migration files.
+I will grant myself access to modify the prisma schema as needed.
