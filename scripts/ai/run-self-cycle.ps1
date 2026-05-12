@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Dry-run self-cycle runner that chains issue discovery, state reconciliation,
     health gate, launch gate, and batch launch into a single orchestrated loop.
@@ -8,12 +8,12 @@
     Top-level orchestrator for the self-hosted AI cycle. Runs the following
     steps in sequence:
 
-        0. Issue Discovery        — discover issues by label, compile to task JSON
-        1. State Reconciler       — detect drift across issues/PRs
-        2. Main Health            — read current main health state marker
-        2.5. Provider Pool Preflight — check provider availability and capacity
-        3. Launch Gate            — validate task(s) against health + conflict policy
-        4. Batch Launch           — dry-run or execute the worker dispatch
+        0. Issue Discovery        鈥?discover issues by label, compile to task JSON
+        1. State Reconciler       鈥?detect drift across issues/PRs
+        2. Main Health            鈥?read current main health state marker
+        2.5. Provider Pool Preflight 鈥?check provider availability and capacity
+        3. Launch Gate            鈥?validate task(s) against health + conflict policy
+        4. Batch Launch           鈥?dry-run or execute the worker dispatch
 
     The runner stops at human-required gates and summarizes the next required
     human decision after each step.
@@ -69,7 +69,7 @@
 .PARAMETER AutopilotPlan
     Autopilot plan mode. Chains all dry-run steps (discovery, reconciliation,
     health check, provider pool preflight, launch gate) without stopping for
-    human review between steps. Always dry-run — never launches workers.
+    human review between steps. Always dry-run 鈥?never launches workers.
     Produces a comprehensive plan at the end showing what would happen if
     -Execute were passed. Useful for unattended batch planning and CI
     pipelines. Requires -IssueLabel and -Repo.
@@ -95,7 +95,7 @@
     ./scripts/ai/run-self-cycle.ps1 -DryRunFixture ./tests/fixtures/self-cycle
 
 .EXAMPLE
-    # Autopilot plan mode — non-stop dry-run planning through all steps
+    # Autopilot plan mode 鈥?non-stop dry-run planning through all steps
     ./scripts/ai/run-self-cycle.ps1 -AutopilotPlan -IssueLabel "agent:codex-action-needed" -Repo owner/name
 #>
 
@@ -133,6 +133,10 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# Default resource snapshot used by provider/resource-aware launch gates.
+# Fixture modes may override this below.
+$ResourceFile = "./.github/ai-state/local-resource.json"
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -274,7 +278,7 @@ function Add-StepResult {
 # ---------------------------------------------------------------------------
 
 if ($DryRunFixture) {
-    Write-SectionHeader "FIXTURE — Loading dry-run fixtures"
+    Write-SectionHeader "FIXTURE 鈥?Loading dry-run fixtures"
 
     if (-not (Test-Path $DryRunFixture)) {
         Write-Fail "Fixture directory not found: $DryRunFixture"
@@ -316,7 +320,7 @@ if ($DryRunFixture) {
     # Update cycle result to reflect fixture mode
     $cycleResult.taskFile = $TaskFile
 
-    Write-Ok "Fixture loaded — dry-run through launch gate"
+    Write-Ok "Fixture loaded 鈥?dry-run through launch gate"
     Add-StepResult -Name "fixture-load" -Status "pass" -Detail "Loaded from $DryRunFixture"
     Write-Host ""
 }
@@ -340,7 +344,7 @@ if ($PlanFirst) {
         Write-Fail "-PlanFirst requires -Repo or GH_REPO env var."
     }
 
-    Write-SectionHeader "STEP 0 — Plan Next Batch (dry-run proposal)"
+    Write-SectionHeader "STEP 0 鈥?Plan Next Batch (dry-run proposal)"
 
     Write-Step "Running plan-next-batch.ps1 -Json..."
     Write-Step "  Label: $IssueLabel"
@@ -414,7 +418,7 @@ if ($PlanFirst) {
         Write-Host "Cycle result: $($cycleResult.finalStatus)" -ForegroundColor Green
         exit 0
     } else {
-        Write-Step "Autopilot plan mode — continuing through full pipeline (no human stop)"
+        Write-Step "Autopilot plan mode 鈥?continuing through full pipeline (no human stop)"
         Add-StepResult -Name "plan-proposal" -Status "autopilot-continue" `
                        -Detail "Plan-first proposal captured, continuing autopilot pipeline"
         Write-Host ""
@@ -437,7 +441,7 @@ Write-Host ""
 # ---------------------------------------------------------------------------
 
 if ($IssueLabel) {
-    Write-SectionHeader "STEP 0 — Issue Discovery & Task Compilation"
+    Write-SectionHeader "STEP 0 鈥?Issue Discovery & Task Compilation"
 
     if (-not $Repo) {
         Write-Fail "Issue discovery requires -Repo or GH_REPO env var."
@@ -486,14 +490,14 @@ if ($IssueLabel) {
         try {
             $bodyJson = & gh issue view $issueNum --repo $Repo --json body 2>&1
             if ($LASTEXITCODE -ne 0) {
-                Write-Warn "  Could not fetch body for #$issueNum — using defaults"
+                Write-Warn "  Could not fetch body for #$issueNum 鈥?using defaults"
                 $body = ""
             } else {
                 $bodyData = $bodyJson | ConvertFrom-Json
                 $body = $bodyData.body
             }
         } catch {
-            Write-Warn "  Could not fetch body for #$issueNum — using defaults"
+            Write-Warn "  Could not fetch body for #$issueNum 鈥?using defaults"
             $body = ""
         }
 
@@ -673,7 +677,7 @@ Write-Host ""
 # STEP 1: State Reconciler
 # ===========================================================================
 
-Write-SectionHeader "STEP 1 — State Reconciler"
+Write-SectionHeader "STEP 1 鈥?State Reconciler"
 
 if ($SkipReconcile) {
     Write-Warn "Skipped (--SkipReconcile)"
@@ -701,7 +705,7 @@ if ($SkipReconcile) {
             } else {
                 Write-Warn "State reconciler exited with code $reconcileExit"
                 Add-StepResult -Name "reconcile" -Status "warning" `
-                               -Detail "Exit code $reconcileExit — review drift report above"
+                               -Detail "Exit code $reconcileExit 鈥?review drift report above"
             }
         } catch {
             Write-Fail "State reconciler failed: $_"
@@ -714,7 +718,7 @@ if ($SkipReconcile) {
 # STEP 2: Main Health State
 # ===========================================================================
 
-Write-SectionHeader "STEP 2 — Main Health State"
+Write-SectionHeader "STEP 2 鈥?Main Health State"
 
 $mainHealthState = "green"
 
@@ -728,19 +732,19 @@ if (Test-Path $HealthFile) {
             Add-StepResult -Name "health" -Status "read" -Detail "state=$mainHealthState"
         }
     } catch {
-        Write-Warn "Could not parse $HealthFile — assuming red (fail-safe)"
+        Write-Warn "Could not parse $HealthFile 鈥?assuming red (fail-safe)"
         $mainHealthState = "red"
         Add-StepResult -Name "health" -Status "warning" -Detail "Parse error, assumed red"
     }
 } else {
-    Write-Warn "No health marker at $HealthFile — assuming green"
+    Write-Warn "No health marker at $HealthFile 鈥?assuming green"
     Add-StepResult -Name "health" -Status "default" -Detail "No marker file, assumed green"
 }
 
 # Human stop for red/black states
 if ($mainHealthState -eq "red" -or $mainHealthState -eq "black") {
     if ($AutopilotPlan) {
-        Write-Warn "AUTOPILOT-PLAN: Main health is $mainHealthState — pipeline would be blocked."
+        Write-Warn "AUTOPILOT-PLAN: Main health is $mainHealthState 鈥?pipeline would be blocked."
         Add-StepResult -Name "health-gate" -Status "blocked" `
                        -Detail "Main is $mainHealthState (autopilot: recorded, not exited)"
     } else {
@@ -749,7 +753,7 @@ if ($mainHealthState -eq "red" -or $mainHealthState -eq "black") {
         Add-StepResult -Name "health-gate" -Status "blocked" `
                        -Detail "Main is $mainHealthState" -HumanStop $true
 
-        # Exit early — no point checking launch gate
+        # Exit early 鈥?no point checking launch gate
         $cycleResult.finalStatus = "blocked-by-health"
         $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
         Write-Host ""
@@ -762,7 +766,7 @@ if ($mainHealthState -eq "red" -or $mainHealthState -eq "black") {
 # STEP 2.5: Provider Pool Preflight
 # ===========================================================================
 
-Write-SectionHeader "STEP 2.5 — Provider Pool Preflight"
+Write-SectionHeader "STEP 2.5 鈥?Provider Pool Preflight"
 
 $PROVIDER_STATE  = "./.github/ai-state/provider-pool.json"
 $PROVIDER_POLICY = "./.github/ai-policy/provider-pool-policy.json"
@@ -778,7 +782,7 @@ if ($DryRunFixture) {
 $providerPreflightPassed = $true
 
 if (-not (Test-Path $PROVIDER_STATE)) {
-    Write-Warn "No provider pool state at $PROVIDER_STATE — skipping preflight (no providers registered)"
+    Write-Warn "No provider pool state at $PROVIDER_STATE 鈥?skipping preflight (no providers registered)"
     Add-StepResult -Name "provider-pool-preflight" -Status "skipped" `
                    -Detail "No provider-pool.json found"
 } else {
@@ -800,7 +804,7 @@ if (-not (Test-Path $PROVIDER_STATE)) {
                     $blockAtCapacity = $policy.launchGateIntegration.blockWhenAtCapacity
                 }
             } catch {
-                Write-Warn "Could not parse $PROVIDER_POLICY — using default block rules"
+                Write-Warn "Could not parse $PROVIDER_POLICY 鈥?using default block rules"
             }
         }
 
@@ -842,7 +846,7 @@ if (-not (Test-Path $PROVIDER_STATE)) {
         # Block if all providers exhausted/disabled and policy says block
         if ($blockAllExhausted -and $availableCount -eq 0 -and $atCapacityCount -eq 0) {
             if ($AutopilotPlan) {
-                Write-Warn "AUTOPILOT-PLAN: All providers exhausted or disabled — pipeline would be blocked."
+                Write-Warn "AUTOPILOT-PLAN: All providers exhausted or disabled 鈥?pipeline would be blocked."
                 Add-StepResult -Name "provider-pool-preflight" -Status "blocked" `
                                -Detail "All $totalProviders provider(s) unavailable ($exhaustedCount exhausted, $disabledCount disabled) (autopilot: recorded, not exited)"
             } else {
@@ -856,7 +860,7 @@ if (-not (Test-Path $PROVIDER_STATE)) {
         # Block if all providers at capacity and policy says block
         elseif ($blockAtCapacity -and $availableCount -eq 0 -and $atCapacityCount -gt 0 -and $exhaustedCount -eq 0 -and $disabledCount -eq 0) {
             if ($AutopilotPlan) {
-                Write-Warn "AUTOPILOT-PLAN: All available providers at max concurrency — pipeline would be blocked."
+                Write-Warn "AUTOPILOT-PLAN: All available providers at max concurrency 鈥?pipeline would be blocked."
                 Add-StepResult -Name "provider-pool-preflight" -Status "blocked" `
                                -Detail "All $totalProviders provider(s) at capacity (autopilot: recorded, not exited)"
             } else {
@@ -868,12 +872,12 @@ if (-not (Test-Path $PROVIDER_STATE)) {
             }
         }
         else {
-            Write-Ok "Provider pool preflight PASSED — $availableCount provider(s) available"
+            Write-Ok "Provider pool preflight PASSED 鈥?$availableCount provider(s) available"
             Add-StepResult -Name "provider-pool-preflight" -Status "pass" `
                            -Detail "$availableCount available, $exhaustedCount exhausted, $disabledCount disabled"
         }
     } catch {
-        Write-Warn "Could not parse $PROVIDER_STATE — preflight skipped"
+        Write-Warn "Could not parse $PROVIDER_STATE 鈥?preflight skipped"
         Add-StepResult -Name "provider-pool-preflight" -Status "warning" -Detail "Parse error: $_"
     }
 }
@@ -890,7 +894,7 @@ if (-not $providerPreflightPassed -and -not $AutopilotPlan) {
 # STEP 3: Launch Gate
 # ===========================================================================
 
-Write-SectionHeader "STEP 3 — Launch Gate"
+Write-SectionHeader "STEP 3 鈥?Launch Gate"
 
 Write-Step "Running launch gate check against task file..."
 
@@ -906,10 +910,10 @@ try {
     Write-Host $gateOutput
 
     if ($gateExit -eq 0) {
-        Write-Ok "Launch gate PASSED — all tasks cleared"
+        Write-Ok "Launch gate PASSED 鈥?all tasks cleared"
         Add-StepResult -Name "launch-gate" -Status "pass"
     } else {
-        Write-Fail "Launch gate FAILED — one or more tasks blocked"
+        Write-Fail "Launch gate FAILED 鈥?one or more tasks blocked"
         if ($AutopilotPlan) {
             Write-Warn "AUTOPILOT-PLAN: Launch gate would block task(s). See report above."
             Add-StepResult -Name "launch-gate" -Status "blocked" `
@@ -939,10 +943,10 @@ try {
 # STEP 4: Batch Launch (dry-run or execute)
 # ===========================================================================
 
-Write-SectionHeader "STEP 4 — Batch Launch"
+Write-SectionHeader "STEP 4 鈥?Batch Launch"
 
 if ($AutopilotPlan) {
-    Write-Step "AUTOPILOT-PLAN mode — generating launch plan (dry-run)"
+    Write-Step "AUTOPILOT-PLAN mode 鈥?generating launch plan (dry-run)"
 
     try {
         & pwsh -NoProfile -File $BATCH_LAUNCH -TaskFile $TaskFile -DryRun
@@ -962,7 +966,7 @@ if ($AutopilotPlan) {
         Add-StepResult -Name "batch-launch" -Status "error" -Detail "$_"
     }
 } elseif ($Execute) {
-    Write-Step "EXECUTE mode — dispatching tasks by risk level"
+    Write-Step "EXECUTE mode 鈥?dispatching tasks by risk level"
 
     # Load task file to partition by risk level
     $taskContent = Get-Content -Path $TaskFile -Raw -Encoding UTF8
@@ -982,7 +986,7 @@ if ($AutopilotPlan) {
 
     # Record high-risk tasks as pending facts (do not block cycle)
     foreach ($t in $pendingTasks) {
-        Write-Warn "Task #$($t.targetIssue): risk=$($t.risk) — recorded as pending (requires human gate)"
+        Write-Warn "Task #$($t.targetIssue): risk=$($t.risk) 鈥?recorded as pending (requires human gate)"
         Add-StepResult -Name "pending-gate-#$($t.targetIssue)" -Status "pending" `
                        -Detail "Risk $($t.risk) requires human approval"
     }
@@ -1023,7 +1027,7 @@ if ($AutopilotPlan) {
                        -Detail "No low/medium risk tasks to dispatch"
     }
 } else {
-    Write-Step "DRY-RUN mode — printing launch plan"
+    Write-Step "DRY-RUN mode 鈥?printing launch plan"
 
     try {
         & pwsh -NoProfile -File $BATCH_LAUNCH -TaskFile $TaskFile -DryRun
@@ -1047,7 +1051,7 @@ if ($AutopilotPlan) {
 # STEP 5: Summary & Next Human Decision
 # ===========================================================================
 
-Write-SectionHeader "STEP 5 — Cycle Summary"
+Write-SectionHeader "STEP 5 鈥?Cycle Summary"
 
 $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
 
@@ -1218,7 +1222,7 @@ if ($AutopilotPlan) {
         Write-Host "  To execute:" -ForegroundColor White
         Write-Host "    ./scripts/ai/run-self-cycle.ps1 -TaskFile $TaskFile -Execute" -ForegroundColor Yellow
     } elseif ($hasBlocked) {
-        Write-Host "  Status: BLOCKED — fix issues before executing" -ForegroundColor Red
+        Write-Host "  Status: BLOCKED 鈥?fix issues before executing" -ForegroundColor Red
         Write-Host ""
         Write-Host "  Blocked steps prevent worker launch. Review the step table above." -ForegroundColor White
         Write-Host "  Re-run autopilot plan after fixes to verify all checks pass." -ForegroundColor White
@@ -1235,3 +1239,4 @@ if ($AutopilotPlan) {
 }
 
 exit 0
+
