@@ -137,6 +137,7 @@ $ErrorActionPreference = "Stop"
 # Default resource snapshot used by provider/resource-aware launch gates.
 # Fixture modes may override this below.
 $ResourceFile = "./.github/ai-state/local-resource.json"
+$DryRunExecuteFlag = $false
 
 # ---------------------------------------------------------------------------
 # Constants
