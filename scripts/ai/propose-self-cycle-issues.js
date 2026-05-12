@@ -319,6 +319,16 @@ function makeCandidate(overrides) {
     evidence: '',
     rollbackFollowUp: '',
     humanRequired: false,
+    classification: 'issue-worthy',
+    reasoning: {
+      factsObserved: '',
+      relevantPattern: '',
+      whyThisAction: '',
+      riskIfManual: '',
+      riskIfOverTooled: '',
+      seedBoundary: 'automation-scope',
+      selfBootstrapNecessary: true,
+    },
     ...overrides,
   };
 }
@@ -336,6 +346,16 @@ function generateResourceSamplerFreshnessCandidates(facts) {
       rollbackFollowUp: 'If the sampler script fails, revert the state file and flag for human review. Follow up by checking that resource pressure detection re-enables.',
       macroGoal: 'resource-sampler-freshness',
       readinessNote: 'No local-resource.json found. Create or refresh the resource sampler.',
+      classification: 'issue-worthy',
+      reasoning: {
+        factsObserved: 'local-resource.json does not exist on disk.',
+        relevantPattern: 'Health-check systems require a liveness probe file to detect resource pressure (standard observability pattern).',
+        whyThisAction: 'The sampler script is a well-defined, bounded task. Agent judgment is sufficient to write a state file from system metrics.',
+        riskIfManual: 'Resource pressure detection remains blind; over-scheduling could crash the machine.',
+        riskIfOverTooled: 'A full monitoring pipeline for a single dev machine adds unnecessary maintenance cost.',
+        seedBoundary: 'automation-scope',
+        selfBootstrapNecessary: true,
+      },
     })];
   }
 
@@ -344,6 +364,9 @@ function generateResourceSamplerFreshnessCandidates(facts) {
   const stale = capturedAt && (Date.now() - new Date(capturedAt).getTime()) > STALE_THRESHOLD_MS;
 
   if (allNull || stale) {
+    const reason = allNull
+      ? 'cpu.cores and memory.totalGB are all null — no real data collected'
+      : `capturedAt is ${capturedAt}, exceeding the ${STALE_THRESHOLD_MS / 1000}s TTL`;
     return [makeCandidate({
       title: 'Refresh resource sampler state for local machine',
       conflictGroup: 'resource-sampler',
@@ -358,6 +381,16 @@ function generateResourceSamplerFreshnessCandidates(facts) {
       rollbackFollowUp: 'If the sampler cannot collect data (e.g., missing system permissions), revert to the previous state file and escalate. Follow up by verifying resourceState transitions to "healthy".',
       macroGoal: 'resource-sampler-freshness',
       readinessNote: 'Resource sampler data is stale or empty.',
+      classification: 'issue-worthy',
+      reasoning: {
+        factsObserved: `local-resource.json exists but ${reason}.`,
+        relevantPattern: 'TTL-based staleness detection is standard for health probes (Kubernetes liveness probes, Consul health checks).',
+        whyThisAction: 'Refreshing a state file from system APIs is a bounded, verifiable task. Agent judgment is sufficient.',
+        riskIfManual: 'Stale resource data leads to incorrect scheduling decisions — either over-provisioning or under-provisioning workers.',
+        riskIfOverTooled: 'Building a persistent resource monitoring service for a single machine is disproportionate.',
+        seedBoundary: 'automation-scope',
+        selfBootstrapNecessary: true,
+      },
     })];
   }
 
@@ -372,16 +405,27 @@ function generateProviderCapacityCandidates(facts) {
   const available = pp.global ? pp.global.availableProviders || 0 : 0;
 
   if (available < totalMax) {
+    const gap = totalMax - available;
     return [makeCandidate({
       title: 'Expand provider pool capacity projection',
       conflictGroup: 'provider-pool-capacity',
       risk: 'medium',
       allowedFiles: ['scripts/ai/**', 'docs/ai-native/**', '.github/ai-state/*.example.json'],
       rationale: `Provider pool has ${available} available slot(s) but globalMaxWorkers is ${totalMax}. Capacity projection should account for scaling.`,
-      evidence: `provider-pool.json shows availableProviders=${available} but globalMaxWorkers=${totalMax}. Gap of ${totalMax - available} slot(s) not projected.`,
+      evidence: `provider-pool.json shows availableProviders=${available} but globalMaxWorkers=${totalMax}. Gap of ${gap} slot(s) not projected.`,
       rollbackFollowUp: 'If capacity projection changes cause over-scheduling, revert the projection doc and reduce globalMaxWorkers. Follow up by re-running a dry-run cycle to verify slot allocation.',
       macroGoal: 'provider-pool-capacity-projection',
       readinessNote: `Available providers (${available}) < globalMaxWorkers (${totalMax}).`,
+      classification: 'issue-worthy',
+      reasoning: {
+        factsObserved: `provider-pool.json shows ${available} available vs ${totalMax} max — a gap of ${gap} slot(s).`,
+        relevantPattern: 'Capacity planning in autoscaling systems (Kubernetes HPA, AWS ASG) requires projections to match configured limits.',
+        whyThisAction: 'Updating a projection doc is a bounded documentation task. Agent judgment is sufficient to align projections with current pool state.',
+        riskIfManual: 'Undersized projections cause worker starvation; oversized projections cause resource contention.',
+        riskIfOverTooled: 'Building a dynamic capacity planner for a small fixed pool adds complexity without proportional value.',
+        seedBoundary: 'automation-scope',
+        selfBootstrapNecessary: true,
+      },
     })];
   }
 
@@ -400,6 +444,16 @@ function generateTaskBoardCandidates(facts) {
       rollbackFollowUp: 'If seeding produces incorrect task entries, delete task-board.json and re-seed from the corrected issue list. Follow up by verifying the task board matches open labeled issues.',
       macroGoal: 'task-board-completeness',
       readinessNote: 'No task-board.json found.',
+      classification: 'issue-worthy',
+      reasoning: {
+        factsObserved: 'task-board.json does not exist on disk.',
+        relevantPattern: 'Task boards are standard in project management (Kanban, GitHub Projects) for tracking work-in-progress.',
+        whyThisAction: 'Seeding from open labeled issues is a bounded, verifiable transformation. Agent judgment is sufficient.',
+        riskIfManual: 'Without a task board, the self-cycle cannot detect task conflicts or track progress.',
+        riskIfOverTooled: 'A persistent task board sync service is unnecessary when the board changes infrequently.',
+        seedBoundary: 'automation-scope',
+        selfBootstrapNecessary: true,
+      },
     })];
   }
 
@@ -416,6 +470,16 @@ function generateTaskBoardCandidates(facts) {
       rollbackFollowUp: 'If backfilled conflictGroups cause dispatch collisions, revert task-board.json to the pre-backfill snapshot. Follow up by verifying no two tasks share a conflictGroup.',
       macroGoal: 'task-board-completeness',
       readinessNote: `${noConflict.length} tasks missing conflictGroup.`,
+      classification: 'issue-worthy',
+      reasoning: {
+        factsObserved: `${noConflict.length} task(s) in task-board.json lack conflictGroup: ${noConflict.map(t => t.title || t.id || '?').slice(0, 3).join(', ')}.`,
+        relevantPattern: 'Conflict-safe parallel dispatch requires each task to declare its conflict surface (similar to database row-level locking).',
+        whyThisAction: 'Backfilling conflictGroup is a bounded data enrichment task. Agent judgment can infer groups from task titles and file scopes.',
+        riskIfManual: 'Missing conflictGroups cause concurrent workers to collide on shared files, producing merge conflicts.',
+        riskIfOverTooled: 'A conflict-group inference engine is unnecessary when the mapping is straightforward.',
+        seedBoundary: 'automation-scope',
+        selfBootstrapNecessary: true,
+      },
     })];
   }
 
@@ -430,16 +494,27 @@ function generateCommandStewardRecoveryCandidates(facts) {
   const dutyEntries = Object.entries(lr.duties);
   const incomplete = dutyEntries.filter(([, d]) => d.status !== 'met');
   if (incomplete.length > 0) {
+    const dutyNames = incomplete.map(([, d]) => d.name).join(', ');
     return [makeCandidate({
       title: 'Complete Command Steward duty handoff for remaining duties',
       conflictGroup: 'command-steward-recovery',
       risk: 'medium',
       allowedFiles: ['docs/ai-native/**', 'scripts/ai/**', 'schemas/**'],
-      rationale: `${incomplete.length} Command Steward duty/duties still incomplete: ${incomplete.map(([, d]) => d.name).join(', ')}.`,
+      rationale: `${incomplete.length} Command Steward duty/duties still incomplete: ${dutyNames}.`,
       evidence: `legacy-orchestration-retirement.json lists ${incomplete.length} incomplete duty/duties: ${incomplete.map(([, d]) => `${d.name} (status: ${d.status})`).join(', ')}.`,
       rollbackFollowUp: 'If a duty handoff fails, revert the duty status to its previous value and re-run the retirement checklist. Follow up by confirming all duties reach "met" status.',
       macroGoal: 'command-steward-recovery',
       readinessNote: `Incomplete duties: ${incomplete.map(([, d]) => `${d.name} (${d.status})`).join(', ')}.`,
+      classification: 'issue-worthy',
+      reasoning: {
+        factsObserved: `legacy-orchestration-retirement.json shows ${incomplete.length} incomplete duty/duties: ${dutyNames}.`,
+        relevantPattern: 'Duty handoff checklists are standard in operational runbooks (SRE handoff procedures, incident postmortem action items).',
+        whyThisAction: 'Completing duty handoffs is a bounded documentation and configuration task. Agent judgment is sufficient for status updates and doc alignment.',
+        riskIfManual: 'Incomplete duty handoffs leave operational gaps — unowned responsibilities that cause incidents to go unhandled.',
+        riskIfOverTooled: 'An automated duty-completion system would require defining completion criteria for each duty, which is itself a human judgment.',
+        seedBoundary: 'command-steward-ownership',
+        selfBootstrapNecessary: true,
+      },
     })];
   }
 
@@ -466,6 +541,16 @@ function generateBoundedParallelRehearsalCandidates(facts) {
       rollbackFollowUp: 'If the smoke test reveals regressions in the dispatch path, disable the test and file a follow-up issue. Follow up by confirming the dispatch path passes the rehearsal.',
       macroGoal: 'bounded-parallel-rehearsal',
       readinessNote: 'No self-cycle-dry-run-smoke.test.js found.',
+      classification: 'issue-worthy',
+      reasoning: {
+        factsObserved: 'docs/ai-native/bounded-parallel-worker-execution.md exists but scripts/ai/self-cycle-dry-run-smoke.test.js does not.',
+        relevantPattern: 'Rehearsal tests (smoke tests for deployment paths) are standard practice before enabling parallel execution in CI/CD systems.',
+        whyThisAction: 'Writing a smoke test for a documented spec is a bounded, verifiable task. Agent judgment is sufficient.',
+        riskIfManual: 'Without a rehearsal test, parallel dispatch bugs surface only in production, causing wasted worker runs.',
+        riskIfOverTooled: 'A full parallel execution simulator is unnecessary when a targeted smoke test covers the critical path.',
+        seedBoundary: 'automation-scope',
+        selfBootstrapNecessary: true,
+      },
     })];
   }
 
@@ -484,16 +569,27 @@ function generateActiveWorkerMonitoringCandidates(facts) {
   });
 
   if (stale.length > 0) {
+    const staleIds = stale.map(w => w.issueNumber || w.issue || '?').join(', ');
     return [makeCandidate({
       title: 'Improve active worker heartbeat monitoring for stale workers',
       conflictGroup: 'active-worker-monitoring',
       risk: 'medium',
       allowedFiles: ['scripts/ai/**', 'docs/ai-native/**', '.github/ai-state/*.example.json'],
       rationale: `${stale.length} active worker(s) have been running >30min without ending. Heartbeat monitoring should detect and recover stale workers.`,
-      evidence: `active-workers.json shows ${stale.length} worker(s) with startedAt >30min ago and no endedAt: ${stale.map(w => w.issueNumber || w.issue || '?').join(', ')}.`,
+      evidence: `active-workers.json shows ${stale.length} worker(s) with startedAt >30min ago and no endedAt: ${staleIds}.`,
       rollbackFollowUp: 'If stale worker recovery terminates a legitimately long-running worker, revert the active-workers.json entry and re-add it. Follow up by verifying heartbeat monitoring correctly distinguishes stale from slow workers.',
       macroGoal: 'active-worker-monitoring',
-      readinessNote: `Stale workers: ${stale.map(w => w.issueNumber || w.issue).join(', ')}.`,
+      readinessNote: `Stale workers: ${staleIds}.`,
+      classification: 'issue-worthy',
+      reasoning: {
+        factsObserved: `active-workers.json shows ${stale.length} worker(s) with startedAt >30min ago and no endedAt: ${staleIds}.`,
+        relevantPattern: 'Heartbeat-based liveness detection is standard in distributed systems (Kubernetes pod liveness probes, Consul health checks).',
+        whyThisAction: 'Adding heartbeat monitoring is a bounded script enhancement. Agent judgment is sufficient for the threshold and recovery logic.',
+        riskIfManual: 'Stale workers hold provider slots and block new work, silently reducing throughput.',
+        riskIfOverTooled: 'A full distributed health-check framework is unnecessary for a single-machine worker pool.',
+        seedBoundary: 'automation-scope',
+        selfBootstrapNecessary: true,
+      },
     })];
   }
 
@@ -513,6 +609,16 @@ function generateIssueCloseCandidateDetectionCandidates(facts) {
       rollbackFollowUp: 'If the detection script produces false positives (closing active issues), disable the script and revert. Follow up by verifying close candidates match only truly completed issues.',
       macroGoal: 'issue-close-candidate-detection',
       readinessNote: 'No detect-issue-close-candidates.js found.',
+      classification: 'issue-worthy',
+      reasoning: {
+        factsObserved: 'scripts/ai/detect-issue-close-candidates.js does not exist on disk.',
+        relevantPattern: 'Issue lifecycle management (auto-close stale/complete issues) is standard in GitHub Actions and CI/CD pipelines.',
+        whyThisAction: 'Writing a detection script that checks PR merges and validation status is a bounded, verifiable task. Agent judgment is sufficient.',
+        riskIfManual: 'Completed issues accumulate as open, polluting the issue pool and confusing the self-cycle dispatch.',
+        riskIfOverTooled: 'A full issue-lifecycle orchestrator is unnecessary when the detection criteria are well-defined.',
+        seedBoundary: 'automation-scope',
+        selfBootstrapNecessary: true,
+      },
     })];
   }
 
@@ -533,6 +639,16 @@ function generateLedgerIntegrationCandidates(facts) {
       rollbackFollowUp: 'If seeded ledger entries are incorrect, delete spending-ledger.ndjson and re-seed from the corrected source. Follow up by verifying cost tracking reports reflect accurate data.',
       macroGoal: 'spending-ledger-integration',
       readinessNote: 'No spending ledger entries found.',
+      classification: 'issue-worthy',
+      reasoning: {
+        factsObserved: 'spending-ledger.ndjson is empty or does not exist.',
+        relevantPattern: 'Cost tracking ledgers are standard in cloud FinOps (AWS Cost Explorer, GCP Billing) for budget accountability.',
+        whyThisAction: 'Seeding a ledger with initial entries is a bounded data task. Agent judgment is sufficient for the entry format.',
+        riskIfManual: 'Without cost tracking, the self-cycle cannot detect budget overruns or optimize token usage.',
+        riskIfOverTooled: 'A full cost-management platform is unnecessary for tracking a small number of worker runs.',
+        seedBoundary: 'automation-scope',
+        selfBootstrapNecessary: true,
+      },
     }));
   }
 
@@ -547,6 +663,16 @@ function generateLedgerIntegrationCandidates(facts) {
       rollbackFollowUp: 'If seeded ledger entries are incorrect, delete contribution-ledger.ndjson and re-seed from the corrected source. Follow up by verifying the audit trail is complete and accurate.',
       macroGoal: 'contribution-ledger-integration',
       readinessNote: 'No contribution ledger entries found.',
+      classification: 'issue-worthy',
+      reasoning: {
+        factsObserved: 'contribution-ledger.ndjson is empty or does not exist.',
+        relevantPattern: 'Contribution audit trails are standard in regulated systems (SOC2, HIPAA) for traceability.',
+        whyThisAction: 'Seeding a contribution ledger is a bounded data task. Agent judgment is sufficient for the entry format.',
+        riskIfManual: 'Without an audit trail, worker contributions cannot be attributed or verified.',
+        riskIfOverTooled: 'A full audit-log pipeline is unnecessary for a small-scale self-cycle.',
+        seedBoundary: 'automation-scope',
+        selfBootstrapNecessary: true,
+      },
     }));
   }
 
@@ -566,6 +692,16 @@ function generateFailureClassificationCandidates(facts) {
       rollbackFollowUp: 'If the failure classifier misroutes failures, disable the script and revert. Follow up by verifying failure routing matches the failure taxonomy.',
       macroGoal: 'self-cycle-failure-classification',
       readinessNote: 'No classify-self-cycle-failure.js found.',
+      classification: 'issue-worthy',
+      reasoning: {
+        factsObserved: 'scripts/ai/classify-self-cycle-failure.js does not exist on disk.',
+        relevantPattern: 'Failure classification taxonomies are standard in incident response (PagerDuty severity levels, SRE error budgets).',
+        whyThisAction: 'Writing a classifier that maps error types to recovery actions is a bounded, verifiable task. Agent judgment is sufficient.',
+        riskIfManual: 'Unclassified failures are retried blindly, wasting provider slots and potentially amplifying the failure.',
+        riskIfOverTooled: 'A full incident-management system is unnecessary when the failure taxonomy is small and well-defined.',
+        seedBoundary: 'automation-scope',
+        selfBootstrapNecessary: true,
+      },
     })];
   }
 
@@ -586,6 +722,16 @@ function generateSelfSeedingCandidates() {
     humanRequired: true,
     readiness: 'human-required',
     readinessNote: 'Meta-issue for issue seeding improvements. Requires human review.',
+    classification: 'gate-worthy',
+    reasoning: {
+      factsObserved: 'This is a recurring meta-issue that tracks the issue proposal generator itself.',
+      relevantPattern: 'Meta-issues for tooling improvement are standard in self-bootstrapping systems (dogfooding, eating your own dog food).',
+      whyThisAction: 'This requires human judgment to evaluate whether the generator needs improvement and what form it should take.',
+      riskIfManual: 'No risk — this is a tracking issue that human reviews on each cycle.',
+      riskIfOverTooled: 'Automating self-improvement decisions creates a feedback loop that can drift from actual needs.',
+      seedBoundary: 'human-required-decision',
+      selfBootstrapNecessary: true,
+    },
   })];
 }
 
@@ -670,6 +816,7 @@ function applyPolicyGate(candidates) {
       candidate.readiness = 'blocked';
       candidate.readinessNote = (candidate.readinessNote ? candidate.readinessNote + ' ' : '') + 'High-risk: requires human approval.';
       candidate.humanRequired = true;
+      candidate.classification = 'gate-worthy';
       humanRequired.push(candidate);
       continue;
     }
@@ -677,6 +824,7 @@ function applyPolicyGate(candidates) {
     // Already marked human-required
     if (candidate.humanRequired) {
       candidate.readiness = 'human-required';
+      candidate.classification = candidate.classification || 'gate-worthy';
       humanRequired.push(candidate);
       continue;
     }
@@ -686,6 +834,7 @@ function applyPolicyGate(candidates) {
       candidate.readiness = 'blocked';
       candidate.readinessNote = (candidate.readinessNote ? candidate.readinessNote + ' ' : '') + 'Touches forbidden file scope.';
       candidate.humanRequired = true;
+      candidate.classification = 'gate-worthy';
       humanRequired.push(candidate);
       continue;
     }
@@ -825,12 +974,29 @@ function buildIssueBody(candidate) {
   lines.push('## Rollback / Follow-up');
   lines.push('');
   lines.push(candidate.rollbackFollowUp || 'No rollback or follow-up steps specified.');
+
+  // Evidence-based reasoning section
+  const reasoning = candidate.reasoning;
+  if (reasoning && reasoning.factsObserved) {
+    lines.push('');
+    lines.push('## Evidence-Based Reasoning');
+    lines.push('');
+    lines.push(`1. **Facts observed:** ${reasoning.factsObserved}`);
+    lines.push(`2. **Relevant pattern:** ${reasoning.relevantPattern || 'Not specified.'}`);
+    lines.push(`3. **Why this action:** ${reasoning.whyThisAction || 'Not specified.'}`);
+    lines.push(`4. **Risk if manual:** ${reasoning.riskIfManual || 'Not specified.'}`);
+    lines.push(`5. **Risk if over-tooled:** ${reasoning.riskIfOverTooled || 'Not specified.'}`);
+    lines.push(`6. **Seed boundary:** ${reasoning.seedBoundary || 'automation-scope'}`);
+    lines.push(`7. **Self-bootstrap necessary:** ${reasoning.selfBootstrapNecessary !== false ? 'Yes' : 'No'}`);
+  }
+
   lines.push('');
   lines.push('---');
   lines.push('CONTROL APPENDIX (launcher generated)');
   lines.push(`Task type: ${candidate.taskType}`);
   lines.push(`Risk: ${candidate.risk}`);
   lines.push(`Conflict group: ${candidate.conflictGroup}`);
+  lines.push(`Classification: ${candidate.classification || 'issue-worthy'}`);
   lines.push('Target issue: ');
   lines.push('Target PR: ');
   lines.push('Issues: ');
