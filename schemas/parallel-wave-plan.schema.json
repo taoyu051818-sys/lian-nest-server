@@ -1,0 +1,369 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/taoyu051818-sys/lian-nest-server/schemas/parallel-wave-plan.schema.json",
+  "title": "Parallel Wave Plan",
+  "description": "Schema for generated wave plans with parallel task scheduling. Captures tasks grouped into execution waves based on dependency ordering, writeSet/sharedLocks for concurrency control, risk tiers, budgets, and expected produced facts. Governed parallelism: only independent fact changes can run concurrently; shared truth and high-risk boundaries remain serialized.",
+  "type": "object",
+  "required": [
+    "planVersion",
+    "capturedAt",
+    "waveId",
+    "pmPhase",
+    "waves",
+    "globalBudget"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "planVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Currently 1."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the wave plan was compiled."
+    },
+    "waveId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier for this wave plan (e.g. 'wave31-20260512')."
+    },
+    "pmPhase": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Wave phase identifier for sequencing (e.g. 'wave31-parallel-decomposition')."
+    },
+    "mainHealth": {
+      "$ref": "#/$defs/mainHealthSnapshot"
+    },
+    "waves": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Ordered list of execution waves. Tasks within a wave may run in parallel; waves must execute sequentially (wave N must complete before wave N+1 starts).",
+      "items": {
+        "$ref": "#/$defs/wave"
+      }
+    },
+    "globalBudget": {
+      "$ref": "#/$defs/budgetSummary"
+    },
+    "conflictGroups": {
+      "type": "array",
+      "description": "All conflict groups referenced by tasks in this plan. Tasks in the same conflict group must not run concurrently.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "factGraph": {
+      "$ref": "#/$defs/factGraph"
+    }
+  },
+  "$defs": {
+    "mainHealthSnapshot": {
+      "type": "object",
+      "description": "Snapshot of main branch health at plan compilation time.",
+      "required": ["state", "capturedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["green", "yellow", "red", "black"],
+          "description": "Main branch health state."
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the health state was last evaluated."
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "description": "Human-readable explanation for the health state."
+        }
+      }
+    },
+    "wave": {
+      "type": "object",
+      "description": "A single execution wave containing tasks that may run in parallel.",
+      "required": ["waveIndex", "tasks", "riskTier"],
+      "additionalProperties": false,
+      "properties": {
+        "waveIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Zero-based wave ordinal. Wave 0 starts first."
+        },
+        "riskTier": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Highest risk level among tasks in this wave. Determines review requirements."
+        },
+        "tasks": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Tasks in this wave that may execute concurrently.",
+          "items": {
+            "$ref": "#/$defs/waveTask"
+          }
+        },
+        "gatePolicy": {
+          "type": "string",
+          "enum": ["all-complete", "any-fail-abort", "best-effort"],
+          "default": "all-complete",
+          "description": "How to handle task completion within this wave. all-complete = all must finish before next wave, any-fail-abort = any failure aborts the plan, best-effort = proceed regardless."
+        }
+      }
+    },
+    "waveTask": {
+      "type": "object",
+      "description": "A single task within a wave. Carries concurrency metadata, dependencies, and resource boundaries.",
+      "required": [
+        "targetIssue",
+        "conflictGroup",
+        "risk",
+        "taskType",
+        "actorRole",
+        "writeSet",
+        "validation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "targetIssue": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "GitHub issue number."
+        },
+        "targetPR": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Existing PR number, if any."
+        },
+        "conflictGroup": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Logical conflict group. Tasks in the same group must not run concurrently."
+        },
+        "risk": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Task risk level. High-risk tasks are serialized and require human review."
+        },
+        "taskType": {
+          "type": "string",
+          "enum": ["execution", "research", "review"],
+          "description": "Task type from the worker contract."
+        },
+        "actorRole": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Role name matching ops/agent-prompts/*.md."
+        },
+        "workerClass": {
+          "type": "string",
+          "description": "Task classification for routing and scheduling."
+        },
+        "allowedFiles": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Glob patterns the worker MAY edit."
+        },
+        "writeSet": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Exact file paths or narrow globs the worker is expected to write. Subset of allowedFiles. Used by the launcher to detect scope creep."
+        },
+        "sharedLocks": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "File paths or globs that this task reads but does not write. Other tasks may also hold shared locks on these files concurrently."
+        },
+        "validation": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "description": "Shell commands the worker must run before opening a PR."
+        },
+        "dependsOnFacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["factId", "description"],
+            "properties": {
+              "factId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Unique identifier for the fact (e.g. 'fact:prisma-schema:User')."
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Human-readable description of what the fact asserts."
+              },
+              "source": {
+                "type": "string",
+                "description": "Where this fact was produced (issue number, PR, doc path)."
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Facts that must be established before this task can run."
+        },
+        "producesFacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["factId", "description"],
+            "properties": {
+              "factId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Unique identifier for the fact this task will produce."
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Human-readable description of what the fact will assert."
+              },
+              "confidence": {
+                "type": "string",
+                "enum": ["definite", "likely", "conditional"],
+                "description": "How certain the task is that it will produce this fact."
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Facts this task commits to producing. Downstream tasks can declare these in their dependsOnFacts."
+        },
+        "budget": {
+          "$ref": "#/$defs/taskBudget"
+        },
+        "rollbackPlan": {
+          "type": "object",
+          "required": ["strategy"],
+          "properties": {
+            "strategy": {
+              "type": "string",
+              "enum": ["git-revert", "manual-fixforward", "auto-revert-if-ci-fails"],
+              "description": "How to undo this task's changes if they cause problems post-merge."
+            },
+            "notes": {
+              "type": "string",
+              "description": "Additional rollback guidance."
+            }
+          },
+          "additionalProperties": false
+        },
+        "blockedBy": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1 },
+          "description": "Issue numbers that must merge before this task can start."
+        }
+      }
+    },
+    "taskBudget": {
+      "type": "object",
+      "description": "Resource limits for a single task.",
+      "additionalProperties": false,
+      "properties": {
+        "maxFiles": { "type": "integer", "minimum": 1 },
+        "maxLinesChanged": { "type": "integer", "minimum": 1 },
+        "softTimeMinutes": { "type": "integer", "minimum": 1 },
+        "hardTimeMinutes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "budgetSummary": {
+      "type": "object",
+      "description": "Aggregate budget reservations for the entire wave plan.",
+      "required": ["totalMaxFiles", "totalMaxLinesChanged", "taskCount"],
+      "additionalProperties": false,
+      "properties": {
+        "totalMaxFiles": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sum of maxFiles across all tasks in all waves."
+        },
+        "totalMaxLinesChanged": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sum of maxLinesChanged across all tasks in all waves."
+        },
+        "taskCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of tasks across all waves."
+        },
+        "softTimeMinutesMax": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Maximum softTimeMinutes across all tasks."
+        },
+        "hardTimeMinutesMax": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Maximum hardTimeMinutes across all tasks."
+        }
+      }
+    },
+    "factGraph": {
+      "type": "object",
+      "description": "Fact dependency graph for the entire wave plan. Tracks which facts are produced by which tasks and consumed by which tasks.",
+      "required": ["nodes", "edges"],
+      "additionalProperties": false,
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "description": "All facts referenced in the plan.",
+          "items": {
+            "type": "object",
+            "required": ["factId", "description"],
+            "properties": {
+              "factId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Unique fact identifier."
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Human-readable description."
+              },
+              "producerIssue": {
+                "type": ["integer", "null"],
+                "minimum": 1,
+                "description": "Issue number of the task that produces this fact, or null if pre-existing."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "edges": {
+          "type": "array",
+          "description": "Dependency edges: producer task -> fact -> consumer task.",
+          "items": {
+            "type": "object",
+            "required": ["factId", "producerIssue", "consumerIssue"],
+            "properties": {
+              "factId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The fact being depended on."
+              },
+              "producerIssue": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Issue number of the task that produces this fact."
+              },
+              "consumerIssue": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Issue number of the task that consumes this fact."
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  }
+}
