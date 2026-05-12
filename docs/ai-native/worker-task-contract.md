@@ -1,6 +1,6 @@
 # Worker Task Contract
 
-Every worker task is defined by a JSON contract. This contract is embedded in the worker prompt as a control appendix and governs what the worker may do.
+Every worker task is defined by a JSON contract. This contract is embedded in the worker prompt as a control appendix and governs what the worker may do. For how workers should behave within these boundaries, see [worker-behavior-policy.md](worker-behavior-policy.md).
 
 ## Control Plane vs. Semantic Source
 
