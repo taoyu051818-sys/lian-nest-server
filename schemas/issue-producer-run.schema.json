@@ -1,0 +1,204 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/issue-producer-run.schema.json",
+  "title": "IssueProducerRun",
+  "description": "Append-only NDJSON record of an issue production run. Captures which facts generated which issues, which were rejected and why, making task production auditable. See docs/ai-native/issue-producer-run-ledger.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "recordedAt",
+    "actor",
+    "mode",
+    "factsConsumed",
+    "issuesProduced",
+    "issuesRejected",
+    "outcome"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version pinned to 1. Consumers must reject records with a different version."
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier for this production run (UUID)."
+    },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp when this run was recorded."
+    },
+    "actor": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Who or what initiated the issue production run (e.g. 'self-cycle', 'batch-launcher')."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["dry-run", "execute"],
+      "description": "Run mode. dry-run = preview only, execute = issues were created on GitHub."
+    },
+    "factsConsumed": {
+      "type": "array",
+      "description": "Facts that were read as input to generate issue proposals.",
+      "items": {
+        "$ref": "#/$defs/factRef"
+      }
+    },
+    "issuesProduced": {
+      "type": "array",
+      "description": "Issues that were proposed or created, with full CONTROL APPENDIX fields.",
+      "items": {
+        "$ref": "#/$defs/producedIssue"
+      }
+    },
+    "issuesRejected": {
+      "type": "array",
+      "description": "Issues that were rejected during the run, with rejection reasons.",
+      "items": {
+        "$ref": "#/$defs/rejectedIssue"
+      }
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["completed", "blocked", "errored"],
+      "description": "Overall outcome of the production run."
+    },
+    "blockReason": {
+      "type": ["string", "null"],
+      "description": "Top-level reason when outcome is blocked."
+    },
+    "meta": {
+      "type": ["object", "null"],
+      "description": "Arbitrary key-value metadata for downstream analysis. Must not contain secrets, tokens, or credentials."
+    }
+  },
+  "$defs": {
+    "factRef": {
+      "type": "object",
+      "description": "Reference to a fact consumed during the production run.",
+      "required": ["factId", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "factId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique identifier for the consumed fact."
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Where the fact was read from (e.g. 'main-health.json', 'task-board.json')."
+        },
+        "description": {
+          "type": ["string", "null"],
+          "description": "Human-readable summary of the fact."
+        }
+      }
+    },
+    "producedIssue": {
+      "type": "object",
+      "description": "An issue proposed or created by the producer, with full CONTROL APPENDIX fields.",
+      "required": [
+        "title",
+        "taskType",
+        "risk",
+        "conflictGroup",
+        "allowedFiles",
+        "forbiddenFiles",
+        "validationCommands",
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "issueNumber": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "GitHub issue number if the issue was created. Null for dry-run or failed creation."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Issue title."
+        },
+        "taskType": {
+          "type": "string",
+          "enum": ["execution", "research", "review"],
+          "description": "Task type from the worker contract."
+        },
+        "risk": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Task risk level."
+        },
+        "conflictGroup": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Logical conflict group for parallelism control."
+        },
+        "actorRole": {
+          "type": ["string", "null"],
+          "description": "Worker role from the task contract rolePacket."
+        },
+        "allowedFiles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "File glob patterns the worker may edit."
+        },
+        "forbiddenFiles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "File glob patterns the worker must not edit."
+        },
+        "validationCommands": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Validation commands that must pass."
+        },
+        "rationale": {
+          "type": ["string", "null"],
+          "description": "Why this issue was proposed."
+        },
+        "macroGoal": {
+          "type": ["string", "null"],
+          "description": "Macro goal this issue serves."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["proposed", "created", "blocked", "failed"],
+          "description": "Production status: proposed (dry-run), created (on GitHub), blocked (policy gate), failed (creation error)."
+        },
+        "humanRequired": {
+          "type": "boolean",
+          "description": "Whether this issue requires human review before execution."
+        }
+      }
+    },
+    "rejectedIssue": {
+      "type": "object",
+      "description": "An issue rejected during the production run.",
+      "required": ["title", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Proposed issue title."
+        },
+        "conflictGroup": {
+          "type": ["string", "null"],
+          "description": "Conflict group of the rejected issue."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the issue was rejected (e.g. 'title overlap with existing', 'conflictGroup already exists')."
+        }
+      }
+    }
+  }
+}
