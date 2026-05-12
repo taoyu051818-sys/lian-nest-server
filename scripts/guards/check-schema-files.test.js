@@ -15,6 +15,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+const ROOT = path.join(__dirname, '..', '..');
+
 const {
   parseArgs,
   collectSchemaFiles,
@@ -378,7 +380,192 @@ console.log('run');
 {
   const realSummary = run({ dryRun: false, json: false, warnOnly: false });
   assert(realSummary.errorCount === 0, 'real schemas pass without errors');
-  assert(realSummary.fileCount === 6, 'real schemas directory has 6 files');
+  assert(realSummary.fileCount === 35, 'real schemas directory has 35 files');
+}
+
+// --- External intake schemas ---
+
+console.log('external intake schemas');
+
+const EXTERNAL_INTAKE_SCHEMAS = [
+  'external-fact.schema.json',
+  'opportunity-signal.schema.json',
+  'risk-signal.schema.json',
+  'bounded-experiment.schema.json',
+  'evidence-reliability.schema.json',
+];
+
+const EXTERNAL_INTAKE_TITLES = {
+  'external-fact.schema.json': 'ExternalFact',
+  'opportunity-signal.schema.json': 'Opportunity Signal',
+  'risk-signal.schema.json': 'RiskSignalSnapshot',
+  'bounded-experiment.schema.json': 'Bounded Experiment',
+  'evidence-reliability.schema.json': 'EvidenceReliability',
+};
+
+const EXTERNAL_INTAKE_REQUIRED_FIELDS = {
+  'external-fact.schema.json': ['entryVersion', 'factType', 'subject', 'claim', 'capturedAt', 'sourceReliability'],
+  'opportunity-signal.schema.json': ['schemaVersion', 'signalId', 'createdAt', 'status', 'sourceFacts', 'hypothesis', 'expectedImpact', 'experiment', 'risk', 'acceptanceGate'],
+  'risk-signal.schema.json': ['signalVersion', 'capturedAt', 'signals'],
+  'bounded-experiment.schema.json': ['allowedFiles', 'validation', 'successMetric', 'rollback', 'budget', 'risk'],
+  'evidence-reliability.schema.json': ['schemaVersion', 'sourceType', 'score', 'confidence', 'verificationStatus', 'capturedAt'],
+};
+
+// Each external intake schema passes validateSchemaFile with no violations
+for (const name of EXTERNAL_INTAKE_SCHEMAS) {
+  const filePath = path.join(ROOT, 'schemas', name);
+  const violations = validateSchemaFile(filePath);
+  assertDeepEqual(violations, [], `${name} has no violations`);
+}
+
+// Each external intake schema has the expected title
+for (const name of EXTERNAL_INTAKE_SCHEMAS) {
+  const filePath = path.join(ROOT, 'schemas', name);
+  const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  assert(content.title === EXTERNAL_INTAKE_TITLES[name],
+    `${name} has title "${EXTERNAL_INTAKE_TITLES[name]}"`);
+}
+
+// Each external intake schema has type "object"
+for (const name of EXTERNAL_INTAKE_SCHEMAS) {
+  const filePath = path.join(ROOT, 'schemas', name);
+  const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  assert(content.type === 'object', `${name} has type "object"`);
+}
+
+// Each external intake schema references json-schema.org
+for (const name of EXTERNAL_INTAKE_SCHEMAS) {
+  const filePath = path.join(ROOT, 'schemas', name);
+  const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  assert(content.$schema.includes('json-schema.org'),
+    `${name} $schema references json-schema.org`);
+}
+
+// Each external intake schema has properties defined
+for (const name of EXTERNAL_INTAKE_SCHEMAS) {
+  const filePath = path.join(ROOT, 'schemas', name);
+  const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  assert(typeof content.properties === 'object' && content.properties !== null,
+    `${name} has properties object`);
+}
+
+// Each external intake schema declares required fields
+for (const name of EXTERNAL_INTAKE_SCHEMAS) {
+  const filePath = path.join(ROOT, 'schemas', name);
+  const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  assert(Array.isArray(content.required), `${name} has required array`);
+  for (const field of EXTERNAL_INTAKE_REQUIRED_FIELDS[name]) {
+    assert(content.required.includes(field),
+      `${name} required includes "${field}"`);
+  }
+}
+
+// external-fact has additionalProperties: false
+{
+  const filePath = path.join(ROOT, 'schemas', 'external-fact.schema.json');
+  const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  assert(content.additionalProperties === false,
+    'external-fact.schema.json has additionalProperties: false');
+}
+
+// risk-signal defines RiskSignal with domain enum
+{
+  const filePath = path.join(ROOT, 'schemas', 'risk-signal.schema.json');
+  const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  const riskSignal = content.definitions && content.definitions.RiskSignal;
+  assert(typeof riskSignal === 'object', 'risk-signal defines RiskSignal definition');
+  const domainEnum = riskSignal.properties.domain && riskSignal.properties.domain.enum;
+  assert(Array.isArray(domainEnum), 'risk-signal RiskSignal.domain has enum');
+  assert(domainEnum.includes('security'), 'risk-signal domain includes "security"');
+  assert(domainEnum.includes('compliance'), 'risk-signal domain includes "compliance"');
+  assert(domainEnum.includes('product'), 'risk-signal domain includes "product"');
+  assert(domainEnum.includes('runtime'), 'risk-signal domain includes "runtime"');
+  assert(domainEnum.includes('market'), 'risk-signal domain includes "market"');
+}
+
+// risk-signal defines RiskSignal with severity enum
+{
+  const filePath = path.join(ROOT, 'schemas', 'risk-signal.schema.json');
+  const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  const riskSignal = content.definitions.RiskSignal;
+  const severityEnum = riskSignal.properties.severity && riskSignal.properties.severity.enum;
+  assert(Array.isArray(severityEnum), 'risk-signal RiskSignal.severity has enum');
+  assert(severityEnum.includes('critical'), 'risk-signal severity includes "critical"');
+  assert(severityEnum.includes('high'), 'risk-signal severity includes "high"');
+  assert(severityEnum.includes('medium'), 'risk-signal severity includes "medium"');
+  assert(severityEnum.includes('low'), 'risk-signal severity includes "low"');
+  assert(severityEnum.includes('info'), 'risk-signal severity includes "info"');
+}
+
+// risk-signal defines RiskSignal with status enum
+{
+  const filePath = path.join(ROOT, 'schemas', 'risk-signal.schema.json');
+  const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  const riskSignal = content.definitions.RiskSignal;
+  const statusEnum = riskSignal.properties.status && riskSignal.properties.status.enum;
+  assert(Array.isArray(statusEnum), 'risk-signal RiskSignal.status has enum');
+  assert(statusEnum.includes('open'), 'risk-signal status includes "open"');
+  assert(statusEnum.includes('acknowledged'), 'risk-signal status includes "acknowledged"');
+  assert(statusEnum.includes('mitigated'), 'risk-signal status includes "mitigated"');
+  assert(statusEnum.includes('accepted'), 'risk-signal status includes "accepted"');
+  assert(statusEnum.includes('expired'), 'risk-signal status includes "expired"');
+}
+
+// risk-signal signals property references RiskSignal definition
+{
+  const filePath = path.join(ROOT, 'schemas', 'risk-signal.schema.json');
+  const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  assert(content.properties.signals.type === 'array',
+    'risk-signal signals is array type');
+  assert(content.properties.signals.items.$ref === '#/definitions/RiskSignal',
+    'risk-signal signals items reference RiskSignal definition');
+}
+
+// opportunity-signal has status enum
+{
+  const filePath = path.join(ROOT, 'schemas', 'opportunity-signal.schema.json');
+  const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  const statusEnum = content.properties.status && content.properties.status.enum;
+  assert(Array.isArray(statusEnum), 'opportunity-signal.schema.json status has enum');
+  assert(statusEnum.includes('draft'), 'opportunity-signal status includes "draft"');
+  assert(statusEnum.includes('validated'), 'opportunity-signal status includes "validated"');
+  assert(statusEnum.includes('accepted'), 'opportunity-signal status includes "accepted"');
+  assert(statusEnum.includes('scheduled'), 'opportunity-signal status includes "scheduled"');
+  assert(statusEnum.includes('rejected'), 'opportunity-signal status includes "rejected"');
+}
+
+// evidence-reliability has score enum
+{
+  const filePath = path.join(ROOT, 'schemas', 'evidence-reliability.schema.json');
+  const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  const scoreEnum = content.properties.score && content.properties.score.enum;
+  assert(Array.isArray(scoreEnum), 'evidence-reliability.schema.json score has enum');
+  assert(scoreEnum.includes('A'), 'evidence-reliability score includes "A"');
+  assert(scoreEnum.includes('B'), 'evidence-reliability score includes "B"');
+  assert(scoreEnum.includes('C'), 'evidence-reliability score includes "C"');
+  assert(scoreEnum.includes('D'), 'evidence-reliability score includes "D"');
+}
+
+// evidence-reliability has verificationStatus enum
+{
+  const filePath = path.join(ROOT, 'schemas', 'evidence-reliability.schema.json');
+  const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  const statusEnum = content.properties.verificationStatus && content.properties.verificationStatus.enum;
+  assert(Array.isArray(statusEnum), 'evidence-reliability.schema.json verificationStatus has enum');
+  assert(statusEnum.includes('verified'), 'evidence-reliability verificationStatus includes "verified"');
+  assert(statusEnum.includes('cross-verified'), 'evidence-reliability verificationStatus includes "cross-verified"');
+  assert(statusEnum.includes('unverified'), 'evidence-reliability verificationStatus includes "unverified"');
+  assert(statusEnum.includes('conflicting'), 'evidence-reliability verificationStatus includes "conflicting"');
+}
+
+// bounded-experiment has allowedFiles and validation array types
+{
+  const filePath = path.join(ROOT, 'schemas', 'bounded-experiment.schema.json');
+  const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  assert(content.properties.allowedFiles && content.properties.allowedFiles.type === 'array',
+    'bounded-experiment allowedFiles is array type');
+  assert(content.properties.validation && content.properties.validation.type === 'array',
+    'bounded-experiment validation is array type');
 }
 
 // --- Results ---
