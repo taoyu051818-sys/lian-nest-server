@@ -1,0 +1,438 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/command-steward-brief.schema.json",
+  "title": "CommandStewardBrief",
+  "description": "Schema for the Command Steward brief projection. Aggregates health state, blockers, recommended actions, human-required decisions, merge candidates, close candidates, and telemetry into a single read-model for the Steward console. See docs/ai-native/command-steward-agent.md and docs/ai-native/webui-command-steward-console.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "capturedAt",
+    "status",
+    "blockers",
+    "recommendedActions",
+    "humanRequired",
+    "mergeCandidates",
+    "closeCandidates",
+    "telemetry"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version pinned to 1. Consumers must reject records with a different version."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this brief was last written."
+    },
+    "status": {
+      "$ref": "#/definitions/SystemStatus",
+      "description": "Current system health snapshot."
+    },
+    "blockers": {
+      "type": "array",
+      "description": "Active blockers preventing automated or manual action. Empty when the system is fully operational.",
+      "items": {
+        "$ref": "#/definitions/Blocker"
+      }
+    },
+    "recommendedActions": {
+      "type": "array",
+      "description": "Context-aware action suggestions based on current system state. Empty when no actions are recommended.",
+      "items": {
+        "$ref": "#/definitions/RecommendedAction"
+      }
+    },
+    "humanRequired": {
+      "type": "array",
+      "description": "Pending decisions that require explicit human judgment. Empty when no human decisions are pending.",
+      "items": {
+        "$ref": "#/definitions/HumanDecision"
+      }
+    },
+    "mergeCandidates": {
+      "type": "array",
+      "description": "PRs that are eligible for merge. Empty when no PRs are ready.",
+      "items": {
+        "$ref": "#/definitions/MergeCandidate"
+      }
+    },
+    "closeCandidates": {
+      "type": "array",
+      "description": "Issues eligible for closure (done label, all PRs merged). Empty when no issues are ready to close.",
+      "items": {
+        "$ref": "#/definitions/CloseCandidate"
+      }
+    },
+    "telemetry": {
+      "$ref": "#/definitions/TelemetrySummary",
+      "description": "Aggregate telemetry counters for the steward console dashboard."
+    }
+  },
+  "definitions": {
+    "SystemStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "health",
+        "providers",
+        "workers",
+        "queue",
+        "trust",
+        "pressure"
+      ],
+      "properties": {
+        "health": {
+          "type": "string",
+          "enum": ["green", "yellow", "red", "black"],
+          "description": "Main branch health state. green = all checks pass, yellow = non-critical failure, red = critical failure, black = unrecoverable."
+        },
+        "providers": {
+          "$ref": "#/definitions/ProviderStatus"
+        },
+        "workers": {
+          "$ref": "#/definitions/WorkerStatus"
+        },
+        "queue": {
+          "$ref": "#/definitions/QueueStatus"
+        },
+        "trust": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Current trust score (0-100). >= 70 green, 40-69 yellow, < 40 red."
+        },
+        "pressure": {
+          "type": "string",
+          "enum": ["normal", "elevated", "critical"],
+          "description": "System utilization pressure level."
+        },
+        "healthReason": {
+          "type": ["string", "null"],
+          "description": "Human-readable explanation for the health state. Null when not applicable."
+        }
+      }
+    },
+    "ProviderStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "available",
+        "exhausted",
+        "disabled"
+      ],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of configured providers."
+        },
+        "available": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of providers currently available."
+        },
+        "exhausted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of providers with exhausted key pools."
+        },
+        "disabled": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of disabled providers."
+        }
+      }
+    },
+    "WorkerStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "totalActive",
+        "maxWorkers",
+        "cooling"
+      ],
+      "properties": {
+        "totalActive": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of currently active workers."
+        },
+        "maxWorkers": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Global maximum worker concurrency."
+        },
+        "cooling": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of workers in cooling state."
+        }
+      }
+    },
+    "QueueStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pending",
+        "blocked"
+      ],
+      "properties": {
+        "pending": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of pending tasks in the queue."
+        },
+        "blocked": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tasks blocked by exhaustion or conflict."
+        }
+      }
+    },
+    "Blocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "severity",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Blocker classification code (e.g. health-red, conflict-collision, lock-unavailable)."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"],
+          "description": "Blocker severity level."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable explanation of the blocker."
+        },
+        "affectedScope": {
+          "type": ["string", "null"],
+          "description": "Scope affected by this blocker (e.g. issue number, conflict group, lock name). Null when global."
+        }
+      }
+    },
+    "RecommendedAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actionId",
+        "title",
+        "reason",
+        "risk",
+        "enabled"
+      ],
+      "properties": {
+        "actionId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Action identifier (e.g. launch-batch, provider-rotation, process-merge-queue, issue-state, review-health-gate, export-audit, provider-retry)."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable action title for the console card."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One-line explanation of why this action is recommended."
+        },
+        "risk": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"],
+          "description": "Risk level of this action."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether the action is currently available. False when blocked by a gate or precondition."
+        },
+        "disabledReason": {
+          "type": ["string", "null"],
+          "description": "Explanation of why the action is disabled. Null when enabled is true."
+        },
+        "confirmationPhrase": {
+          "type": ["string", "null"],
+          "description": "Required confirmation phrase for execute (e.g. LAUNCH, MERGE, RETRY). Null when single-click is sufficient."
+        }
+      }
+    },
+    "HumanDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decisionId",
+        "category",
+        "title",
+        "context"
+      ],
+      "properties": {
+        "decisionId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique identifier for this decision (e.g. merge-pr-456, launch-wave-7)."
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "merge-pr",
+            "launch-wave",
+            "override-health",
+            "kill-stale-worker",
+            "cutover"
+          ],
+          "description": "Category of human decision required."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short summary of the decision for the console card."
+        },
+        "context": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Contextual details for the decision (e.g. risk score, guard results, health state)."
+        },
+        "targetLink": {
+          "type": ["string", "null"],
+          "description": "Navigation link to the relevant control screen. Null when no deep link is available."
+        }
+      }
+    },
+    "MergeCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prNumber",
+        "title",
+        "mergeable",
+        "checksPass"
+      ],
+      "properties": {
+        "prNumber": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "GitHub PR number."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "PR title."
+        },
+        "mergeable": {
+          "type": "boolean",
+          "description": "Whether the PR is currently mergeable (no conflicts, not draft)."
+        },
+        "checksPass": {
+          "type": "boolean",
+          "description": "Whether all required CI checks pass."
+        },
+        "riskScore": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Guard-computed risk score. Null when guards have not run."
+        },
+        "issueNumber": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Linked issue number. Null when not linked."
+        }
+      }
+    },
+    "CloseCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "issueNumber",
+        "title",
+        "allPrsMerged"
+      ],
+      "properties": {
+        "issueNumber": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "GitHub issue number."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Issue title."
+        },
+        "allPrsMerged": {
+          "type": "boolean",
+          "description": "Whether all linked PRs are merged."
+        },
+        "linkedPrs": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "description": "List of linked PR numbers. Empty when no PRs are linked."
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Current issue labels."
+        }
+      }
+    },
+    "TelemetrySummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "totalWorkersLaunched",
+        "totalPrsMerged",
+        "totalIssuesClosed",
+        "totalActionsExecuted",
+        "totalEscalations"
+      ],
+      "properties": {
+        "totalWorkersLaunched": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Cumulative count of workers launched in this session."
+        },
+        "totalPrsMerged": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Cumulative count of PRs merged in this session."
+        },
+        "totalIssuesClosed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Cumulative count of issues closed in this session."
+        },
+        "totalActionsExecuted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Cumulative count of all actions executed in this session."
+        },
+        "totalEscalations": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Cumulative count of escalations surfaced to the human operator."
+        },
+        "sessionDuration": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "description": "Elapsed session duration in seconds. Null when session start is unknown."
+        }
+      }
+    }
+  }
+}
