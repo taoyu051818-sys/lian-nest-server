@@ -18,6 +18,7 @@ const os = require('os');
 const {
   AI_STATE_DIR,
   EXPECTED_FILES,
+  CAPTURED_AT_KEYS,
   checkExistence,
   checkParsable,
   checkSchema,
@@ -68,6 +69,29 @@ function writeFile(dir, relPath, content) {
 function cleanup(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
+
+// --- NDJSON validation helper ---
+
+function assertValidNdjson(content, filename) {
+  const lines = content.split('\n').filter((l) => l.trim().length > 0);
+  assert(lines.length > 0, `${filename} has at least one line`);
+  for (let i = 0; i < lines.length; i++) {
+    try {
+      JSON.parse(lines[i]);
+    } catch {
+      return { ok: false, line: i + 1, error: 'invalid JSON' };
+    }
+  }
+  return { ok: true, lineCount: lines.length };
+}
+
+// --- External intake file specs ---
+
+const EXTERNAL_INTAKE_SPECS = {
+  'opportunity-signals.json': { versionField: 'schemaVersion', requiredKeys: ['schemaVersion', 'signals'] },
+  'risk-signals.json': { versionField: 'signalVersion', requiredKeys: ['signalVersion', 'capturedAt', 'signals'] },
+  'local-resource.json': { versionField: 'stateVersion', requiredKeys: ['stateVersion', 'global'] },
+};
 
 // --- Tests ---
 
@@ -330,6 +354,301 @@ console.log('EXPECTED_FILES structure');
     assert(Array.isArray(spec.requiredKeys), `${spec.name} has requiredKeys array`);
     assert(spec.requiredKeys.length > 0, `${spec.name} has at least one requiredKey`);
   }
+}
+
+// --- External intake state files: individual checks ---
+
+// NDJSON validation helper
+console.log('assertValidNdjson helper');
+{
+  const result = assertValidNdjson('{"a":1}\n{"b":2}\n', 'test.ndjson');
+  assert(result.ok === true, 'returns ok for valid NDJSON');
+  assert(result.lineCount === 2, 'counts lines correctly');
+}
+{
+  const result = assertValidNdjson('{"a":1}\n{bad}\n', 'test.ndjson');
+  assert(result.ok === false, 'returns not-ok for invalid NDJSON line');
+  assert(result.line === 2, 'reports failing line number');
+}
+
+// checkExistence on external intake files
+console.log('checkExistence (external intake)');
+for (const [name, spec] of Object.entries(EXTERNAL_INTAKE_SPECS)) {
+  const tmp = makeTmpDir();
+  try {
+    const err = checkExistence({ name }, tmp);
+    assert(err !== null, `returns error for missing ${name}`);
+    assert(err.type === 'missing', `${name} error type is missing`);
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, 'opportunity-signals.json', '{}');
+    const err = checkExistence({ name: 'opportunity-signals.json' }, tmp);
+    assert(err === null, 'returns null for existing opportunity-signals.json');
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, 'external-facts.ndjson', '{"ok":true}\n');
+    const err = checkExistence({ name: 'external-facts.ndjson' }, tmp);
+    assert(err === null, 'returns null for existing external-facts.ndjson');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// checkParsable on external intake JSON files
+console.log('checkParsable (external intake JSON)');
+for (const [name, spec] of Object.entries(EXTERNAL_INTAKE_SPECS)) {
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, name, '{not json}');
+    const err = checkParsable({ name }, tmp);
+    assert(err !== null, `returns error for invalid JSON in ${name}`);
+    assert(err.type === 'invalid-json', `${name} error type is invalid-json`);
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    const content = JSON.stringify({ schemaVersion: 1, signals: [] });
+    writeFile(tmp, 'opportunity-signals.json', content);
+    const err = checkParsable({ name: 'opportunity-signals.json' }, tmp);
+    assert(err === null, 'returns null for valid opportunity-signals.json');
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    const content = JSON.stringify({ signalVersion: 1, capturedAt: new Date().toISOString(), signals: [] });
+    writeFile(tmp, 'risk-signals.json', content);
+    const err = checkParsable({ name: 'risk-signals.json' }, tmp);
+    assert(err === null, 'returns null for valid risk-signals.json');
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    const content = JSON.stringify({ stateVersion: 1, global: {} });
+    writeFile(tmp, 'local-resource.json', content);
+    const err = checkParsable({ name: 'local-resource.json' }, tmp);
+    assert(err === null, 'returns null for valid local-resource.json');
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    const err = checkParsable({ name: 'external-facts.ndjson' }, tmp);
+    assert(err === null, 'returns null for missing ndjson (existence check is separate)');
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    const content = '{"eventVersion":1,"eventType":"evidence.intake"}\n';
+    writeFile(tmp, 'external-facts.ndjson', content);
+    const err = checkParsable({ name: 'external-facts.ndjson' }, tmp);
+    assert(err === null, 'returns null for single-line ndjson (JSON.parse succeeds)');
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    const content = '{"a":1}\n{"b":2}\n';
+    writeFile(tmp, 'external-facts.ndjson', content);
+    const err = checkParsable({ name: 'external-facts.ndjson' }, tmp);
+    assert(err !== null, 'returns error for multi-line ndjson (JSON.parse fails)');
+    assert(err.type === 'invalid-json', 'multi-line ndjson error type is invalid-json');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// checkSchema on external intake JSON files
+console.log('checkSchema (external intake JSON)');
+for (const [name, spec] of Object.entries(EXTERNAL_INTAKE_SPECS)) {
+  const tmp = makeTmpDir();
+  try {
+    writeFile(tmp, name, JSON.stringify({ other: 'field' }));
+    const err = checkSchema({ name, ...spec }, tmp);
+    assert(err !== null, `returns error for missing version field in ${name}`);
+    assert(err.type === 'missing-version', `${name} error type is missing-version`);
+  } finally {
+    cleanup(tmp);
+  }
+}
+for (const [name, spec] of Object.entries(EXTERNAL_INTAKE_SPECS)) {
+  const tmp = makeTmpDir();
+  try {
+    const versionObj = { [spec.versionField]: 1 };
+    writeFile(tmp, name, JSON.stringify(versionObj));
+    const err = checkSchema({ name, ...spec }, tmp);
+    assert(err !== null, `returns error for missing required keys in ${name}`);
+    assert(err.type === 'missing-keys', `${name} error type is missing-keys`);
+  } finally {
+    cleanup(tmp);
+  }
+}
+for (const [name, spec] of Object.entries(EXTERNAL_INTAKE_SPECS)) {
+  const tmp = makeTmpDir();
+  try {
+    const validObj = { [spec.versionField]: 1 };
+    for (const key of spec.requiredKeys) {
+      if (key !== spec.versionField) validObj[key] = key === 'signals' ? [] : key === 'global' ? {} : new Date().toISOString();
+    }
+    writeFile(tmp, name, JSON.stringify(validObj));
+    const err = checkSchema({ name, ...spec }, tmp);
+    assert(err === null, `returns null for valid schema in ${name}`);
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    const err = checkSchema({ name: 'external-facts.ndjson', versionField: 'eventVersion', requiredKeys: ['eventVersion', 'eventType'] }, tmp);
+    assert(err === null, 'returns null for missing ndjson (existence check is separate)');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// checkStaleness on external intake files
+console.log('checkStaleness (external intake)');
+{
+  const tmp = makeTmpDir();
+  try {
+    const now = new Date().toISOString();
+    writeFile(tmp, 'risk-signals.json', JSON.stringify({ signalVersion: 1, capturedAt: now, signals: [] }));
+    const err = checkStaleness({ name: 'risk-signals.json' }, 48, tmp);
+    assert(err === null, 'returns null for fresh risk-signals.json');
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    const stale = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
+    writeFile(tmp, 'risk-signals.json', JSON.stringify({ signalVersion: 1, capturedAt: stale, signals: [] }));
+    const err = checkStaleness({ name: 'risk-signals.json' }, 48, tmp);
+    assert(err !== null, 'returns warning for stale risk-signals.json');
+    assert(err.type === 'stale', 'risk-signals stale warning type is stale');
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    const now = new Date().toISOString();
+    writeFile(tmp, 'opportunity-signals.json', JSON.stringify({ schemaVersion: 1, signals: [], capturedAt: now }));
+    const err = checkStaleness({ name: 'opportunity-signals.json' }, 48, tmp);
+    assert(err === null, 'returns null for fresh opportunity-signals.json');
+  } finally {
+    cleanup(tmp);
+  }
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    const recent = new Date().toISOString();
+    writeFile(tmp, 'external-facts.ndjson', `{"eventVersion":1,"capturedAt":"${recent}"}\n`);
+    const err = checkStaleness({ name: 'external-facts.ndjson' }, 48, tmp);
+    assert(err === null, 'returns null for fresh ndjson (single-line parse)');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// checkStaleness with CAPTURED_AT_KEYS fallback
+console.log('checkStaleness (CAPTURED_AT_KEYS fallback)');
+{
+  assert(Array.isArray(CAPTURED_AT_KEYS), 'CAPTURED_AT_KEYS is exported as array');
+  assertDeepEqual(CAPTURED_AT_KEYS, ['capturedAt', 'calculatedAt'], 'CAPTURED_AT_KEYS has expected values');
+}
+{
+  const tmp = makeTmpDir();
+  try {
+    const recent = new Date().toISOString();
+    writeFile(tmp, 'test.json', JSON.stringify({ calculatedAt: recent }));
+    const err = checkStaleness({ name: 'test.json' }, 48, tmp);
+    assert(err === null, 'checkStaleness finds calculatedAt via CAPTURED_AT_KEYS');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// --- External intake files: integration with real .github/ai-state ---
+
+console.log('external intake (real directory)');
+{
+  const externalIntakeFiles = [
+    'opportunity-signals.json',
+    'risk-signals.json',
+    'external-facts.ndjson',
+  ];
+  const existing = externalIntakeFiles.filter((f) => fs.existsSync(path.join(AI_STATE_DIR, f)));
+  assert(existing.length > 0, `at least one external intake file exists in ai-state (found ${existing.length})`);
+
+  for (const name of existing.filter((f) => f.endsWith('.json'))) {
+    const spec = { name, ...EXTERNAL_INTAKE_SPECS[name] };
+    const parseErr = checkParsable(spec, AI_STATE_DIR);
+    assert(parseErr === null, `${name} is parseable JSON in real directory`);
+    const schemaErr = checkSchema(spec, AI_STATE_DIR);
+    assert(schemaErr === null, `${name} passes schema check in real directory`);
+  }
+}
+
+// run() should not be affected by external intake files (they are not in EXPECTED_FILES)
+console.log('run() ignores external intake files');
+{
+  const tmp = makeTmpDir();
+  try {
+    const now = new Date().toISOString();
+    // Write all EXPECTED_FILES as valid
+    writeFile(tmp, 'launch-locks.json', JSON.stringify({ markerVersion: 1, capturedAt: now, locks: [] }));
+    writeFile(tmp, 'main-health.json', JSON.stringify({ markerVersion: 1, state: 'green', capturedAt: now }));
+    writeFile(tmp, 'provider-pool.json', JSON.stringify({ stateVersion: 1, providers: [], global: {} }));
+    writeFile(tmp, 'worker-trust.json', JSON.stringify({ markerVersion: 1, capturedAt: now, workerClasses: {} }));
+    writeFile(tmp, 'active-workers.json', JSON.stringify({ markerVersion: 1, capturedAt: now, workers: [] }));
+    writeFile(tmp, 'meta-signals.json', JSON.stringify({ snapshotVersion: 1, signals: {} }));
+    // Write external intake files with bad content
+    writeFile(tmp, 'opportunity-signals.json', '{bad json}');
+    writeFile(tmp, 'risk-signals.json', '{bad json}');
+    writeFile(tmp, 'external-facts.ndjson', 'not ndjson at all');
+
+    const result = run({ dir: tmp, staleThresholdHours: 48 });
+    assert(result.errors.length === 0, 'run() returns no errors when EXPECTED_FILES are valid (external intake files are not checked)');
+    assert(result.fileCount === EXPECTED_FILES.length, 'fileCount matches EXPECTED_FILES.length, not total files');
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+// run() result.fileCount reflects EXPECTED_FILES length
+console.log('run() fileCount');
+{
+  assert(EXPECTED_FILES.length === 6, 'EXPECTED_FILES has 6 entries (unchanged)');
 }
 
 // --- Results ---
