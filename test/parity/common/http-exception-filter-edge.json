@@ -1,0 +1,219 @@
+[
+  {
+    "id": "non-error-thrown-string",
+    "endpoint": "filter/GlobalExceptionFilter",
+    "description": "Thrown string (non-Error) produces 500 Internal server error",
+    "request": { "method": "FILTER", "exception": "raw string exception" },
+    "expected": {
+      "status": 500,
+      "envelope": {
+        "ok": false,
+        "error": {
+          "code": "INTERNAL_ERROR",
+          "message": "Internal server error",
+          "statusCode": 500
+        }
+      }
+    },
+    "notes": "Non-Error throwable hits the else branch, defaulting to status 500 and 'Internal server error'."
+  },
+  {
+    "id": "non-error-thrown-null",
+    "endpoint": "filter/GlobalExceptionFilter",
+    "description": "Thrown null produces 500 Internal server error",
+    "request": { "method": "FILTER", "exception": null },
+    "expected": {
+      "status": 500,
+      "envelope": {
+        "ok": false,
+        "error": {
+          "code": "INTERNAL_ERROR",
+          "message": "Internal server error",
+          "statusCode": 500
+        }
+      }
+    },
+    "notes": "null is not instanceof Error, hits the else branch."
+  },
+  {
+    "id": "status-to-code-401",
+    "endpoint": "filter/GlobalExceptionFilter",
+    "description": "HttpException 401 maps to UNAUTHORIZED code",
+    "request": { "method": "FILTER", "exception": "HttpException(401)" },
+    "expected": {
+      "status": 401,
+      "envelope": {
+        "ok": false,
+        "error": {
+          "code": "UNAUTHORIZED",
+          "statusCode": 401
+        }
+      }
+    },
+    "notes": "statusToCode maps 401 to UNAUTHORIZED."
+  },
+  {
+    "id": "status-to-code-403",
+    "endpoint": "filter/GlobalExceptionFilter",
+    "description": "HttpException 403 maps to FORBIDDEN code",
+    "request": { "method": "FILTER", "exception": "HttpException(403)" },
+    "expected": {
+      "status": 403,
+      "envelope": {
+        "ok": false,
+        "error": {
+          "code": "FORBIDDEN",
+          "statusCode": 403
+        }
+      }
+    },
+    "notes": "statusToCode maps 403 to FORBIDDEN."
+  },
+  {
+    "id": "status-to-code-429",
+    "endpoint": "filter/GlobalExceptionFilter",
+    "description": "HttpException 429 maps to TOO_MANY_REQUESTS code",
+    "request": { "method": "FILTER", "exception": "HttpException(429)" },
+    "expected": {
+      "status": 429,
+      "envelope": {
+        "ok": false,
+        "error": {
+          "code": "TOO_MANY_REQUESTS",
+          "statusCode": 429
+        }
+      }
+    },
+    "notes": "statusToCode maps 429 to TOO_MANY_REQUESTS."
+  },
+  {
+    "id": "unmapped-status-418",
+    "endpoint": "filter/GlobalExceptionFilter",
+    "description": "Unmapped status 418 falls back to ERROR code",
+    "request": { "method": "FILTER", "exception": "HttpException(418)" },
+    "expected": {
+      "status": 418,
+      "envelope": {
+        "ok": false,
+        "error": {
+          "code": "ERROR",
+          "statusCode": 418
+        }
+      }
+    },
+    "notes": "statusToCode returns 'ERROR' fallback for unmapped status codes via nullish coalescing."
+  },
+  {
+    "id": "object-response-error-field",
+    "endpoint": "filter/GlobalExceptionFilter",
+    "description": "Object response with error field uses it as envelope code",
+    "request": {
+      "method": "FILTER",
+      "exception": "HttpException({message:'Validation failed', error:'Bad Request'}, 400)"
+    },
+    "expected": {
+      "status": 400,
+      "envelope": {
+        "ok": false,
+        "error": {
+          "code": "Bad Request",
+          "message": "Validation failed",
+          "statusCode": 400
+        }
+      }
+    },
+    "notes": "When response is an object with an error field, that string is used as code instead of statusToCode."
+  },
+  {
+    "id": "object-response-no-error-field",
+    "endpoint": "filter/GlobalExceptionFilter",
+    "description": "Object response without error field falls back to statusToCode",
+    "request": {
+      "method": "FILTER",
+      "exception": "HttpException({message:'Something wrong'}, 404)"
+    },
+    "expected": {
+      "status": 404,
+      "envelope": {
+        "ok": false,
+        "error": {
+          "code": "NOT_FOUND",
+          "message": "Something wrong",
+          "statusCode": 404
+        }
+      }
+    },
+    "notes": "Missing error field: code is undefined (falsy), falls through to statusToCode(404) = NOT_FOUND."
+  },
+  {
+    "id": "object-response-empty",
+    "endpoint": "filter/GlobalExceptionFilter",
+    "description": "Empty object response uses defaults for message and code",
+    "request": {
+      "method": "FILTER",
+      "exception": "HttpException({}, 422)"
+    },
+    "expected": {
+      "status": 422,
+      "envelope": {
+        "ok": false,
+        "error": {
+          "code": "UNPROCESSABLE_ENTITY",
+          "message": "Internal server error",
+          "statusCode": 422
+        }
+      }
+    },
+    "notes": "Empty object: r.message is undefined (falsy) so message keeps default; r.error is undefined so code uses statusToCode."
+  },
+  {
+    "id": "string-response-empty",
+    "endpoint": "filter/GlobalExceptionFilter",
+    "description": "Empty string response is used as message",
+    "request": {
+      "method": "FILTER",
+      "exception": "HttpException('', 404)"
+    },
+    "expected": {
+      "status": 404,
+      "envelope": {
+        "ok": false,
+        "error": {
+          "code": "NOT_FOUND",
+          "message": "",
+          "statusCode": 404
+        }
+      }
+    },
+    "notes": "typeof '' === 'string' so message is set to empty string."
+  },
+  {
+    "id": "envelope-shape-contract",
+    "endpoint": "filter/GlobalExceptionFilter",
+    "description": "ErrorEnvelope always has ok, error.code, error.message, error.statusCode, error.timestamp, error.path",
+    "request": { "method": "FILTER", "exception": "HttpException('test', 400)" },
+    "expected": {
+      "status": 400,
+      "envelope": {
+        "ok": false,
+        "error": {
+          "code": "BAD_REQUEST",
+          "message": "test",
+          "statusCode": 400
+        }
+      },
+      "shape": {
+        "required": ["ok", "error.code", "error.message", "error.statusCode", "error.timestamp", "error.path"],
+        "types": {
+          "ok": "boolean",
+          "error.code": "string",
+          "error.message": "string",
+          "error.statusCode": "number",
+          "error.timestamp": "string",
+          "error.path": "string"
+        }
+      }
+    },
+    "notes": "Full ErrorEnvelope shape contract validation including ISO timestamp and path reflection."
+  }
+]
