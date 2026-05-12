@@ -44,7 +44,10 @@
     "ops:webui:worker-metrics": "pwsh -NoProfile -File scripts/ai/sample-worker-metrics.ps1",
     "ops:plan-next-batch": "pwsh -NoProfile -File scripts/ai/plan-next-batch.ps1",
     "ops:plan:check-duplicates": "node scripts/ai/check-duplicate-route-tasks.js",
-    "ops:plan:write-issues": "pwsh -NoProfile -File scripts/ai/write-planned-issues.ps1"
+    "ops:plan:write-issues": "pwsh -NoProfile -File scripts/ai/write-planned-issues.ps1",
+    "ops:validate-external-fact": "node scripts/ai/validate-external-fact.js",
+    "ops:calculate-opportunity-signals": "node scripts/ai/calculate-opportunity-signals.js",
+    "ops:check-agent-idea-gate": "node scripts/ai/check-agent-idea-gate.js"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",
