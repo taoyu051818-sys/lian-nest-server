@@ -1,0 +1,123 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/taoyu051818-sys/lian-nest-server/schemas/contribution-ledger.schema.json",
+  "title": "ContributionLedgerEntry",
+  "description": "Append-only NDJSON ledger entry recording agent contribution for accepted work. Separates claimed contribution from accepted contribution after PR merge and health green. Contribution is measured by validated outcomes, not token cost. See docs/ai-native/contribution-ledger.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "entryId",
+    "recordedAt",
+    "taskId",
+    "issueNumber",
+    "agentId",
+    "role",
+    "contributionType",
+    "status",
+    "validated",
+    "description"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version pinned to 1. Consumers must reject records with a different version."
+    },
+    "entryId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier for this ledger entry (UUID or monotonic ID)."
+    },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this entry was recorded."
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Worker task identifier, matching the heartbeat taskId and worker-telemetry taskId."
+    },
+    "issueNumber": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "GitHub issue number this contribution targets."
+    },
+    "prNumber": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub pull request number produced by this contribution, if applicable."
+    },
+    "agentId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier of the AI agent that performed the work (e.g. provider instance, worker slot)."
+    },
+    "role": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Role that performed the work, from the task contract rolePacket."
+    },
+    "contributionType": {
+      "type": "string",
+      "enum": [
+        "code-change",
+        "schema-change",
+        "doc-change",
+        "test-change",
+        "config-change",
+        "fact-produced",
+        "review",
+        "research"
+      ],
+      "description": "Category of contribution made."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "claimed",
+        "accepted",
+        "rolled-back",
+        "disputed"
+      ],
+      "description": "Contribution lifecycle: claimed (work submitted), accepted (PR merged and health green), rolled-back (reverted after merge), disputed (rejected or contested)."
+    },
+    "validated": {
+      "type": "boolean",
+      "description": "Whether the contribution passed all validation gates (npm run check, health, etc.)."
+    },
+    "reused": {
+      "type": ["boolean", "null"],
+      "description": "Whether this contribution reused or extended prior work from another task or agent."
+    },
+    "rollbackOf": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "If status is rolled-back, the entryId of the original contribution that was reverted."
+    },
+    "branch": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "Git branch or worktree name for the contribution."
+    },
+    "commit": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{7,40}$",
+      "description": "Git commit SHA (7-40 hex characters) of the merged commit."
+    },
+    "conflictGroup": {
+      "type": ["string", "null"],
+      "description": "Logical conflict group for parallelism control, matching the task contract."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable description of the contribution."
+    },
+    "meta": {
+      "type": ["object", "null"],
+      "description": "Arbitrary key-value metadata for downstream analysis. Must not contain secrets, tokens, or credentials."
+    }
+  }
+}
