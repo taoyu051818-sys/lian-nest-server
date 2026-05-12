@@ -26,6 +26,7 @@ const INPUT_FILES = {
   health: 'main-health.json', activeWorkers: 'active-workers.json',
   metaSignals: 'meta-signals.json', providerPool: 'provider-pool.json',
   workerTrust: 'worker-trust.json', queue: 'queue-state.json',
+  legacyRetirement: 'legacy-orchestration-retirement.json',
 };
 
 const SECRET_PATTERNS = [/token/i, /secret/i, /key/i, /password/i, /credential/i, /auth/i, /bearer/i];
@@ -113,13 +114,30 @@ function buildHealthSection(h) {
     checks: Array.isArray(h.checks) ? h.checks : [], failedChecks: Array.isArray(h.failedChecks) ? h.failedChecks : [] };
 }
 
+function evaluateDuty7Status(retirement) {
+  if (!retirement) return { status: 'blocked', evidence: 'legacy-orchestration-retirement.json missing' };
+  const rs = retirement.status;
+  if (rs === 'complete') return { status: 'met', evidence: 'retirement status is complete' };
+  if (rs === 'rolled_back' || rs === 'pending') return { status: 'blocked', evidence: `retirement status is ${rs}` };
+  if (rs === 'in_progress') {
+    const d7 = retirement.duties && retirement.duties['duty-7'];
+    if (!d7) return { status: 'blocked', evidence: 'duty-7 entry missing from retirement state' };
+    const s = d7.status;
+    if (s === 'met') return { status: 'met', evidence: 'duty-7 marked met in retirement state' };
+    if (s === 'partial') return { status: 'partial', evidence: 'duty-7 marked partial in retirement state' };
+    return { status: 'blocked', evidence: `duty-7 status is ${s}` };
+  }
+  return { status: 'blocked', evidence: `unknown retirement status: ${rs}` };
+}
+
 function evaluateCodexDuties(inputs) {
-  const { health: h, activeWorkers: w, workerTrust: wt, metaSignals: m } = inputs;
+  const { health: h, activeWorkers: w, workerTrust: wt, metaSignals: m, legacyRetirement: lr } = inputs;
   const hOk = h !== null && h.state;
   const wOk = w !== null;
   const schedOk = wt && wt.scheduling && Array.isArray(wt.scheduling.rules) && wt.scheduling.rules.length > 0;
   const ffOk = !!(wt && wt.workerClasses && wt.workerClasses['foundation-fix']);
   const mOk = m !== null;
+  const duty7 = evaluateDuty7Status(lr);
 
   return [
     { id: 'duty-1', name: 'Self-cycle runner launches workers autonomously', blocking: true,
@@ -135,7 +153,7 @@ function evaluateCodexDuties(inputs) {
     { id: 'duty-6', name: 'Next-wave decisions are human-initiated', blocking: true,
       status: 'met', evidence: 'self-cycle runner pauses after wave; human decides next' },
     { id: 'duty-7', name: 'Legacy orchestration retired', blocking: true,
-      status: 'blocked', evidence: 'legacy migration status not available from state files' },
+      status: duty7.status, evidence: duty7.evidence },
     { id: 'duty-8', name: 'Loop-model runner operational', blocking: true,
       status: wOk && mOk ? 'met' : 'blocked', evidence: wOk && mOk ? 'active-workers and meta-signals loadable' : 'state files missing' },
   ];

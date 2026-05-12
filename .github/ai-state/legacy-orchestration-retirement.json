@@ -1,0 +1,21 @@
+{
+  "markerVersion": 1,
+  "capturedAt": "2026-05-12T00:00:00Z",
+  "status": "in_progress",
+  "duties": {
+    "duty-1": { "name": "Worker dispatch", "status": "met" },
+    "duty-2": { "name": "Launch gate enforcement", "status": "met" },
+    "duty-3": { "name": "Health gate auto-trigger", "status": "partial" },
+    "duty-4": { "name": "Recovery worker auto-dispatch", "status": "partial" },
+    "duty-5": { "name": "PR review gate", "status": "met" },
+    "duty-6": { "name": "Wave sequencing", "status": "met" },
+    "duty-7": { "name": "Legacy orchestration retired", "status": "in_progress" }
+  },
+  "blockingDutiesMet": 5,
+  "blockingDutiesTotal": 6,
+  "nextAction": "Verify two consecutive self-cycle cycles complete without Codex intervention",
+  "sourceDocs": [
+    "docs/ai-native/codex-duty-exit-checklist.md",
+    "docs/ai-native/legacy-orchestration-retirement-status.md"
+  ]
+}
