@@ -66,6 +66,23 @@ function Write-HealthFixture {
     $health | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $Dir "02-health-green.json") -Encoding UTF8
 }
 
+function Write-ResourceFixture {
+    param([string]$Dir, [string]$State = "green")
+    $resource = @{
+        stateVersion = 1
+        cpu = @{ cores = 8; usagePercent = 25 }
+        memory = @{ totalGB = 16; usedGB = 4; availableGB = 12; usagePercent = 25 }
+        disk = @{ totalGB = 500; usedGB = 100; availableGB = 400; usagePercent = 20 }
+        global = @{
+            resourceState = $State
+            lastUpdatedBy = "fixture"
+            capturedAt = "2026-05-11T00:00:00Z"
+            ttlSeconds = 300
+        }
+    }
+    $resource | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $Dir "local-resource.json") -Encoding UTF8
+}
+
 function Write-TaskFixture {
     param([string]$Dir, [object]$Task)
     $wrapper = @{
@@ -80,6 +97,16 @@ function Invoke-SelfCycle {
     param([string]$FixtureDir)
     $outFile = Join-Path ([System.IO.Path]::GetTempPath()) "autopilot-test-output-$(Get-Random).txt"
     & pwsh -NoProfile -File $SELF_CYCLE -DryRunFixture $FixtureDir *> $outFile
+    $exitCode = $LASTEXITCODE
+    $output = Get-Content $outFile -Raw -Encoding UTF8
+    Remove-Item $outFile -ErrorAction SilentlyContinue
+    return @{ exitCode = $exitCode; output = $output }
+}
+
+function Invoke-SelfCycleExecuteDryRun {
+    param([string]$FixtureDir)
+    $outFile = Join-Path ([System.IO.Path]::GetTempPath()) "autopilot-test-execute-output-$(Get-Random).txt"
+    & pwsh -NoProfile -File $SELF_CYCLE -DryRunExecute $FixtureDir *> $outFile
     $exitCode = $LASTEXITCODE
     $output = Get-Content $outFile -Raw -Encoding UTF8
     Remove-Item $outFile -ErrorAction SilentlyContinue
@@ -159,6 +186,7 @@ $plan = $planRaw | ConvertFrom-Json
     $candidate = $plan.candidates | Where-Object { $_.issueNumber -eq 601 } | Select-Object -First 1
     Write-TaskFixture $dir $candidate.task
     Write-HealthFixture $dir "green"
+    Write-ResourceFixture $dir "green"
 
     $result = Invoke-SelfCycle $dir
     Assert-True ($result.exitCode -eq 0) "scenario 3: exit code 0"
@@ -179,6 +207,7 @@ $plan = $planRaw | ConvertFrom-Json
     $candidate = $plan.candidates | Where-Object { $_.issueNumber -eq 602 } | Select-Object -First 1
     Write-TaskFixture $dir $candidate.task
     Write-HealthFixture $dir "green"
+    Write-ResourceFixture $dir "green"
 
     $result = Invoke-SelfCycle $dir
     Assert-True ($result.exitCode -eq 0) "scenario 4: exit code 0"
@@ -198,6 +227,7 @@ $plan = $planRaw | ConvertFrom-Json
     $candidate = $plan.candidates | Where-Object { $_.issueNumber -eq 603 } | Select-Object -First 1
     Write-TaskFixture $dir $candidate.task
     Write-HealthFixture $dir "green"
+    Write-ResourceFixture $dir "green"
 
     # Verify it shares conflict group with #601
     $firstCandidate = $plan.candidates | Where-Object { $_.issueNumber -eq 601 } | Select-Object -First 1
@@ -288,6 +318,7 @@ $plan = $planRaw | ConvertFrom-Json
     $candidate = $plan.candidates | Where-Object { $_.issueNumber -eq 601 } | Select-Object -First 1
     Write-TaskFixture $dir $candidate.task
     Write-HealthFixture $dir "red"
+    Write-ResourceFixture $dir "green"
 
     $result = Invoke-SelfCycle $dir
     Assert-True ($result.exitCode -eq 1) "scenario 9: exit code 1 (blocked)"
@@ -370,6 +401,87 @@ $plan = $planRaw | ConvertFrom-Json
     Assert-True ($emptyPlan.skippedIssues.Count -eq 0) "scenario 12: skippedIssues Count is 0"
     Assert-True ($emptyPlan.proposed -eq 0) "scenario 12: proposed is 0"
     Assert-True ($emptyPlan.proposed -le $emptyPlan.maxTasks) "scenario 12: proposed <= maxTasks"
+}
+
+# ===========================================================================
+# Scenario 13: Execute mode dispatches low/medium risk tasks (regression #1286)
+# ===========================================================================
+
+& {
+    Write-Host "--- Scenario 13: Execute dispatches low/medium risk tasks" -ForegroundColor DarkCyan
+    $dir = New-TempFixtureDir
+
+    $candidate = $plan.candidates | Where-Object { $_.issueNumber -eq 601 } | Select-Object -First 1
+    Write-TaskFixture $dir $candidate.task
+    Write-HealthFixture $dir "green"
+    Write-ResourceFixture $dir "green"
+
+    $result = Invoke-SelfCycleExecuteDryRun $dir
+    Assert-True ($result.exitCode -eq 0) "scenario 13: exit code 0"
+    Assert-True ($result.output -match "dispatched") "scenario 13: contains 'dispatched'"
+    Assert-True ($result.output -notmatch "HUMAN DECISION REQUIRED") "scenario 13: no human stop"
+
+    Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# ===========================================================================
+# Scenario 14: Execute mode records high-risk tasks as pending (regression #1286)
+# ===========================================================================
+
+& {
+    Write-Host "--- Scenario 14: Execute records high-risk tasks as pending" -ForegroundColor DarkCyan
+    $dir = New-TempFixtureDir
+
+    # Create a high-risk task
+    $highRiskTask = @{
+        taskType           = "execution"
+        risk               = "high"
+        conflictGroup      = "test-high-risk"
+        targetIssue        = 999
+        targetPR           = $null
+        issues             = @(999)
+        expectedPR         = $true
+        allowedFiles       = @("src/**")
+        forbiddenFiles     = @("prisma/**")
+        validationCommands = @("npm run check")
+        rolePacket         = @{
+            actorRole   = "test-worker"
+            description = "High-risk test task"
+        }
+    }
+    Write-TaskFixture $dir $highRiskTask
+    Write-HealthFixture $dir "green"
+    Write-ResourceFixture $dir "green"
+
+    $result = Invoke-SelfCycleExecuteDryRun $dir
+    Assert-True ($result.exitCode -eq 0) "scenario 14: exit code 0"
+    Assert-True ($result.output -match "pending") "scenario 14: contains 'pending'"
+    Assert-True ($result.output -notmatch "HUMAN DECISION REQUIRED") "scenario 14: no human stop"
+    Assert-True ($result.output -match "completed-with-pending") "scenario 14: status is completed-with-pending"
+
+    Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# ===========================================================================
+# Scenario 15: Execute handles mixed risk levels (regression #1286)
+# ===========================================================================
+
+& {
+    Write-Host "--- Scenario 15: Execute handles mixed risk levels" -ForegroundColor DarkCyan
+    $dir = New-TempFixtureDir
+
+    # Use the low-risk candidate (will be dispatched)
+    $candidate = $plan.candidates | Where-Object { $_.issueNumber -eq 601 } | Select-Object -First 1
+    Write-TaskFixture $dir $candidate.task
+    Write-HealthFixture $dir "green"
+    Write-ResourceFixture $dir "green"
+
+    $result = Invoke-SelfCycleExecuteDryRun $dir
+    Assert-True ($result.exitCode -eq 0) "scenario 15: exit code 0"
+    Assert-True ($result.output -match "dispatched") "scenario 15: low-risk dispatched"
+    Assert-True ($result.output -notmatch "HUMAN DECISION REQUIRED") "scenario 15: no human stop"
+
+    Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # ===========================================================================

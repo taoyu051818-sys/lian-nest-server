@@ -112,6 +112,9 @@ param(
     [Parameter(ParameterSetName = "DryRunFixture", Mandatory = $true)]
     [string]$DryRunFixture,
 
+    [Parameter(ParameterSetName = "DryRunExecute", Mandatory = $true)]
+    [string]$DryRunExecute,
+
     [string]$Repo = $env:GH_REPO,
 
     [string]$HealthFile = "./.github/ai-state/main-health.json",
@@ -194,13 +197,51 @@ function Write-SectionHeader {
 }
 
 # ---------------------------------------------------------------------------
+# DryRunExecute: fixture-based execute-path simulation (for testing)
+# ---------------------------------------------------------------------------
+
+if ($DryRunExecute) {
+    if (-not (Test-Path $DryRunExecute)) {
+        Write-Fail "DryRunExecute fixture directory not found: $DryRunExecute"
+        exit 2
+    }
+
+    $taskFixtureFile = Get-ChildItem -Path $DryRunExecute -Filter "*-task.json" | Select-Object -First 1
+    $healthFixtureFile = Join-Path $DryRunExecute "02-health-green.json"
+    $resourceFixtureFile = Join-Path $DryRunExecute "local-resource.json"
+
+    if (-not $taskFixtureFile) {
+        Write-Fail "No *-task.json fixture found in $DryRunExecute"
+        exit 2
+    }
+
+    $fixtureRaw = Get-Content -Path $taskFixtureFile.FullName -Raw -Encoding UTF8
+    $fixtureJson = $fixtureRaw | ConvertFrom-Json
+    $taskObj = if ($fixtureJson.task) { $fixtureJson.task } else { $fixtureJson }
+
+    $tempTaskFile = Join-Path ([System.IO.Path]::GetTempPath()) "self-cycle-execute-fixture-task.json"
+    $taskObj | ConvertTo-Json -Depth 10 | Set-Content $tempTaskFile -Encoding UTF8
+
+    $TaskFile = $tempTaskFile
+    $HealthFile = $healthFixtureFile
+    $Execute = $true
+    $SkipReconcile = $true
+    $DryRunExecuteFlag = $true
+
+    # Override resource file if fixture provides one
+    if (Test-Path $resourceFixtureFile) {
+        $ResourceFile = $resourceFixtureFile
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Cycle result tracking
 # ---------------------------------------------------------------------------
 
 $cycleResult = [ordered]@{
     cycleVersion    = 1
     startedAt       = ([DateTime]::UtcNow).ToString("o")
-    mode            = if ($DryRunFixture) { "fixture-dry-run" } elseif ($AutopilotPlan) { "autopilot-plan" } elseif ($Execute) { "execute" } else { "dry-run" }
+    mode            = if ($DryRunFixture) { "fixture-dry-run" } elseif ($DryRunExecute) { "dry-run-execute" } elseif ($AutopilotPlan) { "autopilot-plan" } elseif ($Execute) { "execute" } else { "dry-run" }
     taskFile        = $TaskFile
     steps           = @()
     humanStops      = @()
@@ -242,6 +283,7 @@ if ($DryRunFixture) {
 
     $taskFixtureFile = Get-ChildItem -Path $DryRunFixture -Filter "*-task.json" | Select-Object -First 1
     $healthFixtureFile = Join-Path $DryRunFixture "02-health-green.json"
+    $resourceFixtureFile = Join-Path $DryRunFixture "local-resource.json"
 
     if (-not $taskFixtureFile) {
         Write-Fail "No *-task.json fixture found in $DryRunFixture"
@@ -265,6 +307,11 @@ if ($DryRunFixture) {
     $HealthFile = $healthFixtureFile
     $Execute = $false
     $SkipReconcile = $true
+
+    # Override resource file if fixture provides one
+    if (Test-Path $resourceFixtureFile) {
+        $ResourceFile = $resourceFixtureFile
+    }
 
     # Update cycle result to reflect fixture mode
     $cycleResult.taskFile = $TaskFile
@@ -378,7 +425,7 @@ if ($PlanFirst) {
 # Validate inputs
 # ---------------------------------------------------------------------------
 
-$modeLabel = if ($DryRunFixture) { "FIXTURE-DRY-RUN" } elseif ($AutopilotPlan) { "AUTOPILOT-PLAN" } elseif ($Execute) { "EXECUTE" } else { "DRY-RUN" }
+$modeLabel = if ($DryRunFixture) { "FIXTURE-DRY-RUN" } elseif ($DryRunExecute) { "DRY-RUN-EXECUTE" } elseif ($AutopilotPlan) { "AUTOPILOT-PLAN" } elseif ($Execute) { "EXECUTE" } else { "DRY-RUN" }
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "  Self-Cycle Runner [$modeLabel]" -ForegroundColor Cyan
@@ -848,7 +895,12 @@ Write-SectionHeader "STEP 3 — Launch Gate"
 Write-Step "Running launch gate check against task file..."
 
 try {
-    $gateOutput = & pwsh -NoProfile -File $LAUNCH_GATE -TaskFile $TaskFile -HealthFile $HealthFile 2>&1
+    $gateArgs = @("-TaskFile", $TaskFile, "-HealthFile", $HealthFile)
+    if ($ResourceFile) {
+        $gateArgs += "-ResourceFile"
+        $gateArgs += $ResourceFile
+    }
+    $gateOutput = & pwsh -NoProfile -File $LAUNCH_GATE @gateArgs 2>&1
     $gateExit = $LASTEXITCODE
 
     Write-Host $gateOutput
@@ -910,16 +962,66 @@ if ($AutopilotPlan) {
         Add-StepResult -Name "batch-launch" -Status "error" -Detail "$_"
     }
 } elseif ($Execute) {
-    Write-Step "EXECUTE mode — launching worker via batch-launch.ps1"
-    Write-HumanStop -Reason "About to launch worker in execute mode." `
-                    -NextAction "Confirm launch by re-running with -Execute, or review the dry-run output first."
-    Add-StepResult -Name "batch-launch" -Status "human-gate" `
-                   -Detail "Execute mode requires explicit human confirmation" -HumanStop $true
+    Write-Step "EXECUTE mode — dispatching tasks by risk level"
 
-    # NOTE: In the skeleton we do NOT auto-launch even in execute mode.
-    # The human must re-run or explicitly confirm. This is the primary safety gate.
-    Write-Warn "Skeleton mode: worker not launched automatically."
-    Write-Warn "To launch: ./scripts/ai/batch-launch.ps1 -TaskFile $TaskFile -Execute"
+    # Load task file to partition by risk level
+    $taskContent = Get-Content -Path $TaskFile -Raw -Encoding UTF8
+    $taskData = $taskContent | ConvertFrom-Json
+    $taskArray = if ($taskData -is [array]) { @($taskData) } else { @($taskData) }
+
+    $dispatchableTasks = @()
+    $pendingTasks = @()
+
+    foreach ($t in $taskArray) {
+        if ($t.risk -in @("low", "medium")) {
+            $dispatchableTasks += $t
+        } else {
+            $pendingTasks += $t
+        }
+    }
+
+    # Record high-risk tasks as pending facts (do not block cycle)
+    foreach ($t in $pendingTasks) {
+        Write-Warn "Task #$($t.targetIssue): risk=$($t.risk) — recorded as pending (requires human gate)"
+        Add-StepResult -Name "pending-gate-#$($t.targetIssue)" -Status "pending" `
+                       -Detail "Risk $($t.risk) requires human approval"
+    }
+
+    # Dispatch low/medium risk tasks through batch-launch
+    if ($dispatchableTasks.Count -gt 0) {
+        Write-Step "Dispatching $($dispatchableTasks.Count) low/medium risk task(s) via batch-launch"
+
+        $dispatchTaskFile = Join-Path ([System.IO.Path]::GetTempPath()) "self-cycle-dispatch-tasks.json"
+        $dispatchableTasks | ConvertTo-Json -Depth 10 | Set-Content $dispatchTaskFile -Encoding UTF8
+
+        try {
+            if ($DryRunExecuteFlag) {
+                & pwsh -NoProfile -File $BATCH_LAUNCH -TaskFile $dispatchTaskFile -DryRun
+            } else {
+                & pwsh -NoProfile -File $BATCH_LAUNCH -TaskFile $dispatchTaskFile -Execute
+            }
+            $launchExit = $LASTEXITCODE
+
+            if ($launchExit -eq 0) {
+                Write-Ok "Batch launch dispatched $($dispatchableTasks.Count) task(s)"
+                Add-StepResult -Name "batch-launch" -Status "dispatched" `
+                               -Detail "$($dispatchableTasks.Count) task(s) dispatched"
+            } else {
+                Write-Warn "Batch launch exited with code $launchExit"
+                Add-StepResult -Name "batch-launch" -Status "warning" `
+                               -Detail "Exit code $launchExit"
+            }
+        } catch {
+            Write-Fail "Batch launch failed: $_"
+            Add-StepResult -Name "batch-launch" -Status "error" -Detail "$_"
+        } finally {
+            Remove-Item $dispatchTaskFile -ErrorAction SilentlyContinue
+        }
+    } else {
+        Write-Warn "No low/medium risk tasks to dispatch"
+        Add-StepResult -Name "batch-launch" -Status "skipped" `
+                       -Detail "No low/medium risk tasks to dispatch"
+    }
 } else {
     Write-Step "DRY-RUN mode — printing launch plan"
 
@@ -953,6 +1055,7 @@ $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
 $blockedSteps = @($cycleResult.steps | Where-Object { $_.humanStop })
 $failedSteps  = @($cycleResult.steps | Where-Object { $_.status -in @("error", "blocked") })
 $warnSteps    = @($cycleResult.steps | Where-Object { $_.status -eq "warning" })
+$pendingSteps = @($cycleResult.steps | Where-Object { $_.status -eq "pending" })
 
 if ($AutopilotPlan) {
     if ($failedSteps.Count -gt 0) {
@@ -966,6 +1069,8 @@ if ($AutopilotPlan) {
     $cycleResult.finalStatus = "blocked"
 } elseif ($blockedSteps.Count -gt 0) {
     $cycleResult.finalStatus = "human-stop"
+} elseif ($pendingSteps.Count -gt 0) {
+    $cycleResult.finalStatus = "completed-with-pending"
 } elseif ($warnSteps.Count -gt 0) {
     $cycleResult.finalStatus = "completed-with-warnings"
 } else {
@@ -983,9 +1088,11 @@ foreach ($s in $cycleResult.steps) {
         "autopilot-plan-pass" { "Green" }
         "autopilot-continue" { "Cyan" }
         "read"              { "Green" }
+        "dispatched"        { "Green" }
         "default"           { "Yellow" }
         "warning"           { "Yellow" }
         "skipped"           { "DarkGray" }
+        "pending"           { "Yellow" }
         "blocked"           { "Red" }
         "error"             { "Red" }
         "human-gate"        { "Magenta" }
@@ -1001,6 +1108,7 @@ Write-Host "  Final status: " -NoNewline -ForegroundColor White
 $finalColor = switch ($cycleResult.finalStatus) {
     "completed"                { "Green" }
     "completed-with-warnings"  { "Yellow" }
+    "completed-with-pending"   { "Yellow" }
     "human-stop"               { "Magenta" }
     "blocked"                  { "Red" }
     "blocked-by-health"        { "Red" }
@@ -1023,6 +1131,9 @@ switch ($cycleResult.finalStatus) {
     }
     "completed-with-warnings" {
         Write-Host "Next: Review warnings above. Consider fixing before launching." -ForegroundColor Yellow
+    }
+    "completed-with-pending" {
+        Write-Host "Next: High-risk tasks recorded as pending. Review and approve manually before re-running." -ForegroundColor Yellow
     }
     "human-stop" {
         Write-Host "Next: Address human decision points above before proceeding." -ForegroundColor Magenta
