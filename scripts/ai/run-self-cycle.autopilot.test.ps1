@@ -554,6 +554,100 @@ $plan = $planRaw | ConvertFrom-Json
 }
 
 # ===========================================================================
+# Scenario 17: Bounded CONTROL APPENDIX section parsing (issue #1322)
+# ===========================================================================
+
+& {
+    Write-Host "--- Scenario 17: Bounded CONTROL APPENDIX section parsing" -ForegroundColor DarkCyan
+
+    # Simulate a full CONTROL APPENDIX body as it would appear in a GitHub issue.
+    # The bug was that (?s) in the regex made . match newlines, so - .+ greedily
+    # consumed past section boundaries. Removing (?s) bounds each section to its
+    # own list of - items.
+    $body = @"
+Some issue description here.
+
+---
+CONTROL APPENDIX (launcher generated)
+Task type: execution
+Risk: low
+Conflict group: self-cycle-runner
+Allowed files:
+- scripts/ai/run-self-cycle.ps1
+- scripts/ai/run-self-cycle.autopilot.test.ps1
+- docs/ai-native/self-cycle-runner.md
+Forbidden files:
+- src/**
+- prisma/**
+- package.json
+- package-lock.json
+Validation commands:
+- npm run check
+- npm run ops:health
+- pwsh -NoProfile -File scripts/ai/run-self-cycle.autopilot.test.ps1
+Actor role: self-cycle-compiler-worker
+"@
+
+    # Apply the same regex patterns as run-self-cycle.ps1 (post-fix: no (?s)).
+    # TrimEnd('\r') handles Windows-style here-string line endings.
+    $allowedMatch = [regex]::Match($body, 'Allowed files:\s*\n((?:- .+\n?)+)')
+    $allowedFiles = @()
+    if ($allowedMatch.Success) {
+        $allowedFiles = @(($allowedMatch.Groups[1].Value -split "`n") |
+            Where-Object { $_ -match '^- ' } |
+            ForEach-Object { ($_ -replace '^- ', '').TrimEnd("`r") } |
+            Where-Object { $_ -ne '' })
+    }
+
+    $forbiddenMatch = [regex]::Match($body, 'Forbidden files:\s*\n((?:- .+\n?)+)')
+    $forbiddenFiles = @()
+    if ($forbiddenMatch.Success) {
+        $forbiddenFiles = @(($forbiddenMatch.Groups[1].Value -split "`n") |
+            Where-Object { $_ -match '^- ' } |
+            ForEach-Object { ($_ -replace '^- ', '').TrimEnd("`r") } |
+            Where-Object { $_ -ne '' })
+    }
+
+    $valMatch = [regex]::Match($body, 'Validation commands:\s*\n((?:- .+\n?)+)')
+    $validationCommands = @()
+    if ($valMatch.Success) {
+        $validationCommands = @(($valMatch.Groups[1].Value -split "`n") |
+            Where-Object { $_ -match '^- ' } |
+            ForEach-Object { ($_ -replace '^- ', '').TrimEnd("`r") } |
+            Where-Object { $_ -ne '' })
+    }
+
+    # Verify allowed files are bounded to exactly 3 entries
+    Assert-True ($allowedFiles.Count -eq 3) "scenario 17: allowedFiles has exactly 3 entries"
+    Assert-True ($allowedFiles[0] -eq "scripts/ai/run-self-cycle.ps1") "scenario 17: allowedFiles[0] correct"
+    Assert-True ($allowedFiles[1] -eq "scripts/ai/run-self-cycle.autopilot.test.ps1") "scenario 17: allowedFiles[1] correct"
+    Assert-True ($allowedFiles[2] -eq "docs/ai-native/self-cycle-runner.md") "scenario 17: allowedFiles[2] correct"
+
+    # Verify forbidden files are bounded to exactly 4 entries
+    Assert-True ($forbiddenFiles.Count -eq 4) "scenario 17: forbiddenFiles has exactly 4 entries"
+    Assert-True ($forbiddenFiles[0] -eq "src/**") "scenario 17: forbiddenFiles[0] correct"
+    Assert-True ($forbiddenFiles[1] -eq "prisma/**") "scenario 17: forbiddenFiles[1] correct"
+
+    # Verify validation commands are bounded to exactly 3 entries
+    Assert-True ($validationCommands.Count -eq 3) "scenario 17: validationCommands has exactly 3 entries"
+    Assert-True ($validationCommands[0] -eq "npm run check") "scenario 17: validationCommands[0] correct"
+    Assert-True ($validationCommands[1] -eq "npm run ops:health") "scenario 17: validationCommands[1] correct"
+    Assert-True ($validationCommands[2] -eq "pwsh -NoProfile -File scripts/ai/run-self-cycle.autopilot.test.ps1") "scenario 17: validationCommands[2] correct"
+
+    # Verify no cross-contamination: allowedFiles must not contain forbidden entries
+    $hasForbiddenInAllowed = $allowedFiles | Where-Object { $_ -match "src/\*\*" -or $_ -match "prisma/\*\*" -or $_ -match "package\.json" }
+    Assert-True ($null -eq $hasForbiddenInAllowed -or @($hasForbiddenInAllowed).Count -eq 0) "scenario 17: no forbidden files leaked into allowedFiles"
+
+    # Verify no cross-contamination: allowedFiles must not contain validation commands
+    $hasValInAllowed = $allowedFiles | Where-Object { $_ -match "npm run" -or $_ -match "pwsh" }
+    Assert-True ($null -eq $hasValInAllowed -or @($hasValInAllowed).Count -eq 0) "scenario 17: no validation commands leaked into allowedFiles"
+
+    # Verify no cross-contamination: forbiddenFiles must not contain validation commands
+    $hasValInForbidden = $forbiddenFiles | Where-Object { $_ -match "npm run" -or $_ -match "pwsh" }
+    Assert-True ($null -eq $hasValInForbidden -or @($hasValInForbidden).Count -eq 0) "scenario 17: no validation commands leaked into forbiddenFiles"
+}
+
+# ===========================================================================
 # Summary
 # ===========================================================================
 

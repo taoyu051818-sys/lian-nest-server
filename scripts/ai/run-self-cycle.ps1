@@ -513,7 +513,7 @@ if ($IssueLabel) {
 
         if ($body) {
             # Extract allowed files
-            $allowedMatch = [regex]::Match($body, '(?s)Allowed files:\s*\n((?:- .+\n?)+)')
+            $allowedMatch = [regex]::Match($body, 'Allowed files:\s*\n((?:- .+\n?)+)')
             if ($allowedMatch.Success) {
                 $allowedFiles = @(($allowedMatch.Groups[1].Value -split "`n") |
                     Where-Object { $_ -match '^- ' } |
@@ -522,7 +522,7 @@ if ($IssueLabel) {
             }
 
             # Extract forbidden files
-            $forbiddenMatch = [regex]::Match($body, '(?s)Forbidden files:\s*\n((?:- .+\n?)+)')
+            $forbiddenMatch = [regex]::Match($body, 'Forbidden files:\s*\n((?:- .+\n?)+)')
             if ($forbiddenMatch.Success) {
                 $forbiddenFiles = @(($forbiddenMatch.Groups[1].Value -split "`n") |
                     Where-Object { $_ -match '^- ' } |
@@ -531,7 +531,7 @@ if ($IssueLabel) {
             }
 
             # Extract validation commands
-            $valMatch = [regex]::Match($body, '(?s)Validation commands:\s*\n((?:- .+\n?)+)')
+            $valMatch = [regex]::Match($body, 'Validation commands:\s*\n((?:- .+\n?)+)')
             if ($valMatch.Success) {
                 $validationCommands = @(($valMatch.Groups[1].Value -split "`n") |
                     Where-Object { $_ -match '^- ' } |
