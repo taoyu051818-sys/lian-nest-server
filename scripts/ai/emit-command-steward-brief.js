@@ -39,6 +39,7 @@ const INPUT_FILES = {
   riskSignals:       'risk-signals.json',
   opportunitySignals: 'opportunity-signals.json',
   launchLocks:       'launch-locks.json',
+  workerTelemetry:   'worker-telemetry-events.ndjson',
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -48,6 +49,26 @@ function readJsonFile(filePath) {
   try {
     const content = fs.readFileSync(filePath, 'utf8');
     return JSON.parse(content);
+  } catch {
+    return null;
+  }
+}
+
+function readNdjsonFile(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const records = [];
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        records.push(JSON.parse(trimmed));
+      } catch {
+        // skip malformed lines
+      }
+    }
+    return records;
   } catch {
     return null;
   }
@@ -70,13 +91,14 @@ OPTIONS
 INPUT FILES (all optional — absent files produce conservative defaults)
     main-health.json, provider-pool.json, local-resource.json,
     active-workers.json, worker-trust.json, meta-signals.json,
-    risk-signals.json, opportunity-signals.json, launch-locks.json
+    risk-signals.json, opportunity-signals.json, launch-locks.json,
+    worker-telemetry-events.ndjson
 
 BRIEF SECTIONS
     systemStatus, providerSummary, workerSummary, trustSummary,
     lockSummary, metaSignalsSummary, riskSignalsSummary,
-    opportunitySignalsSummary, blockers, recommendedNextActions,
-    humanRequiredItems
+    opportunitySignalsSummary, budgetSummary, blockers,
+    recommendedNextActions, humanRequiredItems
 
 EXIT CODES
     0   Brief produced
@@ -295,6 +317,141 @@ function buildOpportunitySignalsSummary(inputs) {
   };
 }
 
+function buildBudgetSummary(inputs) {
+  const events = inputs.workerTelemetry;
+  if (!events || !Array.isArray(events)) {
+    return {
+      loaded: false,
+      recentWorkerCount: 0,
+      avgWallClockMs: null,
+      slowestWallClockMs: null,
+      tokenSummary: { high: { inputTokens: 0, outputTokens: 0 }, medium: { inputTokens: 0, outputTokens: 0 }, low: { inputTokens: 0, outputTokens: 0 }, unknown: { inputTokens: 0, outputTokens: 0 } },
+      costEstimate: { totalCents: 0, pricingBasis: 'unknown' },
+      budgetBlockers: [],
+    };
+  }
+
+  // Filter to complete events only — those carry final telemetry
+  const completeEvents = events.filter(e => e && e.eventType === 'complete');
+  const recentWorkerCount = completeEvents.length;
+
+  if (recentWorkerCount === 0) {
+    return {
+      loaded: true,
+      recentWorkerCount: 0,
+      avgWallClockMs: null,
+      slowestWallClockMs: null,
+      tokenSummary: { high: { inputTokens: 0, outputTokens: 0 }, medium: { inputTokens: 0, outputTokens: 0 }, low: { inputTokens: 0, outputTokens: 0 }, unknown: { inputTokens: 0, outputTokens: 0 } },
+      costEstimate: { totalCents: 0, pricingBasis: 'unknown' },
+      budgetBlockers: [],
+    };
+  }
+
+  // Aggregate wall-clock time
+  let totalElapsed = 0;
+  let maxElapsed = 0;
+  let timingCount = 0;
+
+  // Aggregate tokens by confidence
+  const tokenSummary = {
+    high: { inputTokens: 0, outputTokens: 0 },
+    medium: { inputTokens: 0, outputTokens: 0 },
+    low: { inputTokens: 0, outputTokens: 0 },
+    unknown: { inputTokens: 0, outputTokens: 0 },
+  };
+
+  // Aggregate cost
+  let totalCostCents = 0;
+  let pricingBasis = 'unknown';
+  const pricingBasisRank = { api_list: 3, estimated: 2, unknown: 1 };
+
+  // Collect budget blockers
+  const budgetBlockers = [];
+
+  for (const event of completeEvents) {
+    // Timing
+    if (event.timing && typeof event.timing.elapsedMs === 'number' && event.timing.elapsedMs >= 0) {
+      totalElapsed += event.timing.elapsedMs;
+      timingCount++;
+      if (event.timing.elapsedMs > maxElapsed) maxElapsed = event.timing.elapsedMs;
+
+      // Check hard time limit
+      if (event.timing.hardTimeMinutes) {
+        const hardLimitMs = event.timing.hardTimeMinutes * 60000;
+        if (event.timing.elapsedMs >= hardLimitMs) {
+          budgetBlockers.push({
+            type: 'hard-time-limit',
+            taskId: event.taskId || 'unknown',
+            severity: 'high',
+            message: `Task hit hard time limit (${event.timing.hardTimeMinutes}m)`,
+          });
+        }
+      }
+
+      // Check soft time limit
+      if (event.timing.softTimeMinutes) {
+        const softLimitMs = event.timing.softTimeMinutes * 60000;
+        if (event.timing.elapsedMs >= softLimitMs * 1.5) {
+          budgetBlockers.push({
+            type: 'soft-time-exceeded',
+            taskId: event.taskId || 'unknown',
+            severity: 'medium',
+            message: `Task exceeded soft time limit by >50% (${event.timing.softTimeMinutes}m)`,
+          });
+        }
+      }
+    }
+
+    // Tokens — classify by confidence
+    if (event.tokenUsage) {
+      const confidence = event.tokenUsage.confidence || 'unknown';
+      const bucket = tokenSummary[confidence] || tokenSummary.unknown;
+      bucket.inputTokens += event.tokenUsage.inputTokens || 0;
+      bucket.outputTokens += event.tokenUsage.outputTokens || 0;
+    }
+
+    // Cost
+    if (event.estimatedCost && typeof event.estimatedCost.amountCents === 'number') {
+      totalCostCents += event.estimatedCost.amountCents;
+      const pb = event.estimatedCost.pricingBasis || 'unknown';
+      if ((pricingBasisRank[pb] || 0) > (pricingBasisRank[pricingBasis] || 0)) {
+        pricingBasis = pb;
+      }
+    }
+
+    // Budget warning/critical events from fact event ledger
+    if (event.eventType === 'worker.token-budget-critical' || event.eventType === 'worker.cost-budget-critical') {
+      budgetBlockers.push({
+        type: event.eventType,
+        taskId: event.taskId || 'unknown',
+        severity: 'critical',
+        message: `Budget critical: ${event.eventType}`,
+      });
+    }
+  }
+
+  // Gate failure blocker
+  const gateFailures = completeEvents.filter(e => e.gateOutcome && e.gateOutcome.passed === false);
+  if (gateFailures.length > 0) {
+    budgetBlockers.push({
+      type: 'gate-failures',
+      severity: 'high',
+      count: gateFailures.length,
+      message: `${gateFailures.length} worker(s) failed gate outcome`,
+    });
+  }
+
+  return {
+    loaded: true,
+    recentWorkerCount,
+    avgWallClockMs: timingCount > 0 ? Math.round(totalElapsed / timingCount) : null,
+    slowestWallClockMs: timingCount > 0 ? maxElapsed : null,
+    tokenSummary,
+    costEstimate: { totalCents: totalCostCents, pricingBasis },
+    budgetBlockers,
+  };
+}
+
 // ── Blockers ─────────────────────────────────────────────────────────────────
 
 function collectBlockers(inputs, systemStatus) {
@@ -341,6 +498,12 @@ function collectBlockers(inputs, systemStatus) {
   }
   if (meta.loaded && meta.frictionScore !== null && meta.frictionScore >= 30) {
     blockers.push({ source: 'meta-signals', severity: 'medium', message: `Friction score ${meta.frictionScore} indicates worker stalls` });
+  }
+
+  // Budget blockers from telemetry
+  const budget = buildBudgetSummary(inputs);
+  for (const bb of budget.budgetBlockers) {
+    blockers.push({ source: 'budget', severity: bb.severity, message: bb.message });
   }
 
   return blockers;
@@ -516,6 +679,7 @@ function buildBrief(inputs) {
   const metaSignalsSummary = buildMetaSignalsSummary(inputs);
   const riskSignalsSummary = buildRiskSignalsSummary(inputs);
   const opportunitySignalsSummary = buildOpportunitySignalsSummary(inputs);
+  const budgetSummary = buildBudgetSummary(inputs);
 
   const blockers = collectBlockers(inputs, systemStatus);
   const recommendedNextActions = buildRecommendedActions(inputs, systemStatus, blockers);
@@ -537,6 +701,7 @@ function buildBrief(inputs) {
     metaSignalsSummary,
     riskSignalsSummary,
     opportunitySignalsSummary,
+    budgetSummary,
     blockers,
     recommendedNextActions,
     humanRequiredItems,
@@ -568,6 +733,8 @@ function runSelfTest() {
   assert(empty.systemStatus.overall === 'unknown', 'overall unknown with all null');
   assert(empty.blockers.length > 0, 'has blockers when all null');
   assert(empty.humanRequiredItems.length > 0, 'has human required items');
+  assert(empty.budgetSummary.loaded === false, 'budgetSummary not loaded when null');
+  assert(empty.budgetSummary.recentWorkerCount === 0, 'budgetSummary workerCount 0 when null');
   for (const key of Object.keys(empty.inputSources)) {
     assert(empty.inputSources[key] === false, `inputSources.${key} is false`);
   }
@@ -583,6 +750,10 @@ function runSelfTest() {
     riskSignals: { signals: [{ id: 'r1' }] },
     opportunitySignals: { signals: [{ id: 'o1' }] },
     launchLocks: { locks: [{ conflictGroup: 'test' }] },
+    workerTelemetry: [
+      { eventType: 'complete', taskId: 'w1', capturedAt: '2026-01-01T01:00:00.000Z', timing: { elapsedMs: 120000, softTimeMinutes: 30, hardTimeMinutes: 60 }, tokenUsage: { inputTokens: 40000, outputTokens: 8000, source: 'api_response', confidence: 'high' }, estimatedCost: { amountCents: 20, currency: 'USD', model: 'claude-opus-4-7', pricingBasis: 'api_list' }, gateOutcome: { passed: true } },
+      { eventType: 'complete', taskId: 'w2', capturedAt: '2026-01-01T02:00:00.000Z', timing: { elapsedMs: 180000, softTimeMinutes: 30, hardTimeMinutes: 60 }, tokenUsage: { inputTokens: 20000, outputTokens: 5000, source: 'log_parse', confidence: 'medium' }, estimatedCost: { amountCents: 10, currency: 'USD', model: 'claude-sonnet-4-6', pricingBasis: 'estimated' }, gateOutcome: { passed: true } },
+    ],
   };
   const full = buildBrief(fullInputs);
   assert(full.systemStatus.overall === 'operational', 'overall operational with green health');
@@ -593,12 +764,21 @@ function runSelfTest() {
   assert(full.metaSignalsSummary.loaded && full.metaSignalsSummary.failureScore === 0, 'meta loaded');
   assert(full.riskSignalsSummary.loaded && full.riskSignalsSummary.count === 1, 'risk loaded');
   assert(full.opportunitySignalsSummary.loaded && full.opportunitySignalsSummary.count === 1, 'opp loaded');
+  assert(full.budgetSummary.loaded === true, 'budgetSummary loaded');
+  assert(full.budgetSummary.recentWorkerCount === 2, 'budgetSummary workerCount 2');
+  assert(full.budgetSummary.avgWallClockMs === 150000, 'budgetSummary avgWallClockMs');
+  assert(full.budgetSummary.slowestWallClockMs === 180000, 'budgetSummary slowestWallClockMs');
+  assert(full.budgetSummary.tokenSummary.high.inputTokens === 40000, 'budgetSummary high inputTokens');
+  assert(full.budgetSummary.tokenSummary.medium.inputTokens === 20000, 'budgetSummary medium inputTokens');
+  assert(full.budgetSummary.costEstimate.totalCents === 30, 'budgetSummary totalCost');
+  assert(full.budgetSummary.costEstimate.pricingBasis === 'api_list', 'budgetSummary pricingBasis');
+  assert(full.budgetSummary.budgetBlockers.length === 0, 'budgetSummary no blockers');
   for (const key of Object.keys(full.inputSources)) {
     assert(full.inputSources[key] === true, `inputSources.${key} is true`);
   }
   const expectedKeys = ['schemaVersion', 'capturedAt', 'systemStatus', 'providerSummary',
     'workerSummary', 'trustSummary', 'lockSummary', 'metaSignalsSummary',
-    'riskSignalsSummary', 'opportunitySignalsSummary', 'blockers',
+    'riskSignalsSummary', 'opportunitySignalsSummary', 'budgetSummary', 'blockers',
     'recommendedNextActions', 'humanRequiredItems', 'inputSources'];
   for (const key of expectedKeys) { assert(key in full, `key ${key} present`); }
 
@@ -636,6 +816,21 @@ function runSelfTest() {
   assert(friction.blockers.some(b => b.source === 'meta-signals'), 'friction blocker');
   assert(friction.recommendedNextActions.some(a => a.action === 'investigate-worker-friction'), 'friction action');
 
+  // Test: budget blockers from telemetry
+  const budgetBlockInputs = { ...emptyInputs,
+    workerTelemetry: [
+      { eventType: 'complete', taskId: 'w-slow', timing: { elapsedMs: 4000000, softTimeMinutes: 30, hardTimeMinutes: 60 }, tokenUsage: { inputTokens: 10000, outputTokens: 2000, source: 'estimate', confidence: 'low' }, estimatedCost: { amountCents: 5, pricingBasis: 'unknown' }, gateOutcome: { passed: false, reason: 'tsc-fail' } },
+    ],
+  };
+  const budgetBlock = buildBrief(budgetBlockInputs);
+  assert(budgetBlock.budgetSummary.loaded === true, 'budgetBlock loaded');
+  assert(budgetBlock.budgetSummary.recentWorkerCount === 1, 'budgetBlock workerCount 1');
+  assert(budgetBlock.budgetSummary.tokenSummary.low.inputTokens === 10000, 'budgetBlock low tokens');
+  assert(budgetBlock.budgetSummary.costEstimate.pricingBasis === 'unknown', 'budgetBlock pricingBasis unknown');
+  assert(budgetBlock.budgetSummary.budgetBlockers.some(b => b.type === 'hard-time-limit'), 'budgetBlock has hard-time-limit');
+  assert(budgetBlock.budgetSummary.budgetBlockers.some(b => b.type === 'gate-failures'), 'budgetBlock has gate-failures');
+  assert(budgetBlock.blockers.some(b => b.source === 'budget'), 'blockers include budget source');
+
   // Report
   console.log(`\n  emit-command-steward-brief self-test`);
   console.log(`  ${passed}/${passed + failed} passed`);
@@ -666,7 +861,8 @@ function main() {
   // Read all input files
   const inputs = {};
   for (const [key, filename] of Object.entries(INPUT_FILES)) {
-    inputs[key] = readJsonFile(path.join(STATE_DIR, filename));
+    const filePath = path.join(STATE_DIR, filename);
+    inputs[key] = filename.endsWith('.ndjson') ? readNdjsonFile(filePath) : readJsonFile(filePath);
   }
 
   const brief = buildBrief(inputs);
