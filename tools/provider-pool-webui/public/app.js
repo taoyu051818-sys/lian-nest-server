@@ -15,9 +15,9 @@
  *   ../../../../.github/ai-state/provider-pool-webui.json     (worker view)
  */
 
-const STATE_URL = '../../../../.github/ai-state/provider-pool.json';
-const POLICY_URL = '../../../../.github/ai-policy/provider-pool-policy.json';
-const WEBUI_STATE_URL = '../../../../.github/ai-state/provider-pool-webui.json';
+const STATE_URL = '/api/state';
+const POLICY_URL = '/api/policy';
+const WEBUI_STATE_URL = '/api/resources';
 const PLANNING_URL = '/api/planning';
 const REFRESH_INTERVAL_MS = 30_000;
 
