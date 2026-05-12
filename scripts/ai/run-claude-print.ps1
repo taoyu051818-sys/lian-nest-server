@@ -211,6 +211,22 @@ Write-Step "Working directory: $Worktree"
 $env:CLAUDE_WORKING_DIRECTORY = $Worktree
 $env:CLAUDE_CODE_ENTRYPOINT = "batch-launcher"
 
+# ── Telemetry: emit start event ───────────────────────────────────────────────
+
+$telemetryWriter = Join-Path $PSScriptRoot "write-worker-telemetry-event.js"
+$startedAt = [DateTime]::UtcNow
+
+if (Test-Path $telemetryWriter) {
+    Write-Step "Emitting worker telemetry start event"
+    $actorRole = if ($task.rolePacket) { $task.rolePacket.actorRole } else { "unknown" }
+    try {
+        node $telemetryWriter --event start --task-id $Branch --issue-number $issueNum --actor-role $actorRole --live 2>$null
+        if ($LASTEXITCODE -eq 0) { Write-Ok "Telemetry start event recorded" }
+    } catch {
+        Write-Host "   Telemetry start event failed (non-blocking)" -ForegroundColor DarkYellow
+    }
+}
+
 # Execute claude in this worker process. Avoid Start-Process here: on
 # Windows, the npm PowerShell shim plus a long multi-line prompt can be
 # truncated or re-quoted, causing Claude to receive an empty prompt.
@@ -223,6 +239,21 @@ try {
     $stdoutText | Out-String | Set-Content -Encoding UTF8 ".claude-output.txt"
 } finally {
     Pop-Location
+}
+
+# ── Telemetry: emit complete event ────────────────────────────────────────────
+
+if (Test-Path $telemetryWriter) {
+    Write-Step "Emitting worker telemetry complete event"
+    $endedAt = [DateTime]::UtcNow
+    $elapsedMs = [int]($endedAt - $startedAt).TotalMilliseconds
+    $actorRole = if ($task.rolePacket) { $task.rolePacket.actorRole } else { "unknown" }
+    try {
+        node $telemetryWriter --event complete --task-id $Branch --issue-number $issueNum --actor-role $actorRole --elapsed-ms $elapsedMs --live 2>$null
+        if ($LASTEXITCODE -eq 0) { Write-Ok "Telemetry complete event recorded (${elapsedMs}ms)" }
+    } catch {
+        Write-Host "   Telemetry complete event failed (non-blocking)" -ForegroundColor DarkYellow
+    }
 }
 
 $stdout = if (Test-Path "$Worktree/.claude-output.txt") { Get-Content "$Worktree/.claude-output.txt" -Raw } else { "" }
