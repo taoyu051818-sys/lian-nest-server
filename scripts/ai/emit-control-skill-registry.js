@@ -201,6 +201,45 @@ const SKILL_CATALOGUE = [
     requiredFields: ['action'],
     category: 'worker',
   },
+  {
+    skillId: 'autopilot-preview',
+    label: 'Autopilot Preview',
+    description: 'Chain all self-cycle dry-run steps into a single execute plan: health gate, provider pool preflight, queue status, and launch plan.',
+    source: 'action-module',
+    risk: 'low',
+    humanRequired: false,
+    dangerous: false,
+    readOnly: true,
+    defaultPreview: false,
+    requiredFields: [],
+    category: 'self-cycle',
+  },
+  {
+    skillId: 'autonomy-handoff',
+    label: 'Autonomy Handoff Summary',
+    description: 'Aggregate handoff facts and exit readiness from control-plane state projections.',
+    source: 'action-module',
+    risk: 'low',
+    humanRequired: false,
+    dangerous: false,
+    readOnly: true,
+    defaultPreview: false,
+    requiredFields: [],
+    category: 'self-cycle',
+  },
+  {
+    skillId: 'autonomy-readiness',
+    label: 'Autonomy Readiness',
+    description: 'Evaluate the seven Codex exit readiness gates to determine if Codex can exit the routine control loop.',
+    source: 'action-module',
+    risk: 'low',
+    humanRequired: false,
+    dangerous: false,
+    readOnly: true,
+    defaultPreview: false,
+    requiredFields: [],
+    category: 'self-cycle',
+  },
 
   // ── Action registry (control console) skills ───────────────────────────
   {
@@ -523,7 +562,7 @@ function runSelfTest() {
   assert(full.summary.humanRequiredCount > 0, 'has some human-required skills');
 
   // Test: required skills are present
-  const requiredIds = ['merge-prs', 'launch-batch', 'issue-state', 'health-state', 'status-bundle', 'self-cycle'];
+  const requiredIds = ['merge-prs', 'launch-batch', 'issue-state', 'health-state', 'status-bundle', 'self-cycle', 'autopilot-preview', 'autonomy-handoff', 'autonomy-readiness'];
   const skillIds = full.skills.map(s => s.skillId);
   for (const id of requiredIds) {
     assert(skillIds.includes(id), `required skill ${id} is present`);

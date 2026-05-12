@@ -176,6 +176,9 @@ execution. This integrates with the Knowledge-Driven Scaling rule
 | `health-state` | Health state fact event (on transition) | `fact-events.ndjson` |
 | `status-bundle` | None (read-only) | — |
 | `self-cycle` | None (preview-only) | — |
+| `autopilot-preview` | None (preview-only) | — |
+| `autonomy-handoff` | None (preview-only) | — |
+| `autonomy-readiness` | None (preview-only) | — |
 
 Skills that produce no artifacts on execute are flagged as
 `unverified-value` in the Command Steward daily brief until a knowledge
@@ -301,6 +304,51 @@ an existing WebUI action module.
 | Execute | Blocked (preview-only module) |
 | Facts produced | None (read-only) |
 | Module | `tools/provider-pool-webui/actions/self-cycle.js` |
+
+### autopilot-preview
+
+| Property | Value |
+|----------|-------|
+| Skill ID | `autopilot-preview` |
+| Risk | `low` |
+| Human required | No |
+| Dangerous | No |
+| Description | Chain all self-cycle dry-run steps into a single execute plan: health gate, provider pool preflight, queue status, and launch plan |
+| Input | `healthPath`, `statePath`, `policyPath`, `queuePath`, `runningPath` (all optional path overrides) |
+| Preview | Returns comprehensive autopilot execute plan with blocked/humanRequired sections |
+| Execute | Blocked (preview-only module) |
+| Facts produced | None (read-only) |
+| Module | `tools/provider-pool-webui/actions/autopilot-preview.js` |
+
+### autonomy-handoff
+
+| Property | Value |
+|----------|-------|
+| Skill ID | `autonomy-handoff` |
+| Risk | `low` |
+| Human required | No |
+| Dangerous | No |
+| Description | Aggregate handoff facts and exit readiness from control-plane state projections |
+| Input | None |
+| Preview | Returns handoff summary with pre-handoff checklist, retirement checklist, and exit readiness |
+| Execute | Blocked (preview-only module) |
+| Facts produced | None (read-only) |
+| Module | `tools/provider-pool-webui/actions/autonomy-handoff.js` |
+
+### autonomy-readiness
+
+| Property | Value |
+|----------|-------|
+| Skill ID | `autonomy-readiness` |
+| Risk | `low` |
+| Human required | No |
+| Dangerous | No |
+| Description | Evaluate the seven Codex exit readiness gates to determine if Codex can exit the routine control loop |
+| Input | `healthPath`, `statePath`, `policyPath` (all optional path overrides) |
+| Preview | Returns readiness verdict with gate evaluations and blockers |
+| Execute | Blocked (preview-only module) |
+| Facts produced | None (read-only) |
+| Module | `tools/provider-pool-webui/actions/autonomy-readiness.js` |
 
 ---
 
