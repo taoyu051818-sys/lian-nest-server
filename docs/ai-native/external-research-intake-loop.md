@@ -8,6 +8,8 @@ creation, and bounded experiment gating before it can produce a task.
 
 > **Closes:** [#1213](https://github.com/taoyu051818-sys/lian-nest-server/issues/1213)
 >
+> **Updated by:** [#1218](https://github.com/taoyu051818-sys/lian-nest-server/issues/1218)
+>
 > **See also:**
 > [external-reality-intake.md](external-reality-intake.md) for the intake
 > boundary contract,
@@ -299,6 +301,61 @@ from external observation to system-local knowledge.
 **Applicability:** Partial — LIAN records knowledge entries but does not
 explicitly link them back to external source fact IDs.
 
+### AI Papers of the Week — Weekly Paper Digest Intake
+
+**Source:** [`dair-ai/AI-Papers-of-the-Week`](https://github.com/dair-ai/AI-Papers-of-the-Week)
+
+**External observation:** The dair-ai/AI-Papers-of-the-Week repository
+publishes a weekly curated list of notable AI research papers with titles,
+links, and brief descriptions. Each weekly entry is a structured digest
+covering multiple papers across LLM, agent, and ML domains.
+
+**Evidence classification:** This source is classified as
+[external-research-sources.md](external-research-sources.md) entry
+`ai-papers-weekly`. Each weekly digest is a Tier B `external-doc` —
+structured and maintained but not version-pinned to LIAN.
+
+**Weekly paper entry → opportunity signal flow:**
+
+1. **Source Capture (Stage 1):** Each new weekly digest commit produces a
+   fact event of type `evidence.intake` with `sourceClass: "external-doc"`
+   and `researchCategory: "ai-papers-digest"`. The raw hash covers the
+   weekly markdown file.
+
+2. **Evidence Score (Stage 2):** The digest receives a default reliability
+   tier of B. Individual papers within the digest are not separately scored
+   — the digest is the intake unit. Staleness applies at the weekly level:
+   a digest older than 30 days (fast-moving domain) is flagged stale.
+
+3. **Pattern Extract (Stage 3):** A research-intake worker reads the
+   weekly digest and extracts LIAN-relevant patterns. Not every paper
+   produces a pattern claim — only papers whose techniques map to a LIAN
+   surface (`agent orchestration`, `tool use`, `evaluation`, `memory`,
+   `planning`) generate extraction output. Papers outside LIAN's scope
+   are recorded as observations but produce no pattern claim.
+
+4. **Opportunity Signal (Stage 4):** Pattern claims with `applicability`
+   of `direct` or `partial` produce opportunity signals. Each signal
+   references the weekly digest fact event ID and carries a falsifiable
+   hypothesis.
+
+5. **Gate (Stages 5-7):** Signals pass through the standard agent idea
+   review gate and human gate before any task creation.
+
+**Hard boundary:** Weekly paper entries are evidence input only. No paper
+or digest may directly create an execution task. All downstream processing
+requires the full intake loop: fact event → evidence score → pattern
+extraction → opportunity signal → bounded experiment → gate → task.
+
+**Hypothesis example (illustrative):**
+
+> "If LIAN adopts structured evaluation benchmarks for agent tool-use
+> (inspired by papers from dair-ai/AI-Papers-of-the-Week week 20),
+> then opportunity signal quality will improve because signals will
+> carry measurable success criteria derived from peer-reviewed metrics."
+
+---
+
 ### Symphony — Multi-Agent Coordination
 
 **External observation:** Symphony coordinates multiple specialized
@@ -403,6 +460,7 @@ Research intake feeds the knowledge writeback invariant defined in
 ## References
 
 - [External Reality Intake](external-reality-intake.md) — Intake boundary contract
+- [External Research Sources](external-research-sources.md) — Canonical intake sources registry
 - [Evidence Reliability Policy](evidence-reliability-policy.md) — Reliability tiers for external sources
 - [External Intake Executable Loop](external-intake-executable-loop.md) — Full intake pipeline stages
 - [External Intake Source Matrix](external-intake-source-matrix.md) — Source classification
