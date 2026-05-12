@@ -6,7 +6,7 @@
 .DESCRIPTION
     Invokes Claude Code with the task contract as context, constrained to the
     worktree directory. Captures output and commits results. Designed for
-    self-hosted use 鈥?no external orchestration service required.
+    self-hosted use -no external orchestration service required.
 
 .PARAMETER TaskFile
     Path to a task JSON file conforming to scripts/ai/task.schema.json.
@@ -36,7 +36,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# 鈹€鈹€ Helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# -- Helpers --
 
 function Write-Step($msg) { Write-Host ">> $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "   OK: $msg" -ForegroundColor Green }
@@ -45,7 +45,60 @@ function Has-Prop($obj, [string]$name) {
     return $null -ne $obj -and ($obj.PSObject.Properties.Name -contains $name)
 }
 
-# 鈹€鈹€ Validate inputs 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+function Get-OptionalField {
+    param($Obj, [string]$Field, $Default = $null)
+    if ($null -eq $Obj) { return $Default }
+    if ($Obj.PSObject.Properties.Name -contains $Field) {
+        $val = $Obj.$Field
+        if ($null -eq $val) { return $Default }
+        return $val
+    }
+    return $Default
+}
+
+function Select-TaskFromBatch {
+    <#
+    .SYNOPSIS
+        Selects a single task from a JSON file that may be a single object or an array.
+        When the file contains multiple tasks, extracts the issue number from the
+        Branch name (e.g. "claude/issue-1291-task-board-projection" -> 1291) and
+        matches it against targetIssue.
+    #>
+    param([string]$FilePath, [string]$BranchName)
+
+    $raw = Get-Content $FilePath -Raw -Encoding UTF8
+    $parsed = $raw | ConvertFrom-Json
+
+    # Single object - return directly
+    if ($parsed -isnot [System.Array]) {
+        return $parsed
+    }
+
+    $tasks = @($parsed)
+    if ($tasks.Count -eq 1) {
+        return $tasks[0]
+    }
+
+    # Multiple tasks - extract issue number from branch name
+    # Branch format: claude/issue-<NUMBER>-<conflict-group>
+    $issueMatch = [regex]::Match($BranchName, 'issue-(\d+)')
+    if (-not $issueMatch.Success) {
+        Write-Fail "BATCH_SINGLE_TASK_MISMATCH: Branch '$BranchName' does not contain an issue number (expected format: claude/issue-<N>-...). Cannot select task from batch of $($tasks.Count)."
+    }
+
+    $targetIssue = [int]$issueMatch.Groups[1].Value
+    foreach ($t in $tasks) {
+        if ([int]$t.targetIssue -eq $targetIssue) {
+            return $t
+        }
+    }
+
+    # No match found
+    $availableIssues = ($tasks | ForEach-Object { "#$($_.targetIssue)" }) -join ", "
+    Write-Fail "BATCH_SINGLE_TASK_MISMATCH: Branch '$BranchName' targets issue #$targetIssue, but batch file contains: $availableIssues. No matching task found."
+}
+
+# -- Validate inputs --
 
 if (-not (Test-Path $TaskFile)) {
     Write-Fail "Task file not found: $TaskFile"
@@ -55,70 +108,86 @@ if (-not (Test-Path $Worktree)) {
     Write-Fail "Worktree not found: $Worktree"
 }
 
-# 鈹€鈹€ Load task 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# -- Load task --
 
-$task = Get-Content $TaskFile -Raw | ConvertFrom-Json
+$task = Select-TaskFromBatch -FilePath $TaskFile -BranchName $Branch
 $issueNum = $task.targetIssue
 
 Write-Step "Preparing worker for issue #$issueNum"
 
-# 鈹€鈹€ Build prompt 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# -- Build prompt --
 
-# Collect all issue numbers for context
+# Collect all issue numbers for context - safely access optional 'issues' field
 $allIssues = @($issueNum)
-if ($task.issues) {
-    foreach ($i in $task.issues) {
+$issuesRaw = Get-OptionalField $task "issues" @()
+if ($issuesRaw) {
+    foreach ($i in @($issuesRaw)) {
         if ($i -ne $issueNum) { $allIssues += $i }
     }
 }
 $issuesStr = $allIssues -join ", "
 
 # Build allowed files list
-$allowedStr = ($task.allowedFiles | ForEach-Object { "- $_" }) -join "`n"
+$allowedFiles = @(Get-OptionalField $task "allowedFiles" @())
+$allowedStr = ($allowedFiles | ForEach-Object { "- $_" }) -join "`n"
 
 # Build forbidden files list
-$forbiddenStr = ($task.forbiddenFiles | ForEach-Object { "- $_" }) -join "`n"
+$forbiddenFiles = @(Get-OptionalField $task "forbiddenFiles" @())
+$forbiddenStr = ($forbiddenFiles | ForEach-Object { "- $_" }) -join "`n"
 
-# Build validation commands list
-$valCmdsStr = ($task.validationCommands | ForEach-Object { "- $_" }) -join "`n"
+# Build validation commands list - safely access optional field
+$valCmds = @(Get-OptionalField $task "validationCommands" @())
+$valCmdsStr = ($valCmds | ForEach-Object { "- $_" }) -join "`n"
 
-# Build role packet section
+# Build role packet section - safely access optional nested fields
 $roleSection = ""
-if ($task.rolePacket) {
-    $roleSection += "Actor role: $($task.rolePacket.actorRole)"
-    if ($task.rolePacket.description) {
-        $roleSection += "`n$($task.rolePacket.description)"
+$rolePacket = Get-OptionalField $task "rolePacket" $null
+if ($rolePacket) {
+    $actorRole = Get-OptionalField $rolePacket "actorRole" "unknown"
+    $roleSection += "Actor role: $actorRole"
+    $roleDesc = Get-OptionalField $rolePacket "description" $null
+    if ($roleDesc) {
+        $roleSection += "`n$roleDesc"
     }
 }
 
-# Build attention areas section
+# Build attention areas section - safely access optional nested field
 $attentionSection = ""
-if ((Has-Prop $task "attentionAreas") -and $task.attentionAreas) {
-    if ($task.attentionAreas.focus -and $task.attentionAreas.focus.Count -gt 0) {
+$attentionAreas = Get-OptionalField $task "attentionAreas" $null
+if ($attentionAreas) {
+    $focusList = Get-OptionalField $attentionAreas "focus" @()
+    if ($focusList -and @($focusList).Count -gt 0) {
         $attentionSection += "Focus on:`n"
-        foreach ($f in $task.attentionAreas.focus) { $attentionSection += "- $f`n" }
+        foreach ($f in @($focusList)) { $attentionSection += "- $f`n" }
     }
-    if ($task.attentionAreas.knownBlindspots -and $task.attentionAreas.knownBlindspots.Count -gt 0) {
+    $blindspots = Get-OptionalField $attentionAreas "knownBlindspots" @()
+    if ($blindspots -and @($blindspots).Count -gt 0) {
         $attentionSection += "Known blindspots:`n"
-        foreach ($b in $task.attentionAreas.knownBlindspots) { $attentionSection += "- $b`n" }
+        foreach ($b in @($blindspots)) { $attentionSection += "- $b`n" }
     }
 }
 
-# Build budgets section
+# Build budgets section - safely access optional nested field
 $budgetsSection = ""
-if ((Has-Prop $task "budgets") -and $task.budgets) {
+$budgets = Get-OptionalField $task "budgets" $null
+if ($budgets) {
     $parts = @()
-    if ($task.budgets.maxFiles) { $parts += "maxFiles=$($task.budgets.maxFiles)" }
-    if ($task.budgets.maxLinesChanged) { $parts += "maxLinesChanged=$($task.budgets.maxLinesChanged)" }
-    if ($task.budgets.softTimeMinutes) { $parts += "softTimeMinutes=$($task.budgets.softTimeMinutes)" }
-    if ($task.budgets.hardTimeMinutes) { $parts += "hardTimeMinutes=$($task.budgets.hardTimeMinutes)" }
+    $mf = Get-OptionalField $budgets "maxFiles" $null
+    if ($mf) { $parts += "maxFiles=$mf" }
+    $mlc = Get-OptionalField $budgets "maxLinesChanged" $null
+    if ($mlc) { $parts += "maxLinesChanged=$mlc" }
+    $stm = Get-OptionalField $budgets "softTimeMinutes" $null
+    if ($stm) { $parts += "softTimeMinutes=$stm" }
+    $htm = Get-OptionalField $budgets "hardTimeMinutes" $null
+    if ($htm) { $parts += "hardTimeMinutes=$htm" }
     $budgetsSection = $parts -join ", "
 }
 
-# Build source of truth docs section
+# Build source of truth docs section - safely access optional field
 $sourceOfTruthSection = ""
-if ((Has-Prop $task "sourceOfTruthDocs") -and $task.sourceOfTruthDocs -and $task.sourceOfTruthDocs.Count -gt 0) {
-    $sourceOfTruthSection += ($task.sourceOfTruthDocs | ForEach-Object { "- $_" }) -join "`n"
+$sotDocs = Get-OptionalField $task "sourceOfTruthDocs" @()
+if ($sotDocs -and @($sotDocs).Count -gt 0) {
+    $sourceOfTruthSection += (@($sotDocs) | ForEach-Object { "- $_" }) -join "`n"
 }
 
 # Build issue repo string (for gh CLI)
@@ -127,7 +196,8 @@ $repoSlug = "taoyu051818-sys/lian-nest-server"
 $promptParts = @()
 $promptParts += "You are a Claude Code worker in the lian-nest-server repository."
 $promptParts += ""
-$promptParts += "Task: $($task.rolePacket.description)"
+$taskDesc = Get-OptionalField $rolePacket "description" "No description provided"
+$promptParts += "Task: $taskDesc"
 $promptParts += "GitHub issue: https://github.com/$repoSlug/issues/$issueNum"
 $promptParts += ""
 $promptParts += "First read the GitHub issue body and relevant repository docs. Use the issue and current repository files as the semantic source of truth; use the JSON control appendix only for boundaries, risk, validation, and routing."
@@ -135,13 +205,15 @@ $promptParts += ""
 $promptParts += "Deliver a small, bounded PR that closes #$issueNum. Keep changes inside allowedFiles. Run the listed validation commands. If blocked, do not make broad edits; leave a concise GitHub issue comment explaining the blocker and evidence."
 $promptParts += "---"
 $promptParts += "CONTROL APPENDIX (launcher generated)"
-$promptParts += "Task type: $($task.taskType)"
-$promptParts += "Risk: $($task.risk)"
-$promptParts += "Conflict group: $($task.conflictGroup)"
+$promptParts += "Task type: $(Get-OptionalField $task 'taskType' 'unknown')"
+$promptParts += "Risk: $(Get-OptionalField $task 'risk' 'unknown')"
+$promptParts += "Conflict group: $(Get-OptionalField $task 'conflictGroup' 'unknown')"
 $promptParts += "Target issue: $issueNum"
-$promptParts += "Target PR: $targetPrText"
+$targetPrValue = Get-OptionalField $task "targetPR" "none"
+$promptParts += "Target PR: $targetPrValue"
 $promptParts += "Issues: $issuesStr"
-$promptParts += "Expected PR: $($task.expectedPR)"
+$expectedPrValue = Get-OptionalField $task "expectedPR" "unknown"
+$promptParts += "Expected PR: $expectedPrValue"
 $promptParts += "Allowed files:"
 $promptParts += $allowedStr
 $promptParts += "Forbidden files:"
@@ -176,17 +248,18 @@ $promptParts += "Do NOT output secrets, tokens, auth output, credentials, .env c
 
 $promptText = $promptParts -join "`n"
 
-# 鈹€鈹€ Build allowed tools 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# -- Build allowed tools --
 
 # Restrict tool access based on task type
 $allowedTools = @("Edit", "Write", "Read", "Glob", "Grep")
 # Allow reading the GitHub issue body (bounded, read-only)
 $allowedTools += "Bash(gh issue view *)"
-if ($task.taskType -eq "execution") {
+if ((Get-OptionalField $task "taskType" "") -eq "execution") {
     $allowedTools += "Bash(git *)"
     $allowedTools += "Bash(npm run *)"
-    if ($task.validationCommands) {
-        foreach ($cmd in $task.validationCommands) {
+    $valCmdsForTools = Get-OptionalField $task "validationCommands" @()
+    if ($valCmdsForTools) {
+        foreach ($cmd in @($valCmdsForTools)) {
             # Add each validation command pattern
             $allowedTools += "Bash($cmd)"
         }
@@ -197,7 +270,7 @@ $allowedToolsStr = $allowedTools -join ","
 
 Write-Step "Allowed tools: $allowedToolsStr"
 
-# 鈹€鈹€ Invoke Claude Code 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# -- Invoke Claude Code --
 
 Write-Step "Launching Claude Code (--print mode)"
 
@@ -214,16 +287,16 @@ Write-Step "Working directory: $Worktree"
 $env:CLAUDE_WORKING_DIRECTORY = $Worktree
 $env:CLAUDE_CODE_ENTRYPOINT = "batch-launcher"
 
-# 鈹€鈹€ Telemetry: emit start event 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# -- Telemetry: emit start event --
 
 $telemetryWriter = Join-Path $PSScriptRoot "write-worker-telemetry-event.js"
 $startedAt = [DateTime]::UtcNow
 
 if (Test-Path $telemetryWriter) {
     Write-Step "Emitting worker telemetry start event"
-    $actorRole = if ($task.rolePacket) { $task.rolePacket.actorRole } else { "unknown" }
+    $telemetryRole = Get-OptionalField $rolePacket "actorRole" "unknown"
     try {
-        node $telemetryWriter --event start --task-id $Branch --issue-number $issueNum --actor-role $actorRole --live 2>$null
+        node $telemetryWriter --event start --task-id $Branch --issue-number $issueNum --actor-role $telemetryRole --live 2>$null
         if ($LASTEXITCODE -eq 0) { Write-Ok "Telemetry start event recorded" }
     } catch {
         Write-Host "   Telemetry start event failed (non-blocking)" -ForegroundColor DarkYellow
@@ -244,15 +317,15 @@ try {
     Pop-Location
 }
 
-# 鈹€鈹€ Telemetry: emit complete event 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# -- Telemetry: emit complete event --
 
 if (Test-Path $telemetryWriter) {
     Write-Step "Emitting worker telemetry complete event"
     $endedAt = [DateTime]::UtcNow
     $elapsedMs = [int]($endedAt - $startedAt).TotalMilliseconds
-    $actorRole = if ($task.rolePacket) { $task.rolePacket.actorRole } else { "unknown" }
+    $telemetryRole2 = Get-OptionalField $rolePacket "actorRole" "unknown"
     try {
-        node $telemetryWriter --event complete --task-id $Branch --issue-number $issueNum --actor-role $actorRole --elapsed-ms $elapsedMs --live 2>$null
+        node $telemetryWriter --event complete --task-id $Branch --issue-number $issueNum --actor-role $telemetryRole2 --elapsed-ms $elapsedMs --live 2>$null
         if ($LASTEXITCODE -eq 0) { Write-Ok "Telemetry complete event recorded (${elapsedMs}ms)" }
     } catch {
         Write-Host "   Telemetry complete event failed (non-blocking)" -ForegroundColor DarkYellow
@@ -262,10 +335,10 @@ if (Test-Path $telemetryWriter) {
 $stdout = if (Test-Path "$Worktree/.claude-output.txt") { Get-Content "$Worktree/.claude-output.txt" -Raw } else { "" }
 $stderr = if (Test-Path "$Worktree/.claude-error.txt") { Get-Content "$Worktree/.claude-error.txt" -Raw } else { "" }
 
-# 鈹€鈹€ Report results 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# -- Report results --
 
 # Sanitization note: stdout/stderr may contain secrets, tokens, or raw LLM
-# transcripts. Console output is for local debugging only 鈥?never paste or
+# transcripts. Console output is for local debugging only -never paste or
 # publish it directly. Use publish-agent-result.ps1 which enforces redaction.
 
 if ($exitCode -eq 0) {
@@ -284,12 +357,12 @@ Write-Host "[sanitization] Output above is for local debugging only." -Foregroun
 Write-Host "[sanitization] Do NOT paste raw logs into issues, PRs, or comments." -ForegroundColor DarkYellow
 Write-Host "[sanitization] Use publish-agent-result.ps1 to publish sanitized results." -ForegroundColor DarkYellow
 
-# 鈹€鈹€ Cleanup temp files before staging 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# -- Cleanup temp files before staging --
 
 Remove-Item "$Worktree/.claude-output.txt" -ErrorAction SilentlyContinue
 Remove-Item "$Worktree/.claude-error.txt" -ErrorAction SilentlyContinue
 
-# 鈹€鈹€ Commit if changes exist 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# -- Commit if changes exist --
 
 Write-Step "Checking for changes to commit"
 
@@ -302,16 +375,16 @@ try {
         git commit -m "feat(ai-worker): implement issue #$issueNum
 
         Automated by self-hosted batch launcher.
-        Task type: $($task.taskType)
-        Risk: $($task.risk)
-        Conflict group: $($task.conflictGroup)
+        Task type: $(Get-OptionalField $task 'taskType' 'unknown')
+        Risk: $(Get-OptionalField $task 'risk' 'unknown')
+        Conflict group: $(Get-OptionalField $task 'conflictGroup' 'unknown')
 
         Co-Authored-By: Claude Code <noreply@anthropic.com>"
 
         if ($LASTEXITCODE -eq 0) {
             Write-Ok "Changes committed on branch $Branch"
         } else {
-            Write-Host "   Commit failed 鈥?worker may need to fix conflicts" -ForegroundColor Yellow
+            Write-Host "   Commit failed -worker may need to fix conflicts" -ForegroundColor Yellow
         }
     } else {
         Write-Ok "No changes to commit"
