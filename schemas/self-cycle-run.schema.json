@@ -1,0 +1,344 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/self-cycle-run.schema.json",
+  "title": "SelfCycleRunManifest",
+  "description": "Machine-readable manifest for guarded self-cycle runs. Captures mode, selected candidates, gate results, actions planned/executed, human decision points, and pre/post health snapshots. Produced by run-self-cycle.ps1 and consumed by the control plane, WebUI, and telemetry.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "runId",
+    "capturedAt",
+    "repository",
+    "mode",
+    "selectedCandidates",
+    "gates",
+    "actions",
+    "humanRequired",
+    "healthBefore"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1."
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z0-9-]+$",
+      "description": "Unique identifier for this self-cycle run (e.g. self-cycle-20260512-093000)."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp when the manifest was captured."
+    },
+    "repository": {
+      "type": "string",
+      "description": "Target repository in OWNER/NAME format.",
+      "pattern": "^[^/]+/[^/]+$"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["dry-run", "execute", "autopilot-plan"],
+      "description": "Run mode. dry-run = preview only, execute = launches workers after human confirmation, autopilot-plan = non-stop dry-run through all steps."
+    },
+    "selectedCandidates": {
+      "type": "array",
+      "description": "Tasks that passed all gates and were selected for the run.",
+      "items": {
+        "$ref": "#/$defs/candidate"
+      }
+    },
+    "rejectedCandidates": {
+      "type": "array",
+      "description": "Tasks blocked by one or more gates.",
+      "items": {
+        "$ref": "#/$defs/rejectedCandidate"
+      }
+    },
+    "gates": {
+      "type": "array",
+      "description": "Gate evaluations executed during this run, in pipeline order.",
+      "items": {
+        "$ref": "#/$defs/gateEntry"
+      }
+    },
+    "actions": {
+      "type": "array",
+      "description": "Actions planned (dry-run) or executed during the run.",
+      "items": {
+        "$ref": "#/$defs/actionEntry"
+      }
+    },
+    "humanRequired": {
+      "type": "array",
+      "description": "Human decision points encountered during the run. Empty in autopilot-plan mode.",
+      "items": {
+        "$ref": "#/$defs/humanDecisionPoint"
+      }
+    },
+    "healthBefore": {
+      "$ref": "#/$defs/healthSnapshot",
+      "description": "Main branch health state captured before the run started."
+    },
+    "healthAfter": {
+      "$ref": "#/$defs/healthSnapshot",
+      "description": "Main branch health state captured after the run completed. Null for dry-run or if the run did not complete."
+    },
+    "exitCode": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 2,
+      "description": "Process exit code. 0 = completed, 1 = blocked, 2 = errored. Null if the run is still in progress."
+    },
+    "finalStatus": {
+      "type": ["string", "null"],
+      "enum": [
+        "completed",
+        "blocked-by-health",
+        "blocked-by-launch-gate",
+        "blocked-by-max-tasks",
+        "blocked-by-provider-pool",
+        "autopilot-plan-ready",
+        "autopilot-plan-warnings",
+        "autopilot-plan-blocked",
+        "errored",
+        null
+      ],
+      "description": "Terminal status of the run."
+    },
+    "failureReason": {
+      "type": ["string", "null"],
+      "description": "Top-level failure reason when the entire run aborts."
+    }
+  },
+  "$defs": {
+    "candidate": {
+      "type": "object",
+      "description": "A task selected for the self-cycle run.",
+      "required": [
+        "targetIssue",
+        "conflictGroup",
+        "risk",
+        "taskType",
+        "workerType"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "targetIssue": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "GitHub issue number."
+        },
+        "targetPR": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Existing PR number, if any."
+        },
+        "conflictGroup": {
+          "type": "string",
+          "description": "Logical conflict group for parallelism control."
+        },
+        "risk": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Task risk level."
+        },
+        "taskType": {
+          "type": "string",
+          "enum": ["execution", "research", "review"],
+          "description": "Task type from the worker contract."
+        },
+        "workerType": {
+          "type": "string",
+          "enum": [
+            "runtime-feature",
+            "foundation-fix",
+            "docs",
+            "health-repair",
+            "test-only",
+            "research",
+            "refactor"
+          ],
+          "description": "Classified worker type used for launch permission lookup."
+        },
+        "allowedFiles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "File glob patterns the worker may edit."
+        },
+        "sharedLocks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Shared locks claimed by this task."
+        }
+      }
+    },
+    "rejectedCandidate": {
+      "type": "object",
+      "description": "A task blocked by one or more gates.",
+      "required": ["targetIssue", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "targetIssue": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "GitHub issue number."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the task was blocked."
+        },
+        "blockedByGate": {
+          "type": ["string", "null"],
+          "description": "Which gate blocked this task (e.g. 'health', 'launch-gate', 'max-tasks')."
+        }
+      }
+    },
+    "gateEntry": {
+      "type": "object",
+      "description": "A gate evaluation executed during the run.",
+      "required": ["gateName", "outcome", "evaluatedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "gateName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Gate identifier (e.g. 'health-state', 'launch-gate', 'provider-pool-preflight', 'max-tasks')."
+        },
+        "outcome": {
+          "type": "string",
+          "enum": ["pass", "warn", "block", "skip"],
+          "description": "Gate outcome. pass = cleared, warn = advisory, block = hard failure, skip = not evaluated."
+        },
+        "evaluatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the gate was evaluated."
+        },
+        "message": {
+          "type": ["string", "null"],
+          "description": "Human-readable summary of the gate result."
+        },
+        "blockedCount": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Number of candidates blocked by this gate. Null when outcome is pass or skip."
+        }
+      }
+    },
+    "actionEntry": {
+      "type": "object",
+      "description": "An action planned or executed during the run.",
+      "required": ["step", "actionType", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "step": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Pipeline step that produced this action (e.g. 'state-reconciler', 'batch-launch')."
+        },
+        "actionType": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Type of action (e.g. 'compile-tasks', 'reconcile-state', 'dispatch-worker', 'write-health-marker')."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["planned", "executed", "skipped", "failed"],
+          "description": "planned = would execute in dry-run, executed = ran in execute mode, skipped = not applicable, failed = error during execution."
+        },
+        "executedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the action was executed. Null for planned or skipped actions."
+        },
+        "target": {
+          "type": ["string", "null"],
+          "description": "What the action operated on (e.g. 'issue:1244', 'provider:openai-1')."
+        },
+        "result": {
+          "type": ["string", "null"],
+          "description": "Brief outcome of the action."
+        },
+        "durationMs": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Wall-clock time for the action. Null for planned or skipped actions."
+        }
+      }
+    },
+    "humanDecisionPoint": {
+      "type": "object",
+      "description": "A human decision point encountered during the run.",
+      "required": ["gateName", "decision"],
+      "additionalProperties": false,
+      "properties": {
+        "gateName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Gate or step where the human decision was required."
+        },
+        "decision": {
+          "type": "string",
+          "enum": ["proceed", "abort", "override", "pending"],
+          "description": "Human's decision. proceed = continue, abort = stop, override = bypass with justification, pending = awaiting decision."
+        },
+        "encounteredAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the decision point was encountered."
+        },
+        "resolvedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the decision was resolved. Null if pending."
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "description": "Human-readable explanation for the decision (required for override)."
+        }
+      }
+    },
+    "healthSnapshot": {
+      "type": "object",
+      "description": "Snapshot of main branch health at a point in time.",
+      "required": ["state", "capturedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["green", "yellow", "red", "black"],
+          "description": "Main branch health state."
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the health state was evaluated."
+        },
+        "commitSha": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-fA-F]{7,40}$",
+          "description": "Git SHA of the commit this health state was captured for."
+        },
+        "checks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Health checks that were evaluated."
+        },
+        "failedChecks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Checks that failed (subset of checks)."
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "description": "Human-readable explanation for the health state."
+        }
+      }
+    }
+  }
+}
