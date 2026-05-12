@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "policyVersion": 1,
+  "description": "Bounded experiment policy defining risk limits, required validation, max changed files, and human-required categories for opportunity-signal-driven experiments. Referenced by the agent idea review gate and the planning loop when promoting signals to tasks.",
+  "sourceDocs": [
+    "docs/ai-native/opportunity-signal-schema.md",
+    "docs/ai-native/agent-idea-review-gate.md",
+    "docs/ai-native/external-reality-intake.md",
+    "docs/ai-native/runtime-signal-intake-contract.md"
+  ],
+
+  "experimentTypes": {
+    "code-change": {
+      "description": "Source code modification to validate a hypothesis about behavior or performance.",
+      "maxChangedFiles": 5,
+      "maxDiffLines": 200,
+      "requiredValidation": ["npm run check", "npm run build"],
+      "riskDefault": "medium",
+      "allowedFileClasses": ["src/**", "test/**"],
+      "forbiddenFileClasses": [
+        "src/generated/**",
+        "prisma/**",
+        ".env",
+        ".env.*",
+        "node_modules/**",
+        "dist/**"
+      ]
+    },
+    "config-change": {
+      "description": "Configuration or environment adjustment to test operational hypotheses.",
+      "maxChangedFiles": 3,
+      "maxDiffLines": 100,
+      "requiredValidation": ["npm run check"],
+      "riskDefault": "medium",
+      "allowedFileClasses": [
+        ".github/ai-policy/**",
+        ".github/ai-state/**",
+        "docs/**"
+      ],
+      "forbiddenFileClasses": [
+        "src/**",
+        "prisma/**",
+        ".env",
+        ".env.*",
+        "node_modules/**",
+        "dist/**",
+        "package.json",
+        "package-lock.json"
+      ]
+    },
+    "data-collection": {
+      "description": "Read-only data gathering to verify a signal observation. No code changes.",
+      "maxChangedFiles": 0,
+      "maxDiffLines": 0,
+      "requiredValidation": [],
+      "riskDefault": "low",
+      "allowedFileClasses": [],
+      "forbiddenFileClasses": []
+    },
+    "prototype": {
+      "description": "Throwaway proof-of-concept to test feasibility before committing to a full implementation.",
+      "maxChangedFiles": 8,
+      "maxDiffLines": 400,
+      "requiredValidation": ["npm run check"],
+      "riskDefault": "medium",
+      "allowedFileClasses": ["src/**", "test/**"],
+      "forbiddenFileClasses": [
+        "src/generated/**",
+        "prisma/**",
+        ".env",
+        ".env.*",
+        "node_modules/**",
+        "dist/**"
+      ],
+      "notes": "Prototype must not be merged without promotion to a full task. Mark PR as draft."
+    },
+    "ab-test": {
+      "description": "Feature-flagged variation to measure impact against a control group.",
+      "maxChangedFiles": 6,
+      "maxDiffLines": 250,
+      "requiredValidation": ["npm run check", "npm run build"],
+      "riskDefault": "high",
+      "allowedFileClasses": ["src/**", "test/**", ".github/ai-state/**"],
+      "forbiddenFileClasses": [
+        "src/generated/**",
+        "prisma/**",
+        ".env",
+        ".env.*",
+        "node_modules/**",
+        "dist/**"
+      ],
+      "notes": "A/B tests touching auth or data flows require architect review."
+    }
+  },
+
+  "riskLimits": {
+    "low": {
+      "maxChangedFiles": 3,
+      "maxDiffLines": 100,
+      "requiredReviewRoles": [],
+      "autoMergeAllowed": true,
+      "healthGate": "gate-docs-only"
+    },
+    "medium": {
+      "maxChangedFiles": 5,
+      "maxDiffLines": 200,
+      "requiredReviewRoles": ["architect"],
+      "autoMergeAllowed": false,
+      "healthGate": "gate-all"
+    },
+    "high": {
+      "maxChangedFiles": 6,
+      "maxDiffLines": 250,
+      "requiredReviewRoles": ["architect", "security-reviewer"],
+      "autoMergeAllowed": false,
+      "healthGate": "gate-all",
+      "notes": "High-risk experiments require both architect and security review before merge."
+    }
+  },
+
+  "humanRequiredCategories": {
+    "description": "Experiment categories that always require human approval regardless of risk level.",
+    "categories": {
+      "auth-session": {
+        "label": "Auth / Session",
+        "filePatterns": [
+          "src/**/auth/**",
+          "src/**/session/**",
+          "src/**/jwt/**",
+          "src/**/passport/**",
+          "src/**/guard/**"
+        ],
+        "reason": "Authentication and session changes affect all users and cannot be safely auto-reverted.",
+        "requiredRoles": ["architect", "security-reviewer"]
+      },
+      "database-migration": {
+        "label": "Database / Migration",
+        "filePatterns": [
+          "prisma/**",
+          "src/generated/prisma/**",
+          "src/**/migration*/**"
+        ],
+        "reason": "Schema changes may cause data loss and require dry-run validation.",
+        "requiredRoles": ["architect", "migration-auditor"]
+      },
+      "public-api-contract": {
+        "label": "Public API Contract",
+        "filePatterns": [
+          "src/**/controller/**",
+          "src/**/*.controller.ts"
+        ],
+        "reason": "API contract changes affect downstream consumers and require compatibility review.",
+        "requiredRoles": ["architect"]
+      },
+      "production-config": {
+        "label": "Production Configuration",
+        "filePatterns": [
+          "src/main.ts",
+          "src/**/config/**",
+          ".env.example",
+          "docker*",
+          "Dockerfile*",
+          "docker-compose*"
+        ],
+        "reason": "Deployment and bootstrap config changes directly affect production behavior.",
+        "requiredRoles": ["architect"]
+      },
+      "security-middleware": {
+        "label": "Security Middleware",
+        "filePatterns": [
+          "src/**/middleware/**",
+          "src/**/interceptor/**",
+          "src/**/filter/**"
+        ],
+        "reason": "Middleware and interceptors affect the entire request pipeline.",
+        "requiredRoles": ["architect", "security-reviewer"]
+      }
+    }
+  },
+
+  "validationPolicy": {
+    "description": "Required validation before an experiment result can be considered conclusive.",
+    "mandatoryChecks": [
+      {
+        "id": "typecheck",
+        "command": "npm run check",
+        "description": "TypeScript type checking must pass with zero errors.",
+        "blocking": true
+      },
+      {
+        "id": "build",
+        "command": "npm run build",
+        "description": "Production build must succeed.",
+        "blocking": true
+      }
+    ],
+    "conditionalChecks": [
+      {
+        "id": "test-suite",
+        "command": "npm test",
+        "description": "Full test suite. Required when experiment touches src/ files.",
+        "condition": "allowedFiles includes src/**",
+        "blocking": true
+      },
+      {
+        "id": "ops-guard",
+        "command": "npm run ops:guard",
+        "description": "Operations guard inventory check. Required when experiment touches docs/ or .github/ files.",
+        "condition": "allowedFiles includes docs/** or .github/**",
+        "blocking": true
+      }
+    ]
+  },
+
+  "scopeConstraints": {
+    "description": "Hard limits on experiment scope to ensure bounded risk.",
+    "maxAllowedFiles": 10,
+    "maxConflictGroups": 1,
+    "requireRollbackPlan": true,
+    "requireSuccessCriteria": true,
+    "requireSingleResponsibility": true,
+    "forbiddenPatterns": [
+      "**/*",
+      "src/**",
+      "prisma/**"
+    ],
+    "notes": "Broad glob patterns like 'src/**' are forbidden in experiment allowedFiles. Experiments must target specific modules or endpoints."
+  },
+
+  "lifecycle": {
+    "description": "Experiment lifecycle states and transitions.",
+    "states": {
+      "proposed": "Signal accepted, experiment plan drafted. Awaiting review.",
+      "approved": "Human reviewer approved the experiment plan. Ready to execute.",
+      "executing": "Worker is running the experiment. Heartbeat active.",
+      "completed": "Experiment finished. Results recorded in fact event ledger.",
+      "rejected": "Experiment plan rejected. Rejection reason recorded.",
+      "rolled-back": "Experiment was reverted due to failure or risk escalation."
+    },
+    "transitions": {
+      "proposed-to-approved": { "trigger": "human-approval", "requiredRoles": "per risk level" },
+      "approved-to-executing": { "trigger": "worker-launch", "gate": "launch-gate" },
+      "executing-to-completed": { "trigger": "validation-pass", "requiredChecks": "per validationPolicy" },
+      "executing-to-rolled-back": { "trigger": "validation-fail or manual-revert" },
+      "proposed-to-rejected": { "trigger": "human-rejection" }
+    },
+    "maxDuration": {
+      "low": "48h",
+      "medium": "168h",
+      "high": "72h"
+    }
+  },
+
+  "metadata": {
+    "createdAt": "2026-05-12",
+    "issue": 943,
+    "maintainer": "ai-policy-worker"
+  }
+}
