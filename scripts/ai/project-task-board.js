@@ -36,11 +36,14 @@ const MARKER_VERSION = 1;
 
 // Labels that map to projection states (checked in priority order)
 const STATE_LABEL_MAP = [
-  { label: 'agent:done',    state: 'done' },
-  { label: 'agent:merged',  state: 'done' },
-  { label: 'agent:running', state: 'running' },
-  { label: 'agent:blocked', state: 'blocked' },
-  { label: 'agent:queued',  state: 'ready' },
+  { label: 'agent:done',     state: 'done' },
+  { label: 'agent:merged',   state: 'done' },
+  { label: 'agent:archived', state: 'archived' },
+  { label: 'agent:running',  state: 'running' },
+  { label: 'agent:blocked',  state: 'blocked' },
+  { label: 'agent:queued',   state: 'ready' },
+  { label: 'agent:todo',     state: 'todo' },
+  { label: 'agent:triage',   state: 'triage' },
 ];
 
 // Labels that mark an issue as non-executable (discussion / tracking)
@@ -327,9 +330,12 @@ function runSelfTest() {
   // Test: mapState for each label
   assert(mapState({ number: 1, title: '', labels: [{ name: 'agent:done' }] }) === 'done', 'agent:done maps to done');
   assert(mapState({ number: 1, title: '', labels: [{ name: 'agent:merged' }] }) === 'done', 'agent:merged maps to done');
+  assert(mapState({ number: 1, title: '', labels: [{ name: 'agent:archived' }] }) === 'archived', 'agent:archived maps to archived');
   assert(mapState({ number: 1, title: '', labels: [{ name: 'agent:running' }] }) === 'running', 'agent:running maps to running');
   assert(mapState({ number: 1, title: '', labels: [{ name: 'agent:blocked' }] }) === 'blocked', 'agent:blocked maps to blocked');
   assert(mapState({ number: 1, title: '', labels: [{ name: 'agent:queued' }] }) === 'ready', 'agent:queued maps to ready');
+  assert(mapState({ number: 1, title: '', labels: [{ name: 'agent:todo' }] }) === 'todo', 'agent:todo maps to todo');
+  assert(mapState({ number: 1, title: '', labels: [{ name: 'agent:triage' }] }) === 'triage', 'agent:triage maps to triage');
   assert(mapState({ number: 1, title: '', labels: [] }) === 'open', 'no label maps to open');
 
   // Test: mapState with string labels
@@ -367,6 +373,9 @@ function runSelfTest() {
     { number: 275, title: 'Feature C', body: '', labels: [{ name: 'agent:done' }] },
     { number: 310, title: 'Feature D', body: '', labels: [{ name: 'agent:blocked' }] },
     { number: 400, title: 'New feature', body: '', labels: [] },
+    { number: 410, title: 'Triage me', body: '', labels: [{ name: 'agent:triage' }] },
+    { number: 420, title: 'Backlog item', body: '', labels: [{ name: 'agent:todo' }] },
+    { number: 430, title: 'Old feature', body: '', labels: [{ name: 'agent:archived' }] },
   ];
   const testPRs = [{ number: 50, title: 'feat', body: 'Closes #275', headRefName: '' }];
   const testWorkers = { workers: [{ issue: 200, branch: 'claude/w1', claimant: 'backend', claimedAt: '2026-01-01T00:00:00Z', lastHeartbeat: '2026-01-01T00:15:00Z', expiresAt: '2026-01-01T01:30:00Z' }, { issue: 258, branch: 'claude/w2', claimant: 'backend', claimedAt: '2026-01-01T00:00:00Z', lastHeartbeat: '2026-01-01T00:15:00Z', expiresAt: '2026-01-01T01:30:00Z' }] };
@@ -376,7 +385,7 @@ function runSelfTest() {
   assert(discussions[0].issue === 96, 'discussion is #96');
   assert(discussions[0].state === 'discussion/open', 'discussion state');
 
-  assert(tasks.length === 5, `5 tasks, got ${tasks.length}`);
+  assert(tasks.length === 8, `8 tasks, got ${tasks.length}`);
 
   const t200 = tasks.find(t => t.issue === 200);
   assert(t200.state === 'running', '#200 is running');
@@ -401,12 +410,24 @@ function runSelfTest() {
   assert(t400.worker === null, '#400 has no worker');
   assert(t400.linkedPR === null, '#400 has no linked PR');
 
+  const t410 = tasks.find(t => t.issue === 410);
+  assert(t410.state === 'triage', '#410 is triage');
+  assert(t410.worker === null, '#410 has no worker');
+
+  const t420 = tasks.find(t => t.issue === 420);
+  assert(t420.state === 'todo', '#420 is todo');
+  assert(t420.worker === null, '#420 has no worker');
+
+  const t430 = tasks.find(t => t.issue === 430);
+  assert(t430.state === 'archived', '#430 is archived');
+  assert(t430.worker === null, '#430 has no worker');
+
   // Test: buildProjection shape
   const proj = buildProjection(testIssues, testPRs, testWorkers, null);
   assert(proj.markerVersion === 1, 'markerVersion is 1');
   assert(typeof proj.capturedAt === 'string', 'capturedAt is string');
   assert(Array.isArray(proj.tasks), 'tasks is array');
-  assert(proj.tasks.length === 6, 'total tasks includes discussions');
+  assert(proj.tasks.length === 9, 'total tasks includes discussions');
 
   // Test: empty input
   const emptyProj = buildProjection([], [], null, null);

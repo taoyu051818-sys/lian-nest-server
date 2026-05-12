@@ -29,7 +29,7 @@ directories, and lock files. This document defines a single
 projection that:
 
 1. **Consolidates task state.** One file captures every task's
-   lifecycle position — ready, running, blocked, or done.
+   lifecycle position — triage, todo, ready, running, blocked, done, or archived.
 2. **Enables conflict detection.** The launch gate and orchestrator
    read the projection to prevent scheduling collisions.
 3. **Supports stale reclaim.** Workers that stop heartbeating are
@@ -59,32 +59,39 @@ reconciler detects and resolves drift (see
 ## States
 
 ```
-          claim              heartbeat-ok
- OPEN ──────────► READY ──────────────────► RUNNING
-                  │  ▲                        │  ▲
-                  │  │                        │  │
-           block  │  │  reclaim        block  │  │  reclaim
-                  ▼  │                        ▼  │
-                BLOCKED                      BLOCKED
-                  │                            │
-                  │  resolve                   │  resolve
-                  ▼                            ▼
-                 READY                       RUNNING
-                                             │
-                                      complete│
-                                             ▼
-                                           DONE
+          triage             queue              claim              heartbeat-ok
+ TRIAGE ────────► TODO ────────► OPEN ────────► READY ──────────────────► RUNNING
+                  │  ▲           │               │  ▲                        │  ▲
+                  │  │           │               │  │                        │  │
+           triage │  │ backlog   │        block  │  │  reclaim        block  │  │  reclaim
+                  ▼  │           ▼               ▼  │                        ▼  │
+                TRIAGE        TODO             BLOCKED                      BLOCKED
+                                                        │                       │
+                                                        │  resolve              │  resolve
+                                                        ▼                       ▼
+                                                       READY                  RUNNING
+                                                                                │
+                                                                         complete│
+                                                                                ▼
+                                                                              DONE
+                                                                                │
+                                                                         archive│
+                                                                                ▼
+                                                                           ARCHIVED
 ```
 
 ### State Definitions
 
 | State | Meaning | Who Sets |
 |-------|---------|----------|
+| `TRIAGE` | Issue needs triage before being actionable. Has `agent:triage` label. | Steward / Intake |
+| `TODO` | Issue triaged and backlogged but not yet queued for execution. Has `agent:todo` label. | Steward |
 | `OPEN` | Issue exists but no worker has claimed it. Matches GitHub `OPEN` state with no `agent:*` label. | GitHub state |
 | `READY` | Issue triaged, task JSON compiled, eligible for dispatch. Has `agent:queued` label. | Orchestrator / Steward |
 | `RUNNING` | Worker actively executing. Has `agent:running` label and an active heartbeat. | Worker |
 | `BLOCKED` | Worker cannot proceed — dependency, gate failure, or external blocker. Has `agent:blocked` label. | Worker / Reviewer |
 | `DONE` | Work completed — PR merged or task finished. Has `agent:done` label. | Worker / Merge gate |
+| `ARCHIVED` | Task is no longer relevant or has been superseded. Has `agent:archived` label. | Steward / Reconciler |
 
 ---
 
@@ -150,9 +157,9 @@ The projection lives at `.github/ai-state/task-board.json`.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `issue` | `number` | Yes | GitHub issue number. |
-| `state` | `string` | Yes | One of `open`, `ready`, `running`, `blocked`, `done`. |
+| `state` | `string` | Yes | One of `triage`, `todo`, `open`, `ready`, `running`, `blocked`, `done`, `archived`. |
 | `conflictGroup` | `string` | Yes | Conflict group from task JSON. |
-| `worker` | `object \| null` | Yes | Worker details when `state` is `ready`, `running`, or `blocked`. `null` for `open` and `done`. |
+| `worker` | `object \| null` | Yes | Worker details when `state` is `ready`, `running`, or `blocked`. `null` for `triage`, `todo`, `open`, `done`, and `archived`. |
 | `worker.branch` | `string` | Yes | Git worktree branch name. |
 | `worker.claimant` | `string` | Yes | Role that claimed the task (e.g. `backend-programmer`). |
 | `worker.claimedAt` | `string` (ISO 8601) | Yes | When the task was claimed. |
@@ -307,11 +314,14 @@ The task board projection composes with the existing state files:
 
 | Projection State | GitHub Issue State | `agent:*` Label |
 |------------------|--------------------|-----------------|
+| `TRIAGE` | `OPEN` | `agent:triage` |
+| `TODO` | `OPEN` | `agent:todo` |
 | `OPEN` | `OPEN` (no agent label) | None |
 | `READY` | `OPEN` | `agent:queued` |
 | `RUNNING` | `OPEN` | `agent:running` |
 | `BLOCKED` | `OPEN` | `agent:blocked` |
 | `DONE` | `CLOSED` (after merge) | `agent:done` |
+| `ARCHIVED` | `CLOSED` | `agent:archived` |
 
 The reconciler ensures these stay in sync. If the projection says
 `RUNNING` but the GitHub issue has `agent:done`, the reconciler
