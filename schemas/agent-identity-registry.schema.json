@@ -1,0 +1,181 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/agent-identity-registry.schema.json",
+  "title": "AgentIdentityRegistry",
+  "description": "Schema for .github/ai-state/agent-identity-registry.json — the agent identity registry projection that assigns stable agentId, workerClass, owner, permissions, trust score, and accountability metadata to every worker. See docs/ai-native/agent-identity-registry-schema.md for field-level documentation.",
+  "type": "object",
+  "required": [
+    "markerVersion",
+    "capturedAt",
+    "agents"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "markerVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version pinned to 1. Consumers must reject records with a different version."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this registry projection was captured or last updated."
+    },
+    "agents": {
+      "type": "object",
+      "description": "Registered agent entries. Each key is an agentId.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/definitions/AgentEntry"
+      }
+    }
+  },
+  "definitions": {
+    "AgentEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agentId",
+        "workerClass",
+        "owner",
+        "permissions",
+        "trustScore",
+        "registeredAt",
+        "status"
+      ],
+      "properties": {
+        "agentId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+          "description": "Stable agent identifier in kebab-case (e.g. 'worker-runtime-feature-001', 'agent-telemetry-governance'). Must be unique within the registry."
+        },
+        "workerClass": {
+          "type": "string",
+          "enum": [
+            "docs",
+            "tests",
+            "tooling",
+            "runtime-feature",
+            "runtime-foundation",
+            "prisma",
+            "review",
+            "merge",
+            "state-reconciler",
+            "provider-pool",
+            "meta-loop",
+            "telemetry-governance"
+          ],
+          "description": "Worker class this agent belongs to. Determines file boundaries and layer assignment per worker-permissions.json."
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human or team responsible for this agent (e.g. 'taoyu', 'platform-team'). Used for escalation routing."
+        },
+        "permissions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "allowedFileGlobs",
+            "maxConcurrentTasks",
+            "canSelfApprove"
+          ],
+          "properties": {
+            "allowedFileGlobs": {
+              "type": "array",
+              "description": "File glob patterns this agent is permitted to modify. Derived from worker class boundary.",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1
+            },
+            "maxConcurrentTasks": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "description": "Maximum number of tasks this agent may execute concurrently."
+            },
+            "canSelfApprove": {
+              "type": "boolean",
+              "description": "Whether this agent may self-approve its own outputs. Must be false for all workers — enforced by seed constitution."
+            }
+          }
+        },
+        "trustScore": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "current",
+            "defaultBaseline"
+          ],
+          "properties": {
+            "current": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Current trust score in [0.0, 1.0]. Updated by the state reconciler after each task completion or failure."
+            },
+            "defaultBaseline": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Baseline trust score from worker-trust.json for this agent's workerClass. Used to reset trust after long idle periods."
+            },
+            "lastUpdated": {
+              "type": ["string", "null"],
+              "format": "date-time",
+              "description": "ISO-8601 timestamp when trust score was last updated."
+            }
+          }
+        },
+        "registeredAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when this agent was first registered."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "idle", "suspended", "retired"],
+          "description": "Current agent status. active = currently dispatched, idle = available for dispatch, suspended = blocked by policy or trust, retired = permanently decommissioned."
+        },
+        "accountability": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "totalTasksCompleted": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Total number of tasks this agent has completed successfully."
+            },
+            "totalTasksFailed": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Total number of tasks this agent has failed."
+            },
+            "lastTaskAt": {
+              "type": ["string", "null"],
+              "format": "date-time",
+              "description": "ISO-8601 timestamp of the agent's last completed or failed task."
+            },
+            "lastFailureReason": {
+              "type": ["string", "null"],
+              "minLength": 1,
+              "description": "Reason for the agent's most recent failure, if any."
+            },
+            "consecutiveFailures": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of consecutive task failures. Reset to 0 on success. Used by scheduling rules to auto-suspend agents."
+            }
+          }
+        },
+        "note": {
+          "type": ["string", "null"],
+          "description": "Optional human-readable note about this agent (e.g. why it was suspended, special capabilities)."
+        }
+      }
+    }
+  }
+}

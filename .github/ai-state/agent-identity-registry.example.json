@@ -1,0 +1,24 @@
+{
+  "markerVersion": 1,
+  "capturedAt": "2026-05-12T12:00:00Z",
+  "agents": {
+    "agent-telemetry-governance": {
+      "agentId": "agent-telemetry-governance",
+      "workerClass": "telemetry-governance",
+      "owner": "taoyu",
+      "permissions": {
+        "allowedFileGlobs": ["schemas/**", "docs/ai-native/**", "scripts/ai/**"],
+        "maxConcurrentTasks": 2,
+        "canSelfApprove": false
+      },
+      "trustScore": {
+        "current": 0.9,
+        "defaultBaseline": 0.9,
+        "lastUpdated": null
+      },
+      "registeredAt": "2026-05-12T12:00:00Z",
+      "status": "idle",
+      "note": "Seed entry for telemetry-governance worker. Primary governance worker for control-plane artifacts."
+    }
+  }
+}
