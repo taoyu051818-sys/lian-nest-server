@@ -325,6 +325,121 @@ test('self-test: --self-test exits 0', () => {
   assert.ok(stdout.includes('All self-tests passed'));
 });
 
+// ── Parallel summary: task-surface independence analysis ─────────────────────
+
+test('parallelSummary: has taskSurfaces field with independence analysis', () => {
+  const { stdout } = run(['--stdout']);
+  const snapshot = JSON.parse(stdout);
+  assert.ok(typeof snapshot.parallelSummary.taskSurfaces === 'object', 'taskSurfaces is object');
+  assert.strictEqual(typeof snapshot.parallelSummary.taskSurfaces.independent, 'boolean', 'taskSurfaces.independent');
+  assert.strictEqual(typeof snapshot.parallelSummary.taskSurfaces.hasConflicts, 'boolean', 'taskSurfaces.hasConflicts');
+  assert.strictEqual(typeof snapshot.parallelSummary.taskSurfaces.uniqueGroups, 'number', 'taskSurfaces.uniqueGroups');
+  assert.strictEqual(typeof snapshot.parallelSummary.taskSurfaces.conflictSummary, 'string', 'taskSurfaces.conflictSummary');
+});
+
+test('parallelSummary: recommendation references task-surface independence', () => {
+  const { stdout } = run(['--stdout']);
+  const snapshot = JSON.parse(stdout);
+  const rec = snapshot.parallelSummary.recommendation;
+  assert.ok(typeof rec === 'string', 'recommendation is string');
+  assert.ok(rec.length > 0, 'recommendation is non-empty');
+});
+
+// ── Evidence-based meta-signal thresholds ────────────────────────────────────
+
+test('meta-signals: failure score compared against trust score (not fixed threshold)', () => {
+  // Write fixture with failure > trust to trigger blocker
+  const fixtureDir = path.join(CLEAN_STATE_DIR, 'meta-fixtures');
+  fs.mkdirSync(fixtureDir, { recursive: true });
+  const metaPath = path.join(CLEAN_STATE_DIR, 'meta-signals.json');
+  const origMeta = fs.existsSync(metaPath) ? fs.readFileSync(metaPath, 'utf8') : null;
+
+  try {
+    // Failure score 80 > trust score 50 → should trigger blocker
+    fs.writeFileSync(metaPath, JSON.stringify({
+      signals: { failureScore: 80, frictionScore: 0, riskScore: 0, trust: 50, topPain: 'none' },
+    }), 'utf8');
+
+    const { stdout } = run(['--stdout']);
+    const snapshot = JSON.parse(stdout);
+    const metaBlocker = snapshot.blockers.find(b => b.source === 'meta-signals');
+    assert.ok(metaBlocker, 'should have meta-signals blocker when failure > trust');
+    assert.ok(metaBlocker.message.includes('80'), 'blocker mentions failure score');
+    assert.ok(metaBlocker.message.includes('50'), 'blocker mentions trust score');
+  } finally {
+    // Restore original state
+    if (origMeta !== null) {
+      fs.writeFileSync(metaPath, origMeta, 'utf8');
+    } else if (fs.existsSync(metaPath)) {
+      fs.unlinkSync(metaPath);
+    }
+    if (fs.existsSync(fixtureDir)) fs.rmSync(fixtureDir, { recursive: true, force: true });
+  }
+});
+
+test('meta-signals: no blocker when failure score below trust score', () => {
+  const metaPath = path.join(CLEAN_STATE_DIR, 'meta-signals.json');
+  const origMeta = fs.existsSync(metaPath) ? fs.readFileSync(metaPath, 'utf8') : null;
+
+  try {
+    // Failure score 30 < trust score 90 → no blocker
+    fs.writeFileSync(metaPath, JSON.stringify({
+      signals: { failureScore: 30, frictionScore: 0, riskScore: 0, trust: 90, topPain: 'none' },
+    }), 'utf8');
+
+    const { stdout } = run(['--stdout']);
+    const snapshot = JSON.parse(stdout);
+    const metaBlocker = snapshot.blockers.find(b => b.source === 'meta-signals');
+    assert.ok(!metaBlocker, 'should not have meta-signals blocker when failure < trust');
+  } finally {
+    if (origMeta !== null) {
+      fs.writeFileSync(metaPath, origMeta, 'utf8');
+    } else if (fs.existsSync(metaPath)) {
+      fs.unlinkSync(metaPath);
+    }
+  }
+});
+
+// ── Evidence-based issue-production gap ratio ────────────────────────────────
+
+test('issue-production: gap ratio determines blocker severity (not fixed gap count)', () => {
+  const lcPath = path.join(CLEAN_STATE_DIR, 'launch-candidates.json');
+  const awPath = path.join(CLEAN_STATE_DIR, 'active-workers.json');
+  const origLc = fs.existsSync(lcPath) ? fs.readFileSync(lcPath, 'utf8') : null;
+  const origAw = fs.existsSync(awPath) ? fs.readFileSync(awPath, 'utf8') : null;
+
+  try {
+    // 2 ready issues, 10 requested → gap 8, ratio 80% → high severity
+    fs.writeFileSync(lcPath, JSON.stringify({
+      schemaVersion: 1, capturedAt: new Date().toISOString(), mode: 'dry-run',
+      summary: { totalOpen: 5, candidateCount: 2, excludedCount: 3 },
+      candidates: [], excluded: [],
+    }), 'utf8');
+    fs.writeFileSync(awPath, JSON.stringify({
+      requestedParallelism: 10, effectiveParallelism: 3,
+      workers: [{ status: 'running' }],
+    }), 'utf8');
+
+    const { stdout } = run(['--stdout']);
+    const snapshot = JSON.parse(stdout);
+    const issueBlocker = snapshot.blockers.find(b => b.source === 'issue-production');
+    assert.ok(issueBlocker, 'should have issue-production blocker');
+    assert.strictEqual(issueBlocker.severity, 'high', 'high gap ratio should be high severity');
+    assert.ok(issueBlocker.message.includes('80%'), 'blocker mentions gap ratio percentage');
+  } finally {
+    if (origLc !== null) {
+      fs.writeFileSync(lcPath, origLc, 'utf8');
+    } else if (fs.existsSync(lcPath)) {
+      fs.unlinkSync(lcPath);
+    }
+    if (origAw !== null) {
+      fs.writeFileSync(awPath, origAw, 'utf8');
+    } else if (fs.existsSync(awPath)) {
+      fs.unlinkSync(awPath);
+    }
+  }
+});
+
 // ── Consistency ──────────────────────────────────────────────────────────────
 
 test('consistency: blockers have valid sources; human actions appear in humanRequiredItems', () => {

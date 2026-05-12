@@ -761,6 +761,111 @@ test('integration: generated issues include evidence and rollbackFollowUp', () =
   }
 });
 
+// ── Unit tests: evidence-based reasoning and classification ──────────────────
+
+test('makeCandidate: has correct classification and reasoning defaults', () => {
+  const c = makeCandidate({ title: 'test' });
+  assert.strictEqual(c.classification, 'issue-worthy');
+  assert.strictEqual(typeof c.reasoning, 'object');
+  assert.strictEqual(typeof c.reasoning.factsObserved, 'string');
+  assert.strictEqual(typeof c.reasoning.relevantPattern, 'string');
+  assert.strictEqual(typeof c.reasoning.whyThisAction, 'string');
+  assert.strictEqual(typeof c.reasoning.riskIfManual, 'string');
+  assert.strictEqual(typeof c.reasoning.riskIfOverTooled, 'string');
+  assert.strictEqual(c.reasoning.seedBoundary, 'automation-scope');
+  assert.strictEqual(c.reasoning.selfBootstrapNecessary, true);
+});
+
+test('buildIssueBody: includes Evidence-Based Reasoning section when reasoning present', () => {
+  const body = buildIssueBody(makeCandidate({
+    title: 'Test reasoning',
+    reasoning: {
+      factsObserved: 'Test fact observed.',
+      relevantPattern: 'Test pattern.',
+      whyThisAction: 'Test why.',
+      riskIfManual: 'Test risk if manual.',
+      riskIfOverTooled: 'Test risk if over-tooled.',
+      seedBoundary: 'automation-scope',
+      selfBootstrapNecessary: true,
+    },
+  }));
+  assert.ok(body.includes('## Evidence-Based Reasoning'), 'missing Evidence-Based Reasoning section');
+  assert.ok(body.includes('Facts observed:'), 'missing facts observed label');
+  assert.ok(body.includes('Test fact observed.'), 'missing facts observed text');
+  assert.ok(body.includes('Relevant pattern:'), 'missing relevant pattern label');
+  assert.ok(body.includes('Test pattern.'), 'missing relevant pattern text');
+  assert.ok(body.includes('Why this action:'), 'missing why this action label');
+  assert.ok(body.includes('Risk if manual:'), 'missing risk if manual label');
+  assert.ok(body.includes('Risk if over-tooled:'), 'missing risk if over-tooled label');
+  assert.ok(body.includes('Seed boundary:'), 'missing seed boundary label');
+  assert.ok(body.includes('Self-bootstrap necessary:'), 'missing self-bootstrap label');
+});
+
+test('buildIssueBody: includes Classification in CONTROL APPENDIX', () => {
+  const body = buildIssueBody(makeCandidate({
+    title: 'Test classification',
+    classification: 'gate-worthy',
+  }));
+  assert.ok(body.includes('Classification: gate-worthy'), 'missing classification in CONTROL APPENDIX');
+});
+
+test('applyPolicyGate: sets classification to gate-worthy for high-risk', () => {
+  const candidates = [makeCandidate({ title: 'High risk', risk: 'high' })];
+  const result = applyPolicyGate(candidates);
+  assert.strictEqual(result.humanRequired.length, 1);
+  assert.strictEqual(result.humanRequired[0].classification, 'gate-worthy');
+});
+
+test('applyPolicyGate: sets classification to gate-worthy for forbidden scopes', () => {
+  const candidates = [makeCandidate({
+    title: 'Touching src',
+    risk: 'low',
+    allowedFiles: ['src/**'],
+  })];
+  const result = applyPolicyGate(candidates);
+  assert.strictEqual(result.humanRequired.length, 1);
+  assert.strictEqual(result.humanRequired[0].classification, 'gate-worthy');
+});
+
+test('applyPolicyGate: preserves classification for non-gated candidates', () => {
+  const candidates = [makeCandidate({
+    title: 'Safe change',
+    risk: 'low',
+    classification: 'issue-worthy',
+  })];
+  const result = applyPolicyGate(candidates);
+  assert.strictEqual(result.autoCreatable.length, 1);
+  assert.strictEqual(result.autoCreatable[0].classification, 'issue-worthy');
+});
+
+test('integration: all candidates have evidence-based reasoning fields', () => {
+  const tmpDir = createTempStateDir({
+    health: MINIMAL_HEALTH,
+    localResource: STALE_RESOURCE,
+    providerPool: MINIMAL_PROVIDER_POOL,
+  });
+
+  try {
+    const { stdout, exitCode } = runScript(['--state-dir', tmpDir, '--stdout']);
+    assert.strictEqual(exitCode, 0);
+    const output = JSON.parse(stdout);
+
+    for (const c of output.candidates) {
+      assert.strictEqual(typeof c.classification, 'string', `candidate "${c.title}" missing classification`);
+      assert.ok(
+        ['agent-judgment-only', 'issue-worthy', 'tool-worthy', 'gate-worthy'].includes(c.classification),
+        `candidate "${c.title}" has invalid classification: ${c.classification}`
+      );
+      assert.strictEqual(typeof c.reasoning, 'object', `candidate "${c.title}" missing reasoning`);
+      assert.strictEqual(typeof c.reasoning.factsObserved, 'string', `candidate "${c.title}" missing reasoning.factsObserved`);
+      assert.strictEqual(typeof c.reasoning.relevantPattern, 'string', `candidate "${c.title}" missing reasoning.relevantPattern`);
+      assert.strictEqual(typeof c.reasoning.whyThisAction, 'string', `candidate "${c.title}" missing reasoning.whyThisAction`);
+    }
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 // ── Integration: bounded parallel rehearsal proposal ─────────────────────────
 
 test('integration: bounded parallel rehearsal generator is callable', () => {
