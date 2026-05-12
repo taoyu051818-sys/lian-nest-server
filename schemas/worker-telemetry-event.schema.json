@@ -1,0 +1,218 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/worker-telemetry-event.schema.json",
+  "title": "WorkerTelemetryEvent",
+  "description": "Schema for append-only worker telemetry events recording time, token, and cost facts. Each event is a discrete lifecycle observation: worker-start, worker-heartbeat, or worker-complete. Aligns with the fact-event ledger pattern and the Command Steward brief contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventVersion",
+    "eventType",
+    "taskId",
+    "capturedAt"
+  ],
+  "properties": {
+    "eventVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1. Consumers must reject records with a different version."
+    },
+    "eventType": {
+      "type": "string",
+      "enum": ["worker.start", "worker.heartbeat", "worker.complete"],
+      "description": "Lifecycle event type. worker.start: task dispatched. worker.heartbeat: periodic progress snapshot. worker.complete: task finished."
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier for the worker task, matching the heartbeat taskId and active-workers entry."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this event was recorded."
+    },
+    "issueNumber": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub issue number this task targets, if applicable."
+    },
+    "conflictGroup": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "Conflict group identifier from the task contract, for cross-referencing with active-workers."
+    },
+    "actorRole": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "Role that performed the work, from the task contract rolePacket."
+    },
+    "timing": {
+      "type": "object",
+      "description": "Wall-clock timing facts for the task.",
+      "additionalProperties": false,
+      "required": ["elapsedMs"],
+      "properties": {
+        "elapsedMs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Wall-clock milliseconds from task start to this event capture."
+        },
+        "softTimeMinutes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Budgeted soft time limit from the task contract, for utilization ratio."
+        },
+        "hardTimeMinutes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Budgeted hard time limit from the task contract."
+        }
+      }
+    },
+    "tokenUsage": {
+      "type": "object",
+      "description": "LLM token consumption facts. The source and confidence fields distinguish actual API-reported values from estimates.",
+      "additionalProperties": false,
+      "required": ["inputTokens", "outputTokens", "source", "confidence"],
+      "properties": {
+        "inputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of input (prompt) tokens consumed."
+        },
+        "outputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of output (completion) tokens consumed."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["api_response", "log_parse", "estimate"],
+          "description": "How token counts were obtained: api_response (from provider, actual), log_parse (parsed from logs, actual), estimate (computed heuristically)."
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["high", "medium", "low"],
+          "description": "Reliability of the token counts: high (direct API = actual), medium (parsed), low (estimated)."
+        },
+        "cachedInputTokens": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Input tokens served from prompt cache, if reported by the provider."
+        },
+        "apiCalls": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Number of LLM API calls made during the task."
+        }
+      }
+    },
+    "cost": {
+      "type": "object",
+      "description": "Monetary cost facts for LLM usage. Separates actual provider-billed cost from estimates.",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["actual", "estimated"],
+          "description": "Whether cost is actual (provider-billed or API-reported) or estimated (derived from token counts and list pricing)."
+        },
+        "actualCents": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Actual cost in cents (USD) from provider billing or API response. Null when source is estimated."
+        },
+        "estimatedCents": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Estimated cost in cents (USD) computed from token counts and model pricing. Null when source is actual."
+        },
+        "currency": {
+          "type": "string",
+          "const": "USD",
+          "description": "Currency for cost values. Currently only USD."
+        },
+        "model": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "LLM model identifier used for pricing, e.g. 'claude-opus-4-7'."
+        },
+        "pricingBasis": {
+          "type": ["string", "null"],
+          "enum": ["api_list", "provider_billed", "estimated", "unknown"],
+          "description": "How pricing was determined: api_list (official rates), provider_billed (actual invoice), estimated, unknown."
+        }
+      }
+    },
+    "progress": {
+      "type": ["object", "null"],
+      "description": "Progress snapshot for heartbeat events. Null for start/complete events when not applicable.",
+      "additionalProperties": false,
+      "properties": {
+        "filesChanged": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of files modified or created so far."
+        },
+        "linesAdded": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total lines added so far."
+        },
+        "linesRemoved": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total lines removed so far."
+        },
+        "validationPassed": {
+          "type": ["boolean", "null"],
+          "description": "Whether validation commands have passed so far. Null if not yet run."
+        }
+      }
+    },
+    "gateOutcome": {
+      "type": ["object", "null"],
+      "description": "Final gate result. Only populated for worker.complete events.",
+      "additionalProperties": false,
+      "required": ["passed"],
+      "properties": {
+        "passed": {
+          "type": "boolean",
+          "description": "Whether the task passed all gates."
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "description": "If not passed, the primary reason for gate failure."
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "eventType": { "const": "worker.start" } }
+      },
+      "then": {
+        "required": ["timing", "tokenUsage"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "eventType": { "const": "worker.heartbeat" } }
+      },
+      "then": {
+        "required": ["timing", "tokenUsage"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "eventType": { "const": "worker.complete" } }
+      },
+      "then": {
+        "required": ["timing", "tokenUsage", "cost", "gateOutcome"]
+      }
+    }
+  ]
+}
