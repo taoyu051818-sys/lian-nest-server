@@ -419,3 +419,4 @@ Use this checklist to track progress toward retiring Codex orchestration.
 - [worker-acceptance-checklist.md](worker-acceptance-checklist.md) — PR review criteria.
 - [launch-gate.md](launch-gate.md) — Pre-launch validation.
 - [main-health-policy.md](main-health-policy.md) — Health states and worker permissions.
+- [codex-exit-readiness-gate.md](codex-exit-readiness-gate.md) — Gate decision rule, two-cycle acceptance test, re-entry conditions.
