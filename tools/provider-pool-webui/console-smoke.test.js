@@ -586,6 +586,60 @@ function assertNoSecrets(json, label) {
       assert(res.body.includes("api/state"), "dashboard JS references /api/state");
     }
 
+    // === 15. Served root loads app assets ====================================
+
+    console.log("\n15. Served root app assets\n");
+
+    {
+      const res = await request(base + "/app.js");
+      assert(res.status === 200, "GET /app.js returns 200");
+      assert(res.headers["content-type"].includes("javascript"), "GET /app.js content-type is javascript");
+    }
+
+    {
+      const res = await request(base + "/styles.css");
+      assert(res.status === 200, "GET /styles.css returns 200");
+      assert(res.headers["content-type"].includes("text/css"), "GET /styles.css content-type is text/css");
+    }
+
+    {
+      const res = await request(base + "/");
+      assert(res.body.includes('src="/app.js"'), "served root includes app.js script tag");
+      assert(res.body.includes('href="/styles.css"'), "served root includes styles.css link tag");
+    }
+
+    // === 16. Operation Console action button labels ==========================
+
+    console.log("\n16. Operation Console action button labels\n");
+
+    {
+      const appJsPath = path.resolve(__dirname, "public/app.js");
+      const appJs = fs.readFileSync(appJsPath, "utf-8");
+
+      // Client JS defines the ACTION_REGISTRY with provider/queue/global groups
+      assert(appJs.includes("ACTION_REGISTRY"), "app.js defines ACTION_REGISTRY");
+
+      // Action button labels exposed by client JS
+      const expectedLabels = [
+        "Retry Provider",
+        "Clear Cooldown",
+        "Disable Provider",
+        "Retry Blocked Tasks",
+        "Clear Stale Entries",
+        "Force State Refresh",
+        "Export Audit Log",
+      ];
+      for (const label of expectedLabels) {
+        assert(appJs.includes(label), "app.js exposes action button label: " + label);
+      }
+
+      // Action card rendering markers
+      assert(appJs.includes("action-card"), "app.js renders action cards");
+      assert(appJs.includes("action-btn--preview"), "app.js has preview action button");
+      assert(appJs.includes("renderActionCard"), "app.js has renderActionCard function");
+      assert(appJs.includes("renderServerActionCards"), "app.js has renderServerActionCards function");
+    }
+
   } finally {
     await stopServer(child);
   }
