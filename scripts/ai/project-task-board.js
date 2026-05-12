@@ -300,6 +300,102 @@ function buildProjection(issues, openPRs, activeWorkers, launchLocks) {
   };
 }
 
+// ── Gap discovery ────────────────────────────────────────────────────────────
+
+const DEFAULT_READY_THRESHOLD = 3;
+const DEFAULT_STALE_HEARTBEAT_MS = 10 * 60 * 1000; // 10 minutes
+
+function discoverGaps(projection, options) {
+  const opts = options || {};
+  const readyThreshold = opts.readyThreshold || DEFAULT_READY_THRESHOLD;
+  const staleHeartbeatMs = opts.staleHeartbeatMs || DEFAULT_STALE_HEARTBEAT_MS;
+  const now = opts.now || Date.now();
+
+  const tasks = (projection.tasks || []).filter(t => t.state !== 'discussion/open');
+
+  // Count tasks per state
+  const laneCounts = {};
+  for (const t of tasks) {
+    laneCounts[t.state] = (laneCounts[t.state] || 0) + 1;
+  }
+
+  const signals = [];
+
+  // 1. Blocked lanes
+  const blocked = tasks.filter(t => t.state === 'blocked');
+  for (const t of blocked) {
+    signals.push({
+      type: 'blocked-lane',
+      issue: t.issue,
+      reason: t.blockedReason || 'unknown',
+      conflictGroup: t.conflictGroup,
+    });
+  }
+
+  // 2. Empty-ready lane
+  const readyCount = laneCounts['ready'] || 0;
+  if (readyCount < readyThreshold) {
+    signals.push({
+      type: 'empty-ready',
+      readyCount,
+      threshold: readyThreshold,
+      deficit: readyThreshold - readyCount,
+    });
+  }
+
+  // 3. Stale-running lanes
+  const running = tasks.filter(t => t.state === 'running');
+  for (const t of running) {
+    if (!t.worker || !t.worker.lastHeartbeat) {
+      signals.push({
+        type: 'stale-running',
+        issue: t.issue,
+        conflictGroup: t.conflictGroup,
+        reason: 'no-heartbeat',
+      });
+      continue;
+    }
+    const heartbeatTime = new Date(t.worker.lastHeartbeat).getTime();
+    if (isNaN(heartbeatTime)) {
+      signals.push({
+        type: 'stale-running',
+        issue: t.issue,
+        conflictGroup: t.conflictGroup,
+        reason: 'invalid-heartbeat',
+      });
+      continue;
+    }
+    const ageMs = now - heartbeatTime;
+    if (ageMs > staleHeartbeatMs) {
+      signals.push({
+        type: 'stale-running',
+        issue: t.issue,
+        conflictGroup: t.conflictGroup,
+        reason: 'heartbeat-stale',
+        ageMinutes: Math.round(ageMs / 60000),
+      });
+    }
+  }
+
+  // Summary
+  const summary = {
+    totalTasks: tasks.length,
+    laneCounts,
+    blockedCount: blocked.length,
+    readyCount,
+    runningCount: running.length,
+    staleRunningCount: signals.filter(s => s.type === 'stale-running').length,
+    emptyReady: readyCount < readyThreshold,
+  };
+
+  return {
+    schemaVersion: 1,
+    capturedAt: new Date().toISOString(),
+    summary,
+    signals,
+  };
+}
+
 // ── Self-test ────────────────────────────────────────────────────────────────
 
 function runSelfTest() {
@@ -445,6 +541,48 @@ function runSelfTest() {
   const stringProj = buildProjection(stringLabelIssue, [], null, null);
   assert(stringProj.tasks[0].state === 'done', 'string label maps to done');
 
+  // Test: discoverGaps with mixed states
+  const gapIssues = [
+    { number: 10, title: 'A', body: '', labels: [{ name: 'agent:blocked' }] },
+    { number: 20, title: 'B', body: '', labels: [{ name: 'agent:running' }] },
+    { number: 30, title: 'C', body: '', labels: [{ name: 'agent:queued' }] },
+  ];
+  const gapWorkers = { workers: [{ issue: 20, branch: 'b', claimant: 'c', claimedAt: '2026-01-01T00:00:00Z', lastHeartbeat: '2026-01-01T00:01:00Z', expiresAt: '2026-01-01T01:00:00Z' }] };
+  const gapProj = buildProjection(gapIssues, [], gapWorkers, null);
+  const gaps = discoverGaps(gapProj, { readyThreshold: 3, staleHeartbeatMs: 60000, now: new Date('2026-01-01T00:15:00Z').getTime() });
+  assert(gaps.schemaVersion === 1, 'discoverGaps schemaVersion');
+  assert(Array.isArray(gaps.signals), 'discoverGaps signals is array');
+  assert(gaps.summary.blockedCount === 1, '1 blocked');
+  assert(gaps.summary.readyCount === 1, '1 ready');
+  assert(gaps.summary.emptyReady === true, 'empty-ready detected');
+  assert(gaps.summary.staleRunningCount === 1, '1 stale-running');
+  const blockedSignal = gaps.signals.find(s => s.type === 'blocked-lane');
+  assert(blockedSignal && blockedSignal.issue === 10, 'blocked signal for #10');
+  const staleSignal = gaps.signals.find(s => s.type === 'stale-running');
+  assert(staleSignal && staleSignal.issue === 20, 'stale signal for #20');
+  const readySignal = gaps.signals.find(s => s.type === 'empty-ready');
+  assert(readySignal && readySignal.deficit === 2, 'ready deficit is 2');
+
+  // Test: discoverGaps with sufficient ready
+  const fullReadyIssues = [
+    { number: 1, title: 'A', body: '', labels: [{ name: 'agent:queued' }] },
+    { number: 2, title: 'B', body: '', labels: [{ name: 'agent:queued' }] },
+    { number: 3, title: 'C', body: '', labels: [{ name: 'agent:queued' }] },
+  ];
+  const fullProj = buildProjection(fullReadyIssues, [], null, null);
+  const fullGaps = discoverGaps(fullProj, { readyThreshold: 3 });
+  assert(fullGaps.summary.emptyReady === false, 'ready not empty when threshold met');
+  assert(fullGaps.signals.every(s => s.type !== 'empty-ready'), 'no empty-ready signal');
+
+  // Test: discoverGaps with healthy running
+  const healthyIssues = [
+    { number: 50, title: 'A', body: '', labels: [{ name: 'agent:running' }] },
+  ];
+  const healthyWorkers = { workers: [{ issue: 50, branch: 'b', claimant: 'c', claimedAt: '2026-01-01T00:00:00Z', lastHeartbeat: '2026-01-01T00:05:00Z', expiresAt: '2026-01-01T01:00:00Z' }] };
+  const healthyProj = buildProjection(healthyIssues, [], healthyWorkers, null);
+  const healthyGaps = discoverGaps(healthyProj, { now: new Date('2026-01-01T00:10:00Z').getTime() });
+  assert(healthyGaps.summary.staleRunningCount === 0, 'no stale when heartbeat fresh');
+
   // Report
   console.log(`\n  project-task-board self-test`);
   console.log(`  ${passed}/${passed + failed} passed`);
@@ -515,4 +653,5 @@ module.exports = {
   inferBlockedReason,
   projectTasks,
   buildProjection,
+  discoverGaps,
 };
