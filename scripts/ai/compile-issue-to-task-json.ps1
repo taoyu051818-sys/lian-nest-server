@@ -229,6 +229,67 @@ if (-not $issue.rolePacket.actorRole) {
 
 Write-Ok "Enums valid (taskType=$($issue.taskType), risk=$($issue.risk))"
 
+# ── Normalize conflictGroup for self-cycle batches ────────────────────────────
+# When multiple issues are compiled for a self-cycle batch, they may share the
+# same generic conflictGroup (e.g., "ai-auto"). The launch gate blocks batches
+# with duplicate conflict groups. Derive a deterministic unique group per issue
+# so that three simultaneous self-cycle issues can all pass the gate.
+
+Write-Step "Normalizing conflictGroup"
+
+$genericConflictGroups = @("ai-auto", "auto", "self-cycle", "default", "batch")
+if ($issue.conflictGroup -in $genericConflictGroups) {
+    $derivedGroup = "self-cycle-$($issue.targetIssue)-$($issue.taskType)"
+    Write-Warn "conflictGroup '$($issue.conflictGroup)' is generic; deriving unique group '$derivedGroup'"
+    $issue.conflictGroup = $derivedGroup
+}
+
+Write-Ok "conflictGroup=$($issue.conflictGroup)"
+
+# ── Bound allowedFiles from issue intent ──────────────────────────────────────
+# When allowedFiles contains overly broad patterns (e.g. "docs/**", "**"),
+# attempt to narrow using writeSet or sourceOfTruthDocs from the input.
+
+Write-Step "Bounding allowedFiles scope"
+
+$globalBroadPatterns = @("**", "*", "**/*")
+$hasBroadPattern = $false
+
+foreach ($pattern in $issue.allowedFiles) {
+    if ($pattern -in $globalBroadPatterns) {
+        $hasBroadPattern = $true
+    } elseif ($pattern -match '^[^*?]+/\*\*$') {
+        # Directory wildcard like "docs/**" or "scripts/ai/**"
+        $hasBroadPattern = $true
+    }
+}
+
+if ($hasBroadPattern) {
+    Write-Warn "allowedFiles contains broad pattern(s)"
+
+    # Try to narrow using writeSet (v2 input field)
+    $hasWriteSet = $issue.PSObject.Properties.Name -contains "writeSet" -and
+        $issue.writeSet -is [System.Collections.IList] -and
+        $issue.writeSet.Count -gt 0
+
+    if ($hasWriteSet) {
+        $issue.allowedFiles = @($issue.writeSet)
+        Write-Ok "Narrowed allowedFiles to writeSet ($($issue.writeSet.Count) files)"
+    } else {
+        # Try sourceOfTruthDocs
+        $hasSourceDocs = $issue.PSObject.Properties.Name -contains "sourceOfTruthDocs" -and
+            $issue.sourceOfTruthDocs -is [System.Collections.IList] -and
+            $issue.sourceOfTruthDocs.Count -gt 0
+
+        if ($hasSourceDocs) {
+            $issue.allowedFiles = @($issue.sourceOfTruthDocs)
+            Write-Ok "Narrowed allowedFiles to sourceOfTruthDocs ($($issue.sourceOfTruthDocs.Count) files)"
+        } else {
+            Write-Warn "No writeSet or sourceOfTruthDocs available to narrow scope"
+        }
+    }
+}
+
 # ── Detect underspecified issues ─────────────────────────────────────────────
 
 Write-Step "Checking issue specificity"

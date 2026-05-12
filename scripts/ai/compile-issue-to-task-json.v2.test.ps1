@@ -610,6 +610,198 @@ try {
     Write-Fail "fixture14 threw: $_"
 }
 
+# ── FIXTURE 15: Self-cycle batch — generic conflictGroup normalization ───────
+
+Write-TestHeader "Self-cycle batch — three issues with generic conflictGroup ai-auto"
+
+$fixture15a = @'
+{
+    "targetIssue": 501,
+    "taskType": "execution",
+    "risk": "low",
+    "conflictGroup": "ai-auto",
+    "allowedFiles": ["docs/readme.md"],
+    "forbiddenFiles": [],
+    "validationCommands": ["npm run check"],
+    "rolePacket": {
+        "actorRole": "docs-worker",
+        "description": "Docs worker A"
+    }
+}
+'@
+
+$fixture15b = @'
+{
+    "targetIssue": 502,
+    "taskType": "research",
+    "risk": "low",
+    "conflictGroup": "ai-auto",
+    "allowedFiles": ["docs/guide.md"],
+    "forbiddenFiles": [],
+    "validationCommands": ["npm run check"],
+    "rolePacket": {
+        "actorRole": "docs-worker",
+        "description": "Docs worker B"
+    }
+}
+'@
+
+$fixture15c = @'
+{
+    "targetIssue": 503,
+    "taskType": "execution",
+    "risk": "low",
+    "conflictGroup": "ai-auto",
+    "allowedFiles": ["docs/api.md"],
+    "forbiddenFiles": [],
+    "validationCommands": ["npm run check"],
+    "rolePacket": {
+        "actorRole": "docs-worker",
+        "description": "Docs worker C"
+    }
+}
+'@
+
+try {
+    $result15a = Invoke-Compiler $fixture15a
+    $result15b = Invoke-Compiler $fixture15b
+    $result15c = Invoke-Compiler $fixture15c
+
+    # Each should have a unique conflictGroup derived from targetIssue + taskType
+    Assert-Field $result15a "conflictGroup" "self-cycle-501-execution" "fixture15a"
+    Assert-Field $result15b "conflictGroup" "self-cycle-502-research" "fixture15b"
+    Assert-Field $result15c "conflictGroup" "self-cycle-503-execution" "fixture15c"
+
+    # Verify all three are distinct
+    $groups = @($result15a.conflictGroup, $result15b.conflictGroup, $result15c.conflictGroup)
+    $uniqueGroups = $groups | Sort-Object -Unique
+    if ($uniqueGroups.Count -eq 3) {
+        Write-Pass "all three conflictGroups are unique"
+    } else {
+        Write-Fail "fixture15: expected 3 unique conflictGroups, got $($uniqueGroups.Count)"
+    }
+} catch {
+    Write-Fail "fixture15 threw: $_"
+}
+
+# ── FIXTURE 16: Self-cycle batch — broad allowedFiles narrowed via writeSet ──
+
+Write-TestHeader "Self-cycle batch — broad allowedFiles narrowed via writeSet"
+
+$fixture16 = @'
+{
+    "targetIssue": 504,
+    "taskType": "execution",
+    "risk": "low",
+    "conflictGroup": "ai-auto",
+    "allowedFiles": ["docs/**"],
+    "forbiddenFiles": [],
+    "validationCommands": ["npm run check"],
+    "rolePacket": {
+        "actorRole": "docs-worker",
+        "description": "Docs worker with writeSet"
+    },
+    "writeSet": ["docs/specific-guide.md", "docs/api-reference.md"]
+}
+'@
+
+try {
+    $result16 = Invoke-Compiler $fixture16
+    Assert-Field $result16 "conflictGroup" "self-cycle-504-execution" "fixture16"
+    # allowedFiles should be narrowed to writeSet
+    $expectedFiles = @("docs/specific-guide.md", "docs/api-reference.md")
+    Assert-Field $result16 "allowedFiles" $expectedFiles "fixture16"
+} catch {
+    Write-Fail "fixture16 threw: $_"
+}
+
+# ── FIXTURE 17: Self-cycle batch — broad allowedFiles narrowed via sourceOfTruthDocs ──
+
+Write-TestHeader "Self-cycle batch — broad allowedFiles narrowed via sourceOfTruthDocs"
+
+$fixture17 = @'
+{
+    "targetIssue": 505,
+    "taskType": "research",
+    "risk": "low",
+    "conflictGroup": "auto",
+    "allowedFiles": ["docs/**"],
+    "forbiddenFiles": [],
+    "validationCommands": ["npm run check"],
+    "rolePacket": {
+        "actorRole": "research-worker",
+        "description": "Research worker with sourceOfTruthDocs"
+    },
+    "sourceOfTruthDocs": ["docs/architecture.md", "docs/decisions/adr-001.md"]
+}
+'@
+
+try {
+    $result17 = Invoke-Compiler $fixture17
+    Assert-Field $result17 "conflictGroup" "self-cycle-505-research" "fixture17"
+    # allowedFiles should be narrowed to sourceOfTruthDocs
+    $expectedDocs = @("docs/architecture.md", "docs/decisions/adr-001.md")
+    Assert-Field $result17 "allowedFiles" $expectedDocs "fixture17"
+} catch {
+    Write-Fail "fixture17 threw: $_"
+}
+
+# ── FIXTURE 18: Non-generic conflictGroup preserved ──────────────────────────
+
+Write-TestHeader "Non-generic conflictGroup preserved as-is"
+
+$fixture18 = @'
+{
+    "targetIssue": 506,
+    "taskType": "execution",
+    "risk": "low",
+    "conflictGroup": "auth-core",
+    "allowedFiles": ["docs/auth.md"],
+    "forbiddenFiles": [],
+    "validationCommands": ["npm run check"],
+    "rolePacket": {
+        "actorRole": "auth-worker",
+        "description": "Auth worker"
+    }
+}
+'@
+
+try {
+    $result18 = Invoke-Compiler $fixture18
+    Assert-Field $result18 "conflictGroup" "auth-core" "fixture18"
+} catch {
+    Write-Fail "fixture18 threw: $_"
+}
+
+# ── FIXTURE 19: Broad allowedFiles without narrowing hints (warning only) ────
+
+Write-TestHeader "Broad allowedFiles without narrowing hints preserves original"
+
+$fixture19 = @'
+{
+    "targetIssue": 507,
+    "taskType": "execution",
+    "risk": "low",
+    "conflictGroup": "ai-auto",
+    "allowedFiles": ["docs/**"],
+    "forbiddenFiles": [],
+    "validationCommands": ["npm run check"],
+    "rolePacket": {
+        "actorRole": "docs-worker",
+        "description": "Docs worker without hints"
+    }
+}
+'@
+
+try {
+    $result19 = Invoke-Compiler $fixture19
+    Assert-Field $result19 "conflictGroup" "self-cycle-507-execution" "fixture19"
+    # allowedFiles stays broad since no narrowing hints available
+    Assert-Field $result19 "allowedFiles" @("docs/**") "fixture19"
+} catch {
+    Write-Fail "fixture19 threw: $_"
+}
+
 # ── Cleanup ──────────────────────────────────────────────────────────────────
 
 Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
