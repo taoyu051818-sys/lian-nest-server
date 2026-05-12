@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/external-fact.schema.json",
+  "title": "ExternalFact",
+  "description": "Schema for a single entry in the append-only external facts ledger (.github/ai-state/external-facts.ndjson). Each entry is evidence sourced from outside the AI-native control plane. Aligned with docs/ai-native/external-facts-schema.md.",
+  "type": "object",
+  "required": [
+    "entryVersion",
+    "factType",
+    "subject",
+    "claim",
+    "capturedAt",
+    "sourceReliability"
+  ],
+  "properties": {
+    "entryVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1."
+    },
+    "factType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[a-zA-Z0-9]+(\\.[a-zA-Z0-9_-]+)*$",
+      "description": "Dot-namespaced fact category. E.g. ci.failure, dep.security-patch, human.priority-change."
+    },
+    "subject": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "description": "What the fact is about. E.g. issue number, package name, service URL."
+    },
+    "claim": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "The factual assertion. Must be specific enough to be verifiable."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp of when the fact was recorded."
+    },
+    "sourceReliability": {
+      "type": "string",
+      "enum": ["verified", "observed", "reported", "rumor"],
+      "description": "How the fact was sourced. Determines downstream consumer weight."
+    },
+    "sourceUrl": {
+      "type": ["string", "null"],
+      "maxLength": 2000,
+      "description": "URL or identifier for the external source. Must not contain credentials."
+    },
+    "capturedBy": {
+      "type": ["string", "null"],
+      "maxLength": 500,
+      "description": "Who recorded the fact. E.g. human:taoyu, script:ci-watcher."
+    },
+    "relatedIssue": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub issue number this fact informs."
+    },
+    "relatedPr": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub PR number this fact informs."
+    },
+    "expiresAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "When this fact becomes stale. Ongoing facts omit this."
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "maxItems": 20,
+      "default": [],
+      "description": "Filterable tags. May be empty."
+    },
+    "meta": {
+      "type": ["object", "null"],
+      "description": "Arbitrary key-value metadata. Must not contain secrets."
+    }
+  },
+  "additionalProperties": false
+}
