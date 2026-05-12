@@ -11,9 +11,11 @@
     "sourceFacts",
     "hypothesis",
     "expectedImpact",
-    "experiment",
+    "proposedExperiment",
     "risk",
-    "acceptanceGate"
+    "requiredGate",
+    "relevance",
+    "executionBlock"
   ],
   "properties": {
     "schemaVersion": {
@@ -62,9 +64,28 @@
     },
     "hypothesis": { "$ref": "#/definitions/Hypothesis" },
     "expectedImpact": { "$ref": "#/definitions/ExpectedImpact" },
-    "experiment": { "$ref": "#/definitions/Experiment" },
+    "proposedExperiment": { "$ref": "#/definitions/Experiment" },
     "risk": { "$ref": "#/definitions/Risk" },
-    "acceptanceGate": { "$ref": "#/definitions/AcceptanceGate" }
+    "requiredGate": { "$ref": "#/definitions/AcceptanceGate" },
+    "relevance": { "$ref": "#/definitions/Relevance" },
+    "executionBlock": {
+      "type": "object",
+      "required": ["directExecutionBlocked", "reason"],
+      "properties": {
+        "directExecutionBlocked": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true. Signals are evidence, not execution commands."
+        },
+        "reason": {
+          "type": "string",
+          "const": "Opportunity signals must pass through bounded experiment gating before any task creation. Direct execution authority is not granted.",
+          "description": "Canonical reason why direct execution is blocked."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Hard invariant: this signal does not grant direct execution authority. Every signal must pass through bounded experiment gating before any task is created."
+    }
   },
   "additionalProperties": false,
   "definitions": {
@@ -227,6 +248,31 @@
           "type": "string",
           "enum": ["gate-all", "gate-docs-only", "gate-none"],
           "description": "Health checks required before the experiment can run. Defaults to gate-all."
+        }
+      },
+      "additionalProperties": false
+    },
+    "Relevance": {
+      "type": "object",
+      "required": ["applicability", "lianSurface"],
+      "properties": {
+        "applicability": {
+          "type": "string",
+          "enum": ["direct", "partial", "analogous", "aspirational"],
+          "description": "How directly the external pattern maps to a LIAN component or workflow."
+        },
+        "lianSurface": {
+          "type": "string",
+          "description": "The specific LIAN component, workflow, or policy this signal applies to."
+        },
+        "externalProject": {
+          "type": ["string", "null"],
+          "description": "Source project or paper name for traceability."
+        },
+        "patternId": {
+          "type": ["string", "null"],
+          "pattern": "^pat-[a-f0-9-]+$",
+          "description": "Reference to the pattern extraction from the intake loop. Format: pat-<short-hash>."
         }
       },
       "additionalProperties": false
