@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian.dev/schemas/bounded-experiment.json",
+  "title": "Bounded Experiment",
+  "description": "Defines a scoped, validated, measurable, and reversible agent experiment. Aligned with docs/ai-native/bounded-experiment-policy.md.",
+  "type": "object",
+  "required": [
+    "allowedFiles",
+    "validation",
+    "successMetric",
+    "rollback",
+    "budget",
+    "risk"
+  ],
+  "properties": {
+    "allowedFiles": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "description": "Glob patterns the worker MAY edit. Boundary size determines risk tier."
+    },
+    "forbiddenFiles": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Glob patterns the worker MUST NOT edit, even if inside allowedFiles (e.g. .env, node_modules/**, dist/**)."
+    },
+    "validation": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "description": "Shell commands the worker must run before opening a PR."
+    },
+    "successMetric": {
+      "type": "object",
+      "required": ["type", "description"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["pass-fail", "behavioral", "documentation", "observability"],
+          "description": "How success is measured: pass-fail (exit code), behavioral (test assertion), documentation (link check), observability (health marker)."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable description of what constitutes success."
+        },
+        "verifier": {
+          "type": "string",
+          "description": "Command or assertion that objectively verifies the metric (e.g. 'npm run check exits 0')."
+        }
+      },
+      "additionalProperties": false,
+      "description": "How success is measured for this experiment."
+    },
+    "rollback": {
+      "type": "object",
+      "required": ["method"],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": ["git-revert", "revert-and-regenerate", "manual-fixforward", "custom"],
+          "description": "Rollback strategy: git-revert (default), revert-and-regenerate (schema/deps), manual-fixforward, custom."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional rollback guidance when default revert is insufficient."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Defined rollback path — required before execution begins."
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "maxFiles": { "type": "integer", "minimum": 1, "description": "Maximum number of files the worker may edit." },
+        "maxLinesChanged": { "type": "integer", "minimum": 1, "description": "Maximum total lines changed (added + deleted)." },
+        "softTimeMinutes": { "type": "integer", "minimum": 1, "description": "Soft time limit — worker reports progress at this point." },
+        "hardTimeMinutes": { "type": "integer", "minimum": 1, "description": "Hard time limit — worker is terminated at this point." }
+      },
+      "additionalProperties": false,
+      "description": "Resource limits for the experiment."
+    },
+    "risk": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "Derived from boundary size and change type: low (1-3 files, docs/config), medium (4-10 files), high (>10 files, auth/data, schema change)."
+    },
+    "experimentState": {
+      "type": "string",
+      "enum": ["proposed", "scoped", "executing", "evaluating", "succeeded", "continued", "rolled-back"],
+      "description": "Current lifecycle state of the experiment."
+    },
+    "sourceIssue": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "GitHub issue number that originated this experiment."
+    },
+    "conflictGroup": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Tasks in the same group must not run concurrently on overlapping files."
+    },
+    "successMetricsPassed": {
+      "type": "boolean",
+      "description": "Whether the experiment's success metric was verified after execution."
+    },
+    "evaluatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when the experiment was evaluated."
+    },
+    "rollbackExecuted": {
+      "type": "boolean",
+      "description": "Whether a rollback was triggered for this experiment."
+    }
+  },
+  "additionalProperties": false
+}
