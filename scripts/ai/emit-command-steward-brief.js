@@ -245,6 +245,55 @@ function buildWorkerSummary(inputs) {
   };
 }
 
+function buildParallelSummary(inputs) {
+  const active = inputs.activeWorkers;
+  const provider = buildProviderSummary(inputs);
+  const workers = active && Array.isArray(active.workers) ? active.workers : [];
+  const failed = workers.filter(w => w && w.status === 'failed').length;
+  const stale = workers.filter(w => w && w.status === 'stale').length;
+  const running = workers.filter(w => w && w.status === 'running').length;
+  const planned = workers.filter(w => w && w.status === 'planned').length;
+  const effective = active && typeof active.effectiveParallelism === 'number'
+    ? active.effectiveParallelism
+    : null;
+  const requested = active && typeof active.requestedParallelism === 'number'
+    ? active.requestedParallelism
+    : null;
+  const blockedReason = active && active.blockedParallelismReason
+    ? active.blockedParallelismReason
+    : null;
+
+  let safeToIncrease = false;
+  let recommendation = 'Parallel worker state unavailable.';
+  if (active && Array.isArray(active.workers)) {
+    if (failed > 0 || stale > 0) {
+      recommendation = 'Do not increase concurrency until failed or stale workers are reconciled.';
+    } else if (provider.loaded && provider.available === 0) {
+      recommendation = 'Do not increase concurrency; provider pool has no available providers.';
+    } else if (effective !== null && requested !== null && effective < requested) {
+      recommendation = `Do not increase yet; effective parallelism is reduced (${blockedReason || 'capacity gate'}).`;
+    } else if (running === 0) {
+      safeToIncrease = true;
+      recommendation = 'No active failed or stale workers; a small controlled increase can be previewed.';
+    } else {
+      recommendation = 'Workers are in flight; monitor completion before increasing concurrency.';
+    }
+  }
+
+  return {
+    loaded: !!active,
+    requestedParallelism: requested,
+    effectiveParallelism: effective,
+    activeWorkerCount: running,
+    plannedWorkerCount: planned,
+    failedWorkerCount: failed,
+    staleWorkerCount: stale,
+    blockedParallelismReason: blockedReason,
+    safeToIncreaseConcurrency: safeToIncrease,
+    recommendation,
+  };
+}
+
 function buildTrustSummary(inputs) {
   const trust = inputs.workerTrust;
   if (!trust) {
@@ -758,6 +807,7 @@ function buildBrief(inputs) {
   const riskSignalsSummary = buildRiskSignalsSummary(inputs);
   const opportunitySignalsSummary = buildOpportunitySignalsSummary(inputs);
   const budgetSummary = buildBudgetSummary(inputs);
+  const parallelSummary = buildParallelSummary(inputs);
 
   const blockers = collectBlockers(inputs, systemStatus);
   const recommendedNextActions = buildRecommendedActions(inputs, systemStatus, blockers);
@@ -783,6 +833,7 @@ function buildBrief(inputs) {
     riskSignalsSummary,
     opportunitySignalsSummary,
     budgetSummary,
+    parallelSummary,
     blockers,
     recommendedNextActions,
     humanRequiredItems,
@@ -827,7 +878,7 @@ function runSelfTest() {
     health: { state: 'green', capturedAt: '2026-01-01T00:00:00.000Z', failedChecks: [], allowedWorkerClasses: ['all'] },
     providerPool: { global: { totalActiveWorkers: 0, globalMaxWorkers: 3, availableProviders: 1, exhaustedProviders: 0, disabledProviders: 0 } },
     localResource: { global: { resourceState: 'healthy', capturedAt: '2026-01-01T00:00:00.000Z' } },
-    activeWorkers: { workers: [{ issue: 100 }] },
+    activeWorkers: { requestedParallelism: 30, effectiveParallelism: 3, blockedParallelismReason: 'provider slots=3', workers: [{ issue: 100, status: 'running' }] },
     workerTrust: { workerClasses: { 'runtime-feature': {} }, scheduling: { minTrustToLaunch: 0.3, highTrustThreshold: 0.7, rules: [{}] } },
     metaSignals: { signals: { failureScore: 0, frictionScore: 0, riskScore: 10, cost: 5, trust: 90, topPain: 'none' } },
     riskSignals: { signals: [{ id: 'r1' }] },
@@ -856,6 +907,11 @@ function runSelfTest() {
   assert(full.budgetSummary.costEstimate.totalCents === 30, 'budgetSummary totalCost');
   assert(full.budgetSummary.costEstimate.pricingBasis === 'api_list', 'budgetSummary pricingBasis');
   assert(full.budgetSummary.budgetBlockers.length === 0, 'budgetSummary no blockers');
+  assert(full.parallelSummary.loaded === true, 'parallelSummary loaded');
+  assert(full.parallelSummary.requestedParallelism === 30, 'parallelSummary requestedParallelism');
+  assert(full.parallelSummary.effectiveParallelism === 3, 'parallelSummary effectiveParallelism');
+  assert(full.parallelSummary.activeWorkerCount === 1, 'parallelSummary activeWorkerCount');
+  assert(full.parallelSummary.safeToIncreaseConcurrency === false, 'parallelSummary blocked while worker running');
   for (const key of Object.keys(full.inputSources)) {
     assert(full.inputSources[key] === true, `inputSources.${key} is true`);
   }
@@ -870,7 +926,7 @@ function runSelfTest() {
   assert(typeof full.operatorBrief.humanDecisionCount === 'number', 'operatorBrief humanDecisionCount is number');
   const expectedKeys = ['schemaVersion', 'capturedAt', 'operatorBrief', 'systemStatus', 'providerSummary',
     'workerSummary', 'trustSummary', 'lockSummary', 'metaSignalsSummary',
-    'riskSignalsSummary', 'opportunitySignalsSummary', 'budgetSummary', 'blockers',
+    'riskSignalsSummary', 'opportunitySignalsSummary', 'budgetSummary', 'parallelSummary', 'blockers',
     'recommendedNextActions', 'humanRequiredItems', 'inputSources'];
   for (const key of expectedKeys) { assert(key in full, `key ${key} present`); }
 

@@ -222,6 +222,8 @@ if ($RunningTasksFile -ne "") {
 
         if ($runningTasks -is [System.Array]) {
             $runningList = @($runningTasks)
+        } elseif ($runningTasks.PSObject.Properties.Name -contains "workers" -and $runningTasks.workers) {
+            $runningList = @($runningTasks.workers)
         } else {
             $runningList = @($runningTasks)
         }

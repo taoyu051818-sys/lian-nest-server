@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://lian-nest-server/schemas/active-workers.schema.json",
   "title": "ActiveWorkers",
-  "description": "Schema for .github/ai-state/active-workers.json — the active workers projection consumed by the launch gate, state reconciler, batch launcher, and monitoring. Written by the state reconciler or batch launcher after each dispatch or completion event. See docs/ai-native/active-workers-schema.md for field-level documentation.",
+  "description": "Schema for .github/ai-state/active-workers.json — active worker projection consumed by the launch gate, state reconciler, batch launcher, wait-parallel-workers, and WebUI.",
   "type": "object",
   "required": [
     "markerVersion",
@@ -13,23 +13,68 @@
   "properties": {
     "markerVersion": {
       "type": "integer",
-      "const": 1,
-      "description": "Schema version. Current is 1. Increment when the schema shape changes."
+      "enum": [1, 2],
+      "description": "Schema version. Version 1 is the legacy minimal projection; version 2 includes bounded parallel worker lifecycle fields."
     },
     "capturedAt": {
       "type": "string",
       "format": "date-time",
       "description": "ISO-8601 timestamp when this projection was last written."
     },
+    "batchId": {
+      "type": ["string", "null"],
+      "description": "Optional launcher batch id for the current projection."
+    },
+    "mode": {
+      "type": ["string", "null"],
+      "enum": ["dry-run", "execute", null],
+      "description": "Whether the manifest was produced by a dry-run plan or execute run."
+    },
+    "requestedParallelism": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "maximum": 30,
+      "description": "Requested MaxParallelWorkers value, capped at 30."
+    },
+    "effectiveParallelism": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 30,
+      "description": "Effective concurrency after provider, resource, conflict, risk, review, merge, and failure-budget gates."
+    },
+    "blockedParallelismReason": {
+      "type": ["string", "null"],
+      "description": "Human-readable explanation when effective parallelism is lower than requested."
+    },
+    "lastWaitAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Last time wait-parallel-workers updated this projection."
+    },
+    "lastWaitSummary": {
+      "$ref": "#/definitions/WaitSummary"
+    },
     "workers": {
       "type": "array",
       "items": {
         "$ref": "#/definitions/ActiveWorker"
       },
-      "description": "Active worker entries. Empty array when no workers are running."
+      "description": "Active, planned, completed, or failed worker entries. Empty array when no workers are running."
     }
   },
   "definitions": {
+    "WaitSummary": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "completed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "stillRunning": { "type": "integer", "minimum": 0 },
+        "stale": { "type": "integer", "minimum": 0 },
+        "blocked": { "type": "integer", "minimum": 0 },
+        "needsHuman": { "type": "integer", "minimum": 0 }
+      }
+    },
     "ActiveWorker": {
       "type": "object",
       "required": [
@@ -40,9 +85,14 @@
         "conflictGroup": {
           "type": "string",
           "minLength": 1,
-          "description": "Conflict group identifier. Matches conflictGroup in task JSON. Used by the launch gate to detect scheduling conflicts with in-flight work."
+          "description": "Conflict group identifier. Matches conflictGroup in task JSON."
         },
         "issue": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Legacy GitHub issue number field."
+        },
+        "issueNumber": {
           "type": ["integer", "null"],
           "minimum": 1,
           "description": "GitHub issue number the worker is assigned to."
@@ -50,7 +100,76 @@
         "branch": {
           "type": ["string", "null"],
           "minLength": 1,
-          "description": "Git branch or worktree the worker is operating on."
+          "description": "Git branch the worker operates on."
+        },
+        "worktree": {
+          "type": ["string", "null"],
+          "description": "Git worktree path."
+        },
+        "taskFile": {
+          "type": ["string", "null"],
+          "description": "Per-worker single-task JSON file."
+        },
+        "pid": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Operating system process id for the worker wrapper."
+        },
+        "status": {
+          "type": ["string", "null"],
+          "enum": ["planned", "running", "completed", "failed", "stale", "blocked", "needs-human", null],
+          "description": "Worker lifecycle state."
+        },
+        "startedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Worker start timestamp."
+        },
+        "endedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Worker completion timestamp."
+        },
+        "exitCode": {
+          "type": ["integer", "null"],
+          "description": "Worker exit code. 0 means success."
+        },
+        "logPath": {
+          "type": ["string", "null"],
+          "description": "Local stdout log path."
+        },
+        "stderrPath": {
+          "type": ["string", "null"],
+          "description": "Local stderr log path."
+        },
+        "resultPath": {
+          "type": ["string", "null"],
+          "description": "Local result marker JSON path."
+        },
+        "risk": {
+          "type": ["string", "null"],
+          "enum": ["low", "medium", "high", null],
+          "description": "Task risk tier."
+        },
+        "actorRole": {
+          "type": ["string", "null"],
+          "description": "Worker actor role from rolePacket.actorRole."
+        },
+        "providerSlot": {
+          "type": ["string", "null"],
+          "description": "Provider slot assigned to this worker, when available."
+        },
+        "failureClass": {
+          "type": ["string", "null"],
+          "description": "Failure classifier result for failed workers."
+        },
+        "failureSummary": {
+          "type": ["string", "null"],
+          "description": "Human-readable failure summary."
+        },
+        "safeToRetry": {
+          "type": ["boolean", "null"],
+          "description": "Whether the classifier considers this failure safe to retry."
         }
       }
     }
