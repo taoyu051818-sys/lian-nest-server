@@ -1,0 +1,22 @@
+{
+  "title": "Propose new constitution section for audit logging",
+  "description": "This amendment adds a new section requiring all AI-generated changes to include audit trail metadata.",
+  "type": "amendment",
+  "proposal": {
+    "newSection": "Audit Trail Requirements",
+    "rationale": "Every AI-originated commit must include structured audit metadata for traceability.",
+    "humanVote": true,
+    "requiresOwnerApproval": true
+  },
+  "changes": [
+    {
+      "file": ".github/ai-policy/seed-constitution.md",
+      "action": "append",
+      "description": "Add Audit Trail Requirements section after No Worker Scope Expansion"
+    }
+  ],
+  "approval": {
+    "humanRequired": true,
+    "ownerApproval": "pending"
+  }
+}

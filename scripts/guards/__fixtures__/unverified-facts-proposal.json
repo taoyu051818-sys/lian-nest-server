@@ -1,0 +1,16 @@
+{
+  "title": "Update performance baselines",
+  "description": "Write unverified facts about current system performance based on assumptions.",
+  "type": "documentation",
+  "changes": [
+    {
+      "file": "docs/performance/baselines.md",
+      "action": "modify",
+      "description": "Record performance metrics without verification or evidence"
+    }
+  ],
+  "methodology": {
+    "verification": "none",
+    "note": "Assume and record baseline numbers from last quarter"
+  }
+}
