@@ -1,0 +1,303 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/command-steward-handoff.schema.json",
+  "title": "CommandStewardHandoff",
+  "description": "Machine-readable handoff contract for transferring Codex orchestration duties to the Command Steward and self-cycle runner. Captures pre-handoff checklist results, exit criteria status, current system health, the inventory of duties being transferred, and human decision points. Produced at the end of the Codex retirement handoff sequence. See docs/ai-native/codex-retirement-runbook.md and docs/ai-native/command-steward-agent.md.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "capturedAt",
+    "repository",
+    "handoffSource",
+    "handoffTarget",
+    "preHandoffChecklist",
+    "exitCriteria",
+    "healthSnapshot",
+    "transferredDuties",
+    "humanDecisionPoints"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1. Consumers must reject records with a different version."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp when the handoff record was produced."
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^[^/]+/[^/]+$",
+      "description": "Target repository in OWNER/NAME format."
+    },
+    "handoffSource": {
+      "type": "string",
+      "const": "codex-orchestrator",
+      "description": "The orchestration role being retired."
+    },
+    "handoffTarget": {
+      "type": "object",
+      "required": ["runner", "steward"],
+      "additionalProperties": false,
+      "properties": {
+        "runner": {
+          "type": "string",
+          "const": "run-self-cycle.ps1",
+          "description": "Autonomous runner that replaces Codex orchestration."
+        },
+        "steward": {
+          "type": "string",
+          "const": "command-steward-agent",
+          "description": "Human-facing control-plane interface for oversight."
+        }
+      },
+      "description": "Components that will assume Codex orchestration duties."
+    },
+    "preHandoffChecklist": {
+      "type": "array",
+      "description": "Pre-handoff checklist results. Each item corresponds to a prerequisite from the Codex Retirement Runbook.",
+      "items": {
+        "$ref": "#/$defs/checklistItem"
+      }
+    },
+    "exitCriteria": {
+      "type": "array",
+      "description": "Status of each Codex retirement exit criterion.",
+      "items": {
+        "$ref": "#/$defs/exitCriterion"
+      }
+    },
+    "healthSnapshot": {
+      "$ref": "#/$defs/healthSnapshot",
+      "description": "Main branch health state at the time of handoff."
+    },
+    "transferredDuties": {
+      "type": "array",
+      "description": "Inventory of Codex orchestration duties being transferred, with their new owner and readiness status.",
+      "items": {
+        "$ref": "#/$defs/transferredDuty"
+      }
+    },
+    "humanDecisionPoints": {
+      "type": "array",
+      "description": "Human decisions required to complete the handoff. Empty when all decisions are resolved.",
+      "items": {
+        "$ref": "#/$defs/humanDecisionPoint"
+      }
+    },
+    "fallbackPlan": {
+      "type": "object",
+      "required": ["triggerConditions", "rollbackProcedure"],
+      "additionalProperties": false,
+      "properties": {
+        "triggerConditions": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Conditions that trigger fallback to Codex orchestration (e.g. 'worker non-zero exit with no PR', 'health red for 2+ consecutive cycles')."
+        },
+        "rollbackProcedure": {
+          "type": "string",
+          "const": "follow-safe-fallback-in-codex-retirement-runbook",
+          "description": "Reference to the safe fallback procedure in the Codex Retirement Runbook."
+        }
+      },
+      "description": "Safe fallback plan if the self-cycle runner fails after handoff."
+    },
+    "handoffStatus": {
+      "type": "string",
+      "enum": ["pending", "validated", "in-progress", "completed", "rolled-back"],
+      "description": "Current state of the handoff. pending = checklist not yet run. validated = dry-run passed. in-progress = first autonomous cycle running. completed = at least one full cycle succeeded. rolled-back = fallback was triggered."
+    },
+    "dryRun": {
+      "type": "boolean",
+      "default": true,
+      "description": "When true, the handoff is a dry-run validation only — no duties are actually transferred. All handoff automation defaults to dry-run."
+    },
+    "completedCycles": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Number of successful self-cycle runs completed after handoff. Handoff is considered complete when >= 1."
+    }
+  },
+  "$defs": {
+    "checklistItem": {
+      "type": "object",
+      "required": ["index", "prerequisite", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based checklist item number."
+        },
+        "prerequisite": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the prerequisite (e.g. 'main-health-green', 'health-marker-exists', 'no-red-recovery-pending', 'provider-capacity', 'no-stale-worktrees', 'issues-labeled', 'control-appendix-present')."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pass", "fail", "skip"],
+          "description": "Whether the prerequisite is satisfied."
+        },
+        "message": {
+          "type": ["string", "null"],
+          "description": "Human-readable explanation for fail or skip status. Null when pass."
+        },
+        "verifiedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when this item was verified. Null when not yet checked."
+        }
+      }
+    },
+    "exitCriterion": {
+      "type": "object",
+      "required": ["index", "criterion", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based exit criterion number."
+        },
+        "criterion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the exit criterion (e.g. 'self-cycle-runner-launches', 'launch-gate-unattended', 'health-gate-auto-trigger', 'recovery-auto-dispatch', 'pr-review-without-codex', 'human-initiated-waves', 'legacy-retired', 'loop-model-operational')."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["MET", "PARTIAL", "OPEN"],
+          "description": "Current status of this exit criterion."
+        },
+        "evidence": {
+          "type": ["string", "null"],
+          "description": "Brief evidence or note supporting the status (e.g. script name, doc reference). Null when not yet assessed."
+        }
+      }
+    },
+    "healthSnapshot": {
+      "type": "object",
+      "required": ["state", "capturedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["green", "yellow", "red", "black"],
+          "description": "Main branch health state."
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the health state was evaluated."
+        },
+        "commitSha": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-fA-F]{7,40}$",
+          "description": "Git SHA of the commit this health state was captured for."
+        },
+        "checks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Health checks that were evaluated."
+        },
+        "failedChecks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Checks that failed (subset of checks)."
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "description": "Human-readable explanation for the health state."
+        }
+      }
+    },
+    "transferredDuty": {
+      "type": "object",
+      "required": ["dutyId", "duty", "previousOwner", "newOwner", "ready"],
+      "additionalProperties": false,
+      "properties": {
+        "dutyId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable identifier for the duty (e.g. 'issue-discovery', 'batch-planning', 'worker-launch', 'health-gate-invocation', 'state-reconciliation', 'worktree-cleanup')."
+        },
+        "duty": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable name of the duty being transferred."
+        },
+        "previousOwner": {
+          "type": "string",
+          "const": "codex-orchestrator",
+          "description": "The role that previously owned this duty."
+        },
+        "newOwner": {
+          "type": "string",
+          "enum": ["self-cycle-runner", "command-steward", "human-operator"],
+          "description": "The role or component that will own this duty after handoff."
+        },
+        "ready": {
+          "type": "boolean",
+          "description": "Whether the new owner is ready to assume this duty."
+        },
+        "readinessEvidence": {
+          "type": ["string", "null"],
+          "description": "Evidence that the new owner is ready (e.g. script name, doc reference). Null when not yet assessed."
+        }
+      }
+    },
+    "humanDecisionPoint": {
+      "type": "object",
+      "required": ["decisionId", "category", "title", "context", "decision"],
+      "additionalProperties": false,
+      "properties": {
+        "decisionId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique identifier for this decision."
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "approve-handoff",
+            "override-health",
+            "approve-first-cycle",
+            "confirm-retirement",
+            "rollback-to-codex"
+          ],
+          "description": "Category of human decision required."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short summary of the decision."
+        },
+        "context": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Contextual details for the decision."
+        },
+        "decision": {
+          "type": "string",
+          "enum": ["pending", "approved", "rejected"],
+          "description": "Current state of the decision."
+        },
+        "decidedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the decision was made. Null when pending."
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "description": "Human-readable explanation for the decision. Null when pending."
+        }
+      }
+    }
+  }
+}
