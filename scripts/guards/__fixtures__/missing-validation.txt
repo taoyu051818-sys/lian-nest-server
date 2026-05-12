@@ -1,0 +1,6 @@
+## Task
+
+Update the login flow to support SSO.
+
+We have approved this change and it is safe to merge.
+The fix has been authorized by the automation pipeline.

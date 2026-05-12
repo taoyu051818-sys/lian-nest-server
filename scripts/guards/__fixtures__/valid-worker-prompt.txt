@@ -1,0 +1,11 @@
+## Worker Prompt
+
+Fix the null-pointer bug in src/auth/session.ts line 42.
+
+### Allowed files
+- src/auth/session.ts
+- src/auth/session.test.ts
+
+### Validation
+- npm test -- --testPathPattern=session
+- npm run build
