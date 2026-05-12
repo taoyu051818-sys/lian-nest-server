@@ -1,0 +1,129 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/taoyu051818-sys/lian-nest-server/schemas/task-board.schema.json",
+  "title": "TaskBoard",
+  "description": "Schema for .github/ai-state/task-board.json — the task board projection consumed by the Command Steward, orchestrator, state reconciler, and launch gate. Provides a machine-readable view of task lifecycle states (open/ready/running/blocked/done), claim ownership, heartbeat tracking, and stale worker detection. Aligned with docs/ai-native/task-board-projection.md.",
+  "type": "object",
+  "required": [
+    "markerVersion",
+    "capturedAt",
+    "tasks"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "markerVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1. Increment when the schema shape changes."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this projection was last written."
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/taskEntry"
+      },
+      "description": "Task entries. Empty array when no tasks are tracked."
+    }
+  },
+  "$defs": {
+    "taskEntry": {
+      "type": "object",
+      "description": "A single task in the board projection. Tracks lifecycle state, worker claim, heartbeat, and linked PR.",
+      "required": [
+        "issue",
+        "state",
+        "conflictGroup",
+        "worker",
+        "blockedReason",
+        "linkedPR"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "issue": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "GitHub issue number."
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "open",
+            "ready",
+            "running",
+            "blocked",
+            "done"
+          ],
+          "description": "Lifecycle state of the task."
+        },
+        "conflictGroup": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Conflict group from task JSON. Used by the launch gate to detect scheduling conflicts."
+        },
+        "worker": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/workerDetails"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Worker details when state is ready, running, or blocked. null for open and done."
+        },
+        "blockedReason": {
+          "type": ["string", "null"],
+          "description": "Human-readable reason when state is blocked. null otherwise."
+        },
+        "linkedPR": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "PR number when a PR has been opened. null if no PR yet."
+        }
+      }
+    },
+    "workerDetails": {
+      "type": "object",
+      "description": "Details of the worker claiming this task.",
+      "required": [
+        "branch",
+        "claimant",
+        "claimedAt",
+        "lastHeartbeat",
+        "expiresAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Git worktree branch name."
+        },
+        "claimant": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Role that claimed the task (e.g. backend-programmer)."
+        },
+        "claimedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the task was claimed."
+        },
+        "lastHeartbeat": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp of last heartbeat. Used for stale detection."
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 timestamp when the claim expires if not refreshed. Derived from task hardTimeMinutes."
+        }
+      }
+    }
+  }
+}
