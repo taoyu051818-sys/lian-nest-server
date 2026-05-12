@@ -305,6 +305,8 @@ function makeCandidate(overrides) {
     readinessNote: '',
     macroGoal: '',
     rationale: '',
+    evidence: '',
+    rollbackFollowUp: '',
     humanRequired: false,
     ...overrides,
   };
@@ -319,6 +321,8 @@ function generateResourceSamplerFreshnessCandidates(facts) {
       risk: 'low',
       allowedFiles: ['scripts/ai/**', '.github/ai-state/*.example.json'],
       rationale: 'local-resource.json is missing. Resource pressure detection cannot function without current sampler state.',
+      evidence: 'File .github/ai-state/local-resource.json does not exist on disk. readFacts returns null for this path.',
+      rollbackFollowUp: 'If the sampler script fails, revert the state file and flag for human review. Follow up by checking that resource pressure detection re-enables.',
       macroGoal: 'resource-sampler-freshness',
       readinessNote: 'No local-resource.json found. Create or refresh the resource sampler.',
     })];
@@ -337,6 +341,10 @@ function generateResourceSamplerFreshnessCandidates(facts) {
       rationale: allNull
         ? 'local-resource.json has all null metrics. Sampler has never collected real data.'
         : `local-resource.json capturedAt is ${capturedAt}, exceeding 5min TTL.`,
+      evidence: allNull
+        ? 'local-resource.json exists but cpu.cores, memory.totalGB are all null. global.resourceState is "unknown".'
+        : `local-resource.json capturedAt is ${capturedAt}, which exceeds the 5-minute TTL threshold.`,
+      rollbackFollowUp: 'If the sampler cannot collect data (e.g., missing system permissions), revert to the previous state file and escalate. Follow up by verifying resourceState transitions to "healthy".',
       macroGoal: 'resource-sampler-freshness',
       readinessNote: 'Resource sampler data is stale or empty.',
     })];
@@ -359,6 +367,8 @@ function generateProviderCapacityCandidates(facts) {
       risk: 'medium',
       allowedFiles: ['scripts/ai/**', 'docs/ai-native/**', '.github/ai-state/*.example.json'],
       rationale: `Provider pool has ${available} available slot(s) but globalMaxWorkers is ${totalMax}. Capacity projection should account for scaling.`,
+      evidence: `provider-pool.json shows availableProviders=${available} but globalMaxWorkers=${totalMax}. Gap of ${totalMax - available} slot(s) not projected.`,
+      rollbackFollowUp: 'If capacity projection changes cause over-scheduling, revert the projection doc and reduce globalMaxWorkers. Follow up by re-running a dry-run cycle to verify slot allocation.',
       macroGoal: 'provider-pool-capacity-projection',
       readinessNote: `Available providers (${available}) < globalMaxWorkers (${totalMax}).`,
     })];
@@ -375,6 +385,8 @@ function generateTaskBoardCandidates(facts) {
       risk: 'low',
       allowedFiles: ['scripts/ai/**', 'docs/ai-native/**', '.github/ai-state/*.example.json'],
       rationale: 'task-board.json does not exist. The self-cycle cannot project task state without a task board.',
+      evidence: 'File .github/ai-state/task-board.json does not exist. readFacts returns null for this path.',
+      rollbackFollowUp: 'If seeding produces incorrect task entries, delete task-board.json and re-seed from the corrected issue list. Follow up by verifying the task board matches open labeled issues.',
       macroGoal: 'task-board-completeness',
       readinessNote: 'No task-board.json found.',
     })];
@@ -389,6 +401,8 @@ function generateTaskBoardCandidates(facts) {
       risk: 'low',
       allowedFiles: ['scripts/ai/**', '.github/ai-state/*.example.json'],
       rationale: `${noConflict.length} task board entry/entries missing conflictGroup. Conflict-safe dispatch requires this field.`,
+      evidence: `task-board.json contains ${noConflict.length} task(s) without conflictGroup: ${noConflict.map(t => t.title || t.id || '?').slice(0, 5).join(', ')}.`,
+      rollbackFollowUp: 'If backfilled conflictGroups cause dispatch collisions, revert task-board.json to the pre-backfill snapshot. Follow up by verifying no two tasks share a conflictGroup.',
       macroGoal: 'task-board-completeness',
       readinessNote: `${noConflict.length} tasks missing conflictGroup.`,
     })];
@@ -411,6 +425,8 @@ function generateCommandStewardRecoveryCandidates(facts) {
       risk: 'medium',
       allowedFiles: ['docs/ai-native/**', 'scripts/ai/**', 'schemas/**'],
       rationale: `${incomplete.length} Command Steward duty/duties still incomplete: ${incomplete.map(([, d]) => d.name).join(', ')}.`,
+      evidence: `legacy-orchestration-retirement.json lists ${incomplete.length} incomplete duty/duties: ${incomplete.map(([, d]) => `${d.name} (status: ${d.status})`).join(', ')}.`,
+      rollbackFollowUp: 'If a duty handoff fails, revert the duty status to its previous value and re-run the retirement checklist. Follow up by confirming all duties reach "met" status.',
       macroGoal: 'command-steward-recovery',
       readinessNote: `Incomplete duties: ${incomplete.map(([, d]) => `${d.name} (${d.status})`).join(', ')}.`,
     })];
@@ -435,6 +451,8 @@ function generateBoundedParallelRehearsalCandidates(facts) {
       risk: 'low',
       allowedFiles: ['scripts/ai/**', 'docs/ai-native/**'],
       rationale: 'Bounded parallel worker execution spec exists but no rehearsal smoke test validates the dispatch path end-to-end.',
+      evidence: `docs/ai-native/bounded-parallel-worker-execution.md exists but scripts/ai/self-cycle-dry-run-smoke.test.js does not.`,
+      rollbackFollowUp: 'If the smoke test reveals regressions in the dispatch path, disable the test and file a follow-up issue. Follow up by confirming the dispatch path passes the rehearsal.',
       macroGoal: 'bounded-parallel-rehearsal',
       readinessNote: 'No self-cycle-dry-run-smoke.test.js found.',
     })];
@@ -461,6 +479,8 @@ function generateActiveWorkerMonitoringCandidates(facts) {
       risk: 'medium',
       allowedFiles: ['scripts/ai/**', 'docs/ai-native/**', '.github/ai-state/*.example.json'],
       rationale: `${stale.length} active worker(s) have been running >30min without ending. Heartbeat monitoring should detect and recover stale workers.`,
+      evidence: `active-workers.json shows ${stale.length} worker(s) with startedAt >30min ago and no endedAt: ${stale.map(w => w.issueNumber || w.issue || '?').join(', ')}.`,
+      rollbackFollowUp: 'If stale worker recovery terminates a legitimately long-running worker, revert the active-workers.json entry and re-add it. Follow up by verifying heartbeat monitoring correctly distinguishes stale from slow workers.',
       macroGoal: 'active-worker-monitoring',
       readinessNote: `Stale workers: ${stale.map(w => w.issueNumber || w.issue).join(', ')}.`,
     })];
@@ -478,6 +498,8 @@ function generateIssueCloseCandidateDetectionCandidates(facts) {
       risk: 'low',
       allowedFiles: ['scripts/ai/**', 'docs/ai-native/**'],
       rationale: 'detect-issue-close-candidates.js does not exist. The self-cycle cannot identify issues ready to close.',
+      evidence: 'scripts/ai/detect-issue-close-candidates.js does not exist on disk. The self-cycle has no mechanism to identify completed issues.',
+      rollbackFollowUp: 'If the detection script produces false positives (closing active issues), disable the script and revert. Follow up by verifying close candidates match only truly completed issues.',
       macroGoal: 'issue-close-candidate-detection',
       readinessNote: 'No detect-issue-close-candidates.js found.',
     })];
@@ -496,6 +518,8 @@ function generateLedgerIntegrationCandidates(facts) {
       risk: 'low',
       allowedFiles: ['scripts/ai/**', 'schemas/**', 'docs/ai-native/**', '.github/ai-state/*.example.json'],
       rationale: 'spending-ledger.ndjson is empty or missing. Worker cost tracking requires ledger entries.',
+      evidence: 'spending-ledger.ndjson is empty or does not exist. readNdjsonFile returns an empty array.',
+      rollbackFollowUp: 'If seeded ledger entries are incorrect, delete spending-ledger.ndjson and re-seed from the corrected source. Follow up by verifying cost tracking reports reflect accurate data.',
       macroGoal: 'spending-ledger-integration',
       readinessNote: 'No spending ledger entries found.',
     }));
@@ -508,6 +532,8 @@ function generateLedgerIntegrationCandidates(facts) {
       risk: 'low',
       allowedFiles: ['scripts/ai/**', 'schemas/**', 'docs/ai-native/**', '.github/ai-state/*.example.json'],
       rationale: 'contribution-ledger.ndjson is empty or missing. Worker contribution tracking requires ledger entries.',
+      evidence: 'contribution-ledger.ndjson is empty or does not exist. readNdjsonFile returns an empty array.',
+      rollbackFollowUp: 'If seeded ledger entries are incorrect, delete contribution-ledger.ndjson and re-seed from the corrected source. Follow up by verifying the audit trail is complete and accurate.',
       macroGoal: 'contribution-ledger-integration',
       readinessNote: 'No contribution ledger entries found.',
     }));
@@ -525,6 +551,8 @@ function generateFailureClassificationCandidates(facts) {
       risk: 'low',
       allowedFiles: ['scripts/ai/**', 'docs/ai-native/**'],
       rationale: 'classify-self-cycle-failure.js does not exist. Failure recovery requires classification to route failures appropriately.',
+      evidence: 'scripts/ai/classify-self-cycle-failure.js does not exist on disk. The self-cycle has no failure classification mechanism.',
+      rollbackFollowUp: 'If the failure classifier misroutes failures, disable the script and revert. Follow up by verifying failure routing matches the failure taxonomy.',
       macroGoal: 'self-cycle-failure-classification',
       readinessNote: 'No classify-self-cycle-failure.js found.',
     })];
@@ -541,6 +569,8 @@ function generateSelfSeedingCandidates() {
     taskType: 'research',
     allowedFiles: ['scripts/ai/**', 'docs/ai-native/**'],
     rationale: 'This meta-issue tracks improvements to the issue proposal generator itself. Always human-reviewed.',
+    evidence: 'This is a meta-issue that recurs when the issue proposal generator itself needs improvement. It is always emitted to ensure continuous improvement.',
+    rollbackFollowUp: 'No rollback needed — this is a research/tracking issue. Follow up by reviewing proposed improvements and prioritizing them.',
     macroGoal: 'issue-seeding-improvement',
     humanRequired: true,
     readiness: 'human-required',
@@ -744,6 +774,10 @@ function buildIssueBody(candidate) {
   lines.push('');
   lines.push(candidate.title);
   lines.push('');
+  lines.push('## Evidence');
+  lines.push('');
+  lines.push(candidate.evidence || 'No evidence recorded.');
+  lines.push('');
   lines.push('## Scope');
   lines.push('');
   lines.push(`Task type: ${candidate.taskType}`);
@@ -766,6 +800,10 @@ function buildIssueBody(candidate) {
   lines.push('');
   lines.push('- Stay within allowed files.');
   lines.push('- Do not edit forbidden files.');
+  lines.push('');
+  lines.push('## Rollback / Follow-up');
+  lines.push('');
+  lines.push(candidate.rollbackFollowUp || 'No rollback or follow-up steps specified.');
   lines.push('');
   lines.push('---');
   lines.push('CONTROL APPENDIX (launcher generated)');
@@ -905,12 +943,18 @@ function runSelfTest() {
   assert(typeof cand.readiness === 'string', 'candidate has readiness');
   assert(typeof cand.macroGoal === 'string', 'candidate has macroGoal');
   assert(typeof cand.rationale === 'string', 'candidate has rationale');
+  assert(typeof cand.evidence === 'string', 'candidate has evidence');
+  assert(typeof cand.rollbackFollowUp === 'string', 'candidate has rollbackFollowUp');
 
-  // Test: buildIssueBody contains CONTROL APPENDIX
-  const body = buildIssueBody(makeCandidate({ title: 'Test', conflictGroup: 'test-group' }));
+  // Test: buildIssueBody contains CONTROL APPENDIX and new sections
+  const body = buildIssueBody(makeCandidate({ title: 'Test', conflictGroup: 'test-group', evidence: 'test evidence', rollbackFollowUp: 'test rollback' }));
   assert(body.includes('CONTROL APPENDIX'), 'buildIssueBody: contains CONTROL APPENDIX');
   assert(body.includes('Conflict group: test-group'), 'buildIssueBody: contains conflict group');
   assert(body.includes('Role packet:'), 'buildIssueBody: contains role packet');
+  assert(body.includes('## Evidence'), 'buildIssueBody: contains Evidence section');
+  assert(body.includes('test evidence'), 'buildIssueBody: contains evidence text');
+  assert(body.includes('## Rollback / Follow-up'), 'buildIssueBody: contains Rollback/Follow-up section');
+  assert(body.includes('test rollback'), 'buildIssueBody: contains rollback text');
 
   // Report
   console.log(`\n  propose-self-cycle-issues self-test`);

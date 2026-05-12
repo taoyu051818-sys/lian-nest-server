@@ -253,6 +253,8 @@ test('makeCandidate: has correct defaults', () => {
   assert.ok(Array.isArray(c.allowedFiles));
   assert.ok(Array.isArray(c.forbiddenFiles));
   assert.ok(Array.isArray(c.validationCommands));
+  assert.strictEqual(typeof c.evidence, 'string');
+  assert.strictEqual(typeof c.rollbackFollowUp, 'string');
 });
 
 // ── Unit tests: deduplicate ──────────────────────────────────────────────────
@@ -379,12 +381,33 @@ test('buildIssueBody: contains CONTROL APPENDIX', () => {
   assert.ok(body.includes('Validation commands:'), 'missing validation commands');
 });
 
-test('buildIssueBody: contains Goal/Scope/Acceptance/Constraints sections', () => {
+test('buildIssueBody: contains Evidence and Rollback/Follow-up sections', () => {
+  const body = buildIssueBody(makeCandidate({
+    title: 'Test',
+    conflictGroup: 'test-group',
+    evidence: 'File X does not exist on disk.',
+    rollbackFollowUp: 'Revert file X and re-run.',
+  }));
+  assert.ok(body.includes('## Evidence'), 'missing Evidence section');
+  assert.ok(body.includes('File X does not exist on disk.'), 'missing evidence text');
+  assert.ok(body.includes('## Rollback / Follow-up'), 'missing Rollback/Follow-up section');
+  assert.ok(body.includes('Revert file X and re-run.'), 'missing rollback text');
+});
+
+test('buildIssueBody: shows fallback text when evidence/rollback are empty', () => {
+  const body = buildIssueBody(makeCandidate({ title: 'Test' }));
+  assert.ok(body.includes('No evidence recorded.'), 'missing evidence fallback');
+  assert.ok(body.includes('No rollback or follow-up steps specified.'), 'missing rollback fallback');
+});
+
+test('buildIssueBody: contains Goal/Scope/Acceptance/Constraints/Evidence/Rollback sections', () => {
   const body = buildIssueBody(makeCandidate({ title: 'Test' }));
   assert.ok(body.includes('## Goal'));
+  assert.ok(body.includes('## Evidence'));
   assert.ok(body.includes('## Scope'));
   assert.ok(body.includes('## Acceptance'));
   assert.ok(body.includes('## Constraints'));
+  assert.ok(body.includes('## Rollback / Follow-up'));
 });
 
 // ── Integration: dry-run with stale resource produces proposals ──────────────
@@ -550,6 +573,8 @@ test('integration: candidates have CONTROL APPENDIX compatible fields', () => {
       assert.ok(c.actorRole, 'missing actorRole');
       assert.ok(c.allowedFiles.length > 0, 'empty allowedFiles');
       assert.ok(c.validationCommands.length > 0, 'empty validationCommands');
+      assert.strictEqual(typeof c.evidence, 'string', 'missing evidence');
+      assert.strictEqual(typeof c.rollbackFollowUp, 'string', 'missing rollbackFollowUp');
     }
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -641,6 +666,34 @@ test('integration: proposes nothing when all gaps are already covered by open is
   // The unit tests above cover dedup logic. This verifies the self-test works.
   const { exitCode } = runScript(['--self-test']);
   assert.strictEqual(exitCode, 0);
+});
+
+// ── Integration: generated issues include evidence and rollback ───────────────
+
+test('integration: generated issues include evidence and rollbackFollowUp', () => {
+  const tmpDir = createTempStateDir({
+    health: MINIMAL_HEALTH,
+    localResource: STALE_RESOURCE,
+    providerPool: MINIMAL_PROVIDER_POOL,
+  });
+
+  try {
+    const { stdout, exitCode } = runScript(['--state-dir', tmpDir, '--stdout']);
+    assert.strictEqual(exitCode, 0);
+    const output = JSON.parse(stdout);
+
+    for (const c of output.candidates) {
+      assert.ok(typeof c.evidence === 'string', `candidate "${c.title}" missing evidence field`);
+      assert.ok(typeof c.rollbackFollowUp === 'string', `candidate "${c.title}" missing rollbackFollowUp field`);
+      // Non-meta candidates should have non-empty evidence
+      if (!c.humanRequired) {
+        assert.ok(c.evidence.length > 0, `candidate "${c.title}" has empty evidence`);
+        assert.ok(c.rollbackFollowUp.length > 0, `candidate "${c.title}" has empty rollbackFollowUp`);
+      }
+    }
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 });
 
 // ── Integration: bounded parallel rehearsal proposal ─────────────────────────
