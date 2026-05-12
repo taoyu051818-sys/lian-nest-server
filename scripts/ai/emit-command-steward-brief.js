@@ -40,6 +40,7 @@ const INPUT_FILES = {
   opportunitySignals: 'opportunity-signals.json',
   launchLocks:       'launch-locks.json',
   workerTelemetry:   'worker-telemetry-events.ndjson',
+  lastCycle:         'self-cycle-run.json',
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -95,6 +96,7 @@ INPUT FILES (all optional — absent files produce conservative defaults)
     worker-telemetry-events.ndjson
 
 BRIEF SECTIONS
+    operatorBrief (top-of-page human UX: status badge, primary action, blocker summary),
     systemStatus, providerSummary, workerSummary, trustSummary,
     lockSummary, metaSignalsSummary, riskSignalsSummary,
     opportunitySignalsSummary, budgetSummary, blockers,
@@ -668,6 +670,82 @@ function buildHumanRequiredItems(inputs, systemStatus, blockers, actions) {
   });
 }
 
+// ── Operator brief (top-of-page human UX) ────────────────────────────────────
+
+function buildOperatorBrief(inputs, systemStatus, blockers, actions, humanRequiredItems) {
+  // Status badge: maps overall status to a simple badge
+  const badgeMap = {
+    operational: { badge: 'green', label: 'OPERATIONAL' },
+    degraded:    { badge: 'yellow', label: 'DEGRADED' },
+    critical:    { badge: 'red', label: 'CRITICAL' },
+    unrecoverable: { badge: 'red', label: 'UNRECOVERABLE' },
+    unknown:     { badge: 'gray', label: 'UNKNOWN' },
+  };
+  const statusBadge = badgeMap[systemStatus.overall] || badgeMap.unknown;
+
+  // Primary action: the single most important thing for the operator
+  const urgentAction = actions.find(a => a.priority === 'urgent');
+  const highAction = actions.find(a => a.priority === 'high');
+  const primaryAction = urgentAction || highAction || (actions.length > 0 ? actions[0] : null);
+
+  // Active blocker count by severity
+  const blockerCounts = { critical: 0, high: 0, medium: 0, warning: 0 };
+  for (const b of blockers) {
+    if (blockerCounts[b.severity] !== undefined) blockerCounts[b.severity]++;
+  }
+
+  // Worker activity
+  const workerSummary = buildWorkerSummary(inputs);
+  const providerSummary = buildProviderSummary(inputs);
+
+  // Last cycle hint — read from ai-state if available
+  const lastCycle = inputs.lastCycle || null;
+  const lastCycleStatus = lastCycle ? lastCycle.finalStatus : null;
+  const lastCycleAt = lastCycle ? lastCycle.completedAt : null;
+
+  // Build the plain-language status line
+  let statusLine;
+  if (systemStatus.overall === 'operational' && blockers.length === 0) {
+    statusLine = 'System is healthy. No blockers. Ready for next wave.';
+  } else if (systemStatus.overall === 'operational' && blockers.length > 0) {
+    const hasUrgent = blockers.some(b => b.severity === 'critical' || b.severity === 'high');
+    statusLine = hasUrgent
+      ? `System operational but ${blockerCounts.critical + blockerCounts.high} urgent blocker(s) need attention.`
+      : `System operational with ${blockers.length} minor issue(s).`;
+  } else if (systemStatus.overall === 'degraded') {
+    statusLine = `System degraded. ${blockers.length} blocker(s). Review before launching new workers.`;
+  } else if (systemStatus.overall === 'critical' || systemStatus.overall === 'unrecoverable') {
+    statusLine = `System ${systemStatus.overall}. Automated launches are blocked. Human intervention required.`;
+  } else {
+    statusLine = 'System status unknown — check inputs and state files.';
+  }
+
+  return {
+    statusBadge,
+    statusLine,
+    primaryAction: primaryAction ? {
+      action: primaryAction.action,
+      description: primaryAction.description,
+      humanRequired: primaryAction.humanRequired,
+    } : null,
+    blockerSummary: blockers.length === 0
+      ? 'No active blockers.'
+      : `${blockers.length} blocker(s): ${blockerCounts.critical} critical, ${blockerCounts.high} high, ${blockerCounts.medium} medium, ${blockerCounts.warning} warning.`,
+    blockerCounts,
+    workerActivity: workerSummary.loaded
+      ? `${workerSummary.count} active worker(s).`
+      : 'Worker state unknown.',
+    providerHealth: providerSummary.loaded
+      ? `${providerSummary.available} available, ${providerSummary.exhausted} exhausted, ${providerSummary.disabled} disabled.`
+      : 'Provider state unknown.',
+    lastCycle: lastCycleStatus ? {
+      status: lastCycleStatus,
+      completedAt: lastCycleAt,
+    } : null,
+    humanDecisionCount: humanRequiredItems.length,
+  };
+}
+
 // ── Build brief ──────────────────────────────────────────────────────────────
 
 function buildBrief(inputs) {
@@ -685,6 +763,8 @@ function buildBrief(inputs) {
   const recommendedNextActions = buildRecommendedActions(inputs, systemStatus, blockers);
   const humanRequiredItems = buildHumanRequiredItems(inputs, systemStatus, blockers, recommendedNextActions);
 
+  const operatorBrief = buildOperatorBrief(inputs, systemStatus, blockers, recommendedNextActions, humanRequiredItems);
+
   const inputSources = {};
   for (const [key, filename] of Object.entries(INPUT_FILES)) {
     inputSources[`${key}Loaded`] = inputs[key] !== null;
@@ -693,6 +773,7 @@ function buildBrief(inputs) {
   return {
     schemaVersion: SCHEMA_VERSION,
     capturedAt: new Date().toISOString(),
+    operatorBrief,
     systemStatus,
     providerSummary,
     workerSummary,
@@ -731,6 +812,8 @@ function runSelfTest() {
   assert(empty.schemaVersion === 1, 'schemaVersion is 1');
   assert(typeof empty.capturedAt === 'string', 'capturedAt is string');
   assert(empty.systemStatus.overall === 'unknown', 'overall unknown with all null');
+  assert(empty.operatorBrief.statusBadge.label === 'UNKNOWN', 'operatorBrief badge UNKNOWN with all null');
+  assert(typeof empty.operatorBrief.statusLine === 'string', 'operatorBrief statusLine present with all null');
   assert(empty.blockers.length > 0, 'has blockers when all null');
   assert(empty.humanRequiredItems.length > 0, 'has human required items');
   assert(empty.budgetSummary.loaded === false, 'budgetSummary not loaded when null');
@@ -776,7 +859,16 @@ function runSelfTest() {
   for (const key of Object.keys(full.inputSources)) {
     assert(full.inputSources[key] === true, `inputSources.${key} is true`);
   }
-  const expectedKeys = ['schemaVersion', 'capturedAt', 'systemStatus', 'providerSummary',
+
+  // Test: operatorBrief structure
+  assert(full.operatorBrief !== undefined, 'operatorBrief present');
+  assert(full.operatorBrief.statusBadge.label === 'OPERATIONAL', 'operatorBrief badge OPERATIONAL');
+  assert(typeof full.operatorBrief.statusLine === 'string', 'operatorBrief statusLine is string');
+  assert(typeof full.operatorBrief.blockerSummary === 'string', 'operatorBrief blockerSummary is string');
+  assert(typeof full.operatorBrief.workerActivity === 'string', 'operatorBrief workerActivity is string');
+  assert(typeof full.operatorBrief.providerHealth === 'string', 'operatorBrief providerHealth is string');
+  assert(typeof full.operatorBrief.humanDecisionCount === 'number', 'operatorBrief humanDecisionCount is number');
+  const expectedKeys = ['schemaVersion', 'capturedAt', 'operatorBrief', 'systemStatus', 'providerSummary',
     'workerSummary', 'trustSummary', 'lockSummary', 'metaSignalsSummary',
     'riskSignalsSummary', 'opportunitySignalsSummary', 'budgetSummary', 'blockers',
     'recommendedNextActions', 'humanRequiredItems', 'inputSources'];

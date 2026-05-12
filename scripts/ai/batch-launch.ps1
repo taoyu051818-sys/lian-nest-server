@@ -326,7 +326,7 @@ if ($DryRun -and -not $Execute) {
     Write-Host ""
     foreach ($plan in $taskPlans) {
         Write-Host "Worker command for issue #$($plan.Task.targetIssue):" -ForegroundColor Yellow
-        Write-Host "  ./scripts/ai/run-claude-print.ps1 -TaskFile $TaskFile -Branch $($plan.BranchName) -Worktree $($plan.WorktreeDir)" -ForegroundColor Yellow
+        Write-Host "  (single-task temp file) → ./scripts/ai/run-claude-print.ps1 -TaskFile <single-task.json> -Branch $($plan.BranchName) -Worktree $($plan.WorktreeDir)" -ForegroundColor Yellow
     }
     exit 0
 }
@@ -351,9 +351,15 @@ foreach ($plan in $taskPlans) {
     }
     Write-Ok "Worktree created"
 
-    # Run worker
+    # Run worker — write individual task to temp file so run-claude-print.ps1
+    # receives a single task object (not the batch array).
+    $singleTaskFile = Join-Path ([System.IO.Path]::GetTempPath()) "single-task-$($task.targetIssue).json"
+    $task | ConvertTo-Json -Depth 10 | Set-Content $singleTaskFile -Encoding UTF8
+
     Write-Step "Running Claude Code worker for issue #$($task.targetIssue)"
-    & ./scripts/ai/run-claude-print.ps1 -TaskFile $TaskFile -Branch $branchName -Worktree $worktreeDir
+    & ./scripts/ai/run-claude-print.ps1 -TaskFile $singleTaskFile -Branch $branchName -Worktree $worktreeDir
+
+    Remove-Item $singleTaskFile -ErrorAction SilentlyContinue
 
     Write-Ok "Worker complete for issue #$($task.targetIssue)"
 }
