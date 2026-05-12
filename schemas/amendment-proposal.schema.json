@@ -1,0 +1,205 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/amendment-proposal.schema.json",
+  "title": "AmendmentProposal",
+  "description": "Schema for a constitutional amendment proposal produced by the Constitution Steward layer. Proposes changes to prompts, policies, schemas, docs, or workflows. Cannot self-approve — requires human review gate. Aligned with docs/ai-native/amendment-proposal-schema.md.",
+  "type": "object",
+  "required": [
+    "proposalVersion",
+    "proposalId",
+    "targetDomain",
+    "targetPath",
+    "currentBehavior",
+    "proposedChange",
+    "justification",
+    "realityCheck",
+    "risk",
+    "status",
+    "proposedAt",
+    "proposedBy"
+  ],
+  "properties": {
+    "proposalVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1."
+    },
+    "proposalId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9._-]+$",
+      "description": "Machine-readable idempotency marker (e.g. amend-1075-schema, amend-health-gate). Used to deduplicate proposals across cycles."
+    },
+    "targetDomain": {
+      "type": "string",
+      "enum": [
+        "prompt",
+        "policy",
+        "schema",
+        "doc",
+        "workflow",
+        "gate"
+      ],
+      "description": "Constitutional domain being amended. prompt = agent role instructions, policy = governance rules, schema = JSON schema definitions, doc = documentation, workflow = scripts/automation, gate = review/merge gates."
+    },
+    "targetPath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "File path or identifier of the artifact being amended (e.g. schemas/task-v2.schema.json, docs/ai-native/main-health-policy.md)."
+    },
+    "currentBehavior": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 5000,
+      "description": "What the artifact does today. Must cite specific fields, rules, or sections — not vague summaries. Satisfies the Reality law."
+    },
+    "proposedChange": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 5000,
+      "description": "Precise description of the change. Must specify what is added, removed, or modified. Diff-level specificity preferred."
+    },
+    "justification": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 5000,
+      "description": "Why the change is needed. Must reference evidence: gap analysis, contradiction, missing coverage, or external requirement. Satisfies the Selection law."
+    },
+    "realityCheck": {
+      "type": "object",
+      "required": ["factsVerified"],
+      "properties": {
+        "factsVerified": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "Specific facts the steward verified before proposing (e.g. 'task-v2.schema.json has no amendment lifecycle field', 'health-state allows workerClass=all on red'). Each must be checkable."
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Unverified assumptions that should be confirmed during review."
+        },
+        "conflictsWith": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Existing rules or schemas this amendment may conflict with."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Evidence grounding for the proposal. Required by the Reality law — proposals without verified facts are invalid."
+    },
+    "risk": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "Amendment risk level. low = docs/typos, medium = schema/policy changes, high = gate/weakening safety boundaries. High-risk amendments require constitution-steward-reviewer AND ai-governance-reviewer."
+    },
+    "governedRecursion": {
+      "type": "object",
+      "properties": {
+        "preventsSelfApproval": {
+          "type": "boolean",
+          "const": true,
+          "description": "Must be true. The steward cannot approve its own proposals — this field is a structural reminder."
+        },
+        "requiresHumanGate": {
+          "type": "boolean",
+          "const": true,
+          "description": "Must be true. All amendments require human review before application."
+        },
+        "escapeHatch": {
+          "type": "string",
+          "description": "How to reject or defer this proposal without applying it. Typically 'close-issue' or 'defer-to-next-wave'."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Governed recursion constraints. Ensures the steward does not self-expand or bypass human gates."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "proposed",
+        "under-review",
+        "approved",
+        "rejected",
+        "applied",
+        "deferred"
+      ],
+      "description": "Lifecycle state. proposed = initial submission, under-review = assigned to reviewers, approved = human approved but not yet applied, rejected = human declined, applied = change landed, deferred = postponed to future wave."
+    },
+    "proposedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when the proposal was created."
+    },
+    "proposedBy": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identity of the proposer (e.g. constitution-steward-worker, human:taoyu). Must not be the same as the approver."
+    },
+    "reviewedBy": {
+      "type": ["string", "null"],
+      "description": "Identity of the reviewer who approved or rejected. Null until reviewed."
+    },
+    "reviewedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when the review decision was made."
+    },
+    "rejectionReason": {
+      "type": ["string", "null"],
+      "maxLength": 5000,
+      "description": "Required when status is rejected. Explains why the proposal was declined."
+    },
+    "appliedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when the approved change was applied."
+    },
+    "relatedIssue": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub issue number that triggered or tracks this proposal."
+    },
+    "relatedPR": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub PR number that implements this amendment, if applicable."
+    },
+    "rollbackPlan": {
+      "type": "string",
+      "description": "How to undo this amendment if it causes problems after application."
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "maxItems": 20,
+      "default": [],
+      "description": "Filterable tags for grouping proposals (e.g. wave32, gate-hardening, schema-gap)."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "rejected" } }
+      },
+      "then": {
+        "required": ["rejectionReason"]
+      }
+    }
+  ],
+  "additionalProperties": false
+}
