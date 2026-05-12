@@ -403,7 +403,7 @@ if ($IssueLabel) {
         if ($LASTEXITCODE -ne 0) {
             Write-Fail "gh issue list failed: $issueNumbers"
         }
-        $issues = $issueNumbers | ConvertFrom-Json
+        $issues = @($issueNumbers | ConvertFrom-Json)
     } catch {
         Write-Fail "Issue discovery failed: $_"
     }
