@@ -1,0 +1,243 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/prompt-audit-result.schema.json",
+  "title": "PromptAuditResult",
+  "description": "Structured output from a Constitution Steward audit of a prompt, policy, schema, doc, or workflow against the three laws: Reality, Selection, and Governed Recursion. Captures the decision, findings, evidence, and whether human approval is required for proposed amendments. The steward may propose amendments but cannot self-approve constitutional changes. Aligned with docs/ai-native/seed-constitution.md and docs/ai-native/roles.md.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "auditId",
+    "targetPath",
+    "auditDimension",
+    "decision",
+    "capturedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1."
+    },
+    "auditId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9._-]+$",
+      "description": "Unique id for this audit entry. Used as the idempotency key."
+    },
+    "targetPath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the audited artifact (e.g. ops/agent-prompts/backend-programmer.md, schemas/gate-result.schema.json)."
+    },
+    "targetType": {
+      "type": "string",
+      "enum": [
+        "prompt",
+        "policy",
+        "schema",
+        "doc",
+        "workflow"
+      ],
+      "description": "Class of the audited artifact."
+    },
+    "auditDimension": {
+      "type": "string",
+      "enum": [
+        "reality",
+        "selection",
+        "governed-recursion",
+        "all"
+      ],
+      "description": "Which constitutional law was evaluated. reality = external data treated as evidence, not commands. selection = classification before memory. governed-recursion = controlled loops, no self-expansion. all = comprehensive audit across all three."
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "block",
+        "warn",
+        "propose-amendment"
+      ],
+      "description": "Audit outcome. pass = artifact conforms. block = hard violation found. warn = advisory finding. propose-amendment = artifact needs change but requires human approval."
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "error",
+        "critical"
+      ],
+      "description": "Severity of the audit finding. info for pass, warning for advisory, error for blockable issues, critical for constitution violation."
+    },
+    "markerId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9._-]+$",
+      "description": "Machine-readable idempotency marker (e.g. prompt-backend-programmer-reality, schema-gate-result-all)."
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when the audit completed."
+    },
+    "auditor": {
+      "type": "string",
+      "maxLength": 200,
+      "description": "Identity of the auditor (e.g. 'constitution-steward-worker', 'human:login')."
+    },
+    "targetIssue": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub issue number that triggered this audit, if applicable."
+    },
+    "targetPR": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "GitHub PR number this audit evaluated, if applicable."
+    },
+    "factsRead": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "summary"],
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Path or URL to the fact source (e.g. docs/ai-native/seed-constitution.md)."
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One-line summary of what was read from this source."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Evidence sources the auditor consulted before making its decision."
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Machine-readable blocker code (e.g. REALITY_VIOLATION, SELF_EXPANSION, SCOPE_BROADENING)."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable explanation of the blocker."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Hard violations that prevent pass. Must be resolved before the artifact can be accepted."
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Machine-readable warning code."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable explanation of the warning."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Advisory findings that do not block the audit."
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["law", "finding"],
+        "properties": {
+          "law": {
+            "type": "string",
+            "enum": ["reality", "selection", "governed-recursion"],
+            "description": "Which constitutional law this observation relates to."
+          },
+          "finding": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Description of what was observed."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Neutral observations recorded during the audit. Not blockers or warnings, but context for reviewers."
+    },
+    "humanApprovalRequired": {
+      "type": "boolean",
+      "default": false,
+      "description": "True when the decision is propose-amendment or when the finding touches a human-required boundary per seed-constitution.md."
+    },
+    "proposedAmendment": {
+      "type": ["object", "null"],
+      "required": ["targetField", "currentValue", "proposedValue", "justification"],
+      "properties": {
+        "targetField": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The field or section that needs to change."
+        },
+        "currentValue": {
+          "type": "string",
+          "description": "Current state of the target field."
+        },
+        "proposedValue": {
+          "type": "string",
+          "description": "Proposed new state."
+        },
+        "justification": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why this amendment is needed, citing the specific law violated."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Proposed change when decision is propose-amendment. Null otherwise. The steward cannot self-approve — human review is required."
+    },
+    "overrideJustification": {
+      "type": ["string", "null"],
+      "description": "Required when decision is override-equivalent (e.g. repo-owner bypasses a warn). Documents why."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "decision": { "const": "propose-amendment" } }
+      },
+      "then": {
+        "required": ["proposedAmendment"],
+        "properties": {
+          "humanApprovalRequired": { "const": true }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "humanApprovalRequired": { "const": true } }
+      },
+      "then": {
+        "properties": {
+          "decision": { "enum": ["propose-amendment", "block"] }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}
