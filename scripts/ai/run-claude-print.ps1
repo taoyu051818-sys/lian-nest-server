@@ -1,4 +1,4 @@
-#Requires -Version 7.0
+﻿#Requires -Version 7.0
 <#
 .SYNOPSIS
     Runs a Claude Code worker in --print mode against a worktree.
@@ -6,7 +6,7 @@
 .DESCRIPTION
     Invokes Claude Code with the task contract as context, constrained to the
     worktree directory. Captures output and commits results. Designed for
-    self-hosted use — no external orchestration service required.
+    self-hosted use 鈥?no external orchestration service required.
 
 .PARAMETER TaskFile
     Path to a task JSON file conforming to scripts/ai/task.schema.json.
@@ -36,13 +36,16 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# 鈹€鈹€ Helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 function Write-Step($msg) { Write-Host ">> $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "   OK: $msg" -ForegroundColor Green }
 function Write-Fail($msg) { Write-Host "   FAIL: $msg" -ForegroundColor Red; exit 1 }
+function Has-Prop($obj, [string]$name) {
+    return $null -ne $obj -and ($obj.PSObject.Properties.Name -contains $name)
+}
 
-# ── Validate inputs ──────────────────────────────────────────────────────────
+# 鈹€鈹€ Validate inputs 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 if (-not (Test-Path $TaskFile)) {
     Write-Fail "Task file not found: $TaskFile"
@@ -52,14 +55,14 @@ if (-not (Test-Path $Worktree)) {
     Write-Fail "Worktree not found: $Worktree"
 }
 
-# ── Load task ────────────────────────────────────────────────────────────────
+# 鈹€鈹€ Load task 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 $task = Get-Content $TaskFile -Raw | ConvertFrom-Json
 $issueNum = $task.targetIssue
 
 Write-Step "Preparing worker for issue #$issueNum"
 
-# ── Build prompt ─────────────────────────────────────────────────────────────
+# 鈹€鈹€ Build prompt 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 # Collect all issue numbers for context
 $allIssues = @($issueNum)
@@ -90,7 +93,7 @@ if ($task.rolePacket) {
 
 # Build attention areas section
 $attentionSection = ""
-if ($task.attentionAreas) {
+if ((Has-Prop $task "attentionAreas") -and $task.attentionAreas) {
     if ($task.attentionAreas.focus -and $task.attentionAreas.focus.Count -gt 0) {
         $attentionSection += "Focus on:`n"
         foreach ($f in $task.attentionAreas.focus) { $attentionSection += "- $f`n" }
@@ -103,7 +106,7 @@ if ($task.attentionAreas) {
 
 # Build budgets section
 $budgetsSection = ""
-if ($task.budgets) {
+if ((Has-Prop $task "budgets") -and $task.budgets) {
     $parts = @()
     if ($task.budgets.maxFiles) { $parts += "maxFiles=$($task.budgets.maxFiles)" }
     if ($task.budgets.maxLinesChanged) { $parts += "maxLinesChanged=$($task.budgets.maxLinesChanged)" }
@@ -114,7 +117,7 @@ if ($task.budgets) {
 
 # Build source of truth docs section
 $sourceOfTruthSection = ""
-if ($task.sourceOfTruthDocs -and $task.sourceOfTruthDocs.Count -gt 0) {
+if ((Has-Prop $task "sourceOfTruthDocs") -and $task.sourceOfTruthDocs -and $task.sourceOfTruthDocs.Count -gt 0) {
     $sourceOfTruthSection += ($task.sourceOfTruthDocs | ForEach-Object { "- $_" }) -join "`n"
 }
 
@@ -136,7 +139,7 @@ $promptParts += "Task type: $($task.taskType)"
 $promptParts += "Risk: $($task.risk)"
 $promptParts += "Conflict group: $($task.conflictGroup)"
 $promptParts += "Target issue: $issueNum"
-$promptParts += "Target PR: $($task.targetPR)"
+$promptParts += "Target PR: $targetPrText"
 $promptParts += "Issues: $issuesStr"
 $promptParts += "Expected PR: $($task.expectedPR)"
 $promptParts += "Allowed files:"
@@ -173,7 +176,7 @@ $promptParts += "Do NOT output secrets, tokens, auth output, credentials, .env c
 
 $promptText = $promptParts -join "`n"
 
-# ── Build allowed tools ──────────────────────────────────────────────────────
+# 鈹€鈹€ Build allowed tools 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 # Restrict tool access based on task type
 $allowedTools = @("Edit", "Write", "Read", "Glob", "Grep")
@@ -194,7 +197,7 @@ $allowedToolsStr = $allowedTools -join ","
 
 Write-Step "Allowed tools: $allowedToolsStr"
 
-# ── Invoke Claude Code ───────────────────────────────────────────────────────
+# 鈹€鈹€ Invoke Claude Code 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 Write-Step "Launching Claude Code (--print mode)"
 
@@ -211,7 +214,7 @@ Write-Step "Working directory: $Worktree"
 $env:CLAUDE_WORKING_DIRECTORY = $Worktree
 $env:CLAUDE_CODE_ENTRYPOINT = "batch-launcher"
 
-# ── Telemetry: emit start event ───────────────────────────────────────────────
+# 鈹€鈹€ Telemetry: emit start event 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 $telemetryWriter = Join-Path $PSScriptRoot "write-worker-telemetry-event.js"
 $startedAt = [DateTime]::UtcNow
@@ -241,7 +244,7 @@ try {
     Pop-Location
 }
 
-# ── Telemetry: emit complete event ────────────────────────────────────────────
+# 鈹€鈹€ Telemetry: emit complete event 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 if (Test-Path $telemetryWriter) {
     Write-Step "Emitting worker telemetry complete event"
@@ -259,10 +262,10 @@ if (Test-Path $telemetryWriter) {
 $stdout = if (Test-Path "$Worktree/.claude-output.txt") { Get-Content "$Worktree/.claude-output.txt" -Raw } else { "" }
 $stderr = if (Test-Path "$Worktree/.claude-error.txt") { Get-Content "$Worktree/.claude-error.txt" -Raw } else { "" }
 
-# ── Report results ───────────────────────────────────────────────────────────
+# 鈹€鈹€ Report results 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 # Sanitization note: stdout/stderr may contain secrets, tokens, or raw LLM
-# transcripts. Console output is for local debugging only — never paste or
+# transcripts. Console output is for local debugging only 鈥?never paste or
 # publish it directly. Use publish-agent-result.ps1 which enforces redaction.
 
 if ($exitCode -eq 0) {
@@ -281,12 +284,12 @@ Write-Host "[sanitization] Output above is for local debugging only." -Foregroun
 Write-Host "[sanitization] Do NOT paste raw logs into issues, PRs, or comments." -ForegroundColor DarkYellow
 Write-Host "[sanitization] Use publish-agent-result.ps1 to publish sanitized results." -ForegroundColor DarkYellow
 
-# ── Cleanup temp files before staging ────────────────────────────────────────
+# 鈹€鈹€ Cleanup temp files before staging 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 Remove-Item "$Worktree/.claude-output.txt" -ErrorAction SilentlyContinue
 Remove-Item "$Worktree/.claude-error.txt" -ErrorAction SilentlyContinue
 
-# ── Commit if changes exist ──────────────────────────────────────────────────
+# 鈹€鈹€ Commit if changes exist 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 Write-Step "Checking for changes to commit"
 
@@ -308,7 +311,7 @@ try {
         if ($LASTEXITCODE -eq 0) {
             Write-Ok "Changes committed on branch $Branch"
         } else {
-            Write-Host "   Commit failed — worker may need to fix conflicts" -ForegroundColor Yellow
+            Write-Host "   Commit failed 鈥?worker may need to fix conflicts" -ForegroundColor Yellow
         }
     } else {
         Write-Ok "No changes to commit"
@@ -318,3 +321,4 @@ try {
 }
 
 Write-Step "Worker complete for issue #$issueNum"
+
