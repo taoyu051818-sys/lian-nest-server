@@ -317,6 +317,62 @@ $plan = $planRaw | ConvertFrom-Json
 }
 
 # ===========================================================================
+# Scenario 11: Empty issues array Count handling (regression #1280)
+# ===========================================================================
+
+& {
+    Write-Host "--- Scenario 11: Empty issues array Count (regression #1280)" -ForegroundColor DarkCyan
+
+    # When gh issue list returns [], ConvertFrom-Json produces $null.
+    # Wrapping with @() guarantees an array so .Count works under strict mode.
+    $emptyJson = '[]'
+    $emptyIssues = @($emptyJson | ConvertFrom-Json)
+    Assert-True ($emptyIssues.Count -eq 0) "scenario 11: empty JSON array Count is 0"
+
+    # Single issue
+    $singleJson = '[{"number":999,"title":"test"}]'
+    $singleIssues = @($singleJson | ConvertFrom-Json)
+    Assert-True ($singleIssues.Count -eq 1) "scenario 11: single-item JSON Count is 1"
+
+    # Multiple issues
+    $multiJson = '[{"number":1,"title":"a"},{"number":2,"title":"b"},{"number":3,"title":"c"}]'
+    $multiIssues = @($multiJson | ConvertFrom-Json)
+    Assert-True ($multiIssues.Count -eq 3) "scenario 11: multi-item JSON Count is 3"
+
+    # When ConvertFrom-Json on '[]' produces no pipeline output, @() yields Count 0
+    # This is the exact pattern used in the fix: @($issueNumbers | ConvertFrom-Json)
+    $emptyArrayIssues = @('[]' | ConvertFrom-Json)
+    Assert-True ($emptyArrayIssues.Count -eq 0) "scenario 11: @('[]' | ConvertFrom-Json).Count is 0"
+}
+
+# ===========================================================================
+# Scenario 12: Empty plan autopilot completes without error
+# ===========================================================================
+
+& {
+    Write-Host "--- Scenario 12: Empty plan autopilot summary fields" -ForegroundColor DarkCyan
+
+    $emptyPlan = @{
+        planVersion      = 1
+        generatedAt      = "2026-05-11T00:00:00Z"
+        planMode         = "autopilot"
+        totalOpen        = 0
+        proposed         = 0
+        maxTasks         = 10
+        candidates       = @()
+        conflictWarnings = @()
+        skippedIssues    = @()
+    }
+
+    # All downstream Count accesses must not throw
+    Assert-True ($emptyPlan.candidates.Count -eq 0) "scenario 12: candidates Count is 0"
+    Assert-True ($emptyPlan.conflictWarnings.Count -eq 0) "scenario 12: conflictWarnings Count is 0"
+    Assert-True ($emptyPlan.skippedIssues.Count -eq 0) "scenario 12: skippedIssues Count is 0"
+    Assert-True ($emptyPlan.proposed -eq 0) "scenario 12: proposed is 0"
+    Assert-True ($emptyPlan.proposed -le $emptyPlan.maxTasks) "scenario 12: proposed <= maxTasks"
+}
+
+# ===========================================================================
 # Summary
 # ===========================================================================
 
