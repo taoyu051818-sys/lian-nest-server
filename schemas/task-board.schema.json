@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/taoyu051818-sys/lian-nest-server/schemas/task-board.schema.json",
   "title": "TaskBoard",
-  "description": "Schema for .github/ai-state/task-board.json — the task board projection consumed by the Command Steward, orchestrator, state reconciler, and launch gate. Provides a machine-readable view of task lifecycle states (open/ready/running/blocked/done), claim ownership, heartbeat tracking, and stale worker detection. Aligned with docs/ai-native/task-board-projection.md.",
+  "description": "Schema for .github/ai-state/task-board.json — the task board projection consumed by the Command Steward, orchestrator, state reconciler, and launch gate. Provides a machine-readable view of task lifecycle states (triage/todo/open/ready/running/blocked/done/archived), claim ownership, heartbeat tracking, and stale worker detection. Aligned with docs/ai-native/task-board-projection.md.",
   "type": "object",
   "required": [
     "markerVersion",
@@ -51,11 +51,14 @@
         "state": {
           "type": "string",
           "enum": [
+            "triage",
+            "todo",
             "open",
             "ready",
             "running",
             "blocked",
-            "done"
+            "done",
+            "archived"
           ],
           "description": "Lifecycle state of the task."
         },
@@ -73,7 +76,7 @@
               "type": "null"
             }
           ],
-          "description": "Worker details when state is ready, running, or blocked. null for open and done."
+          "description": "Worker details when state is ready, running, or blocked. null for triage, todo, open, done, and archived."
         },
         "blockedReason": {
           "type": ["string", "null"],

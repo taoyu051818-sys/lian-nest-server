@@ -147,6 +147,10 @@ test('mapState: agent:merged → done', () => {
   assert.strictEqual(mapState({ number: 1, title: '', labels: [{ name: 'agent:merged' }] }), 'done');
 });
 
+test('mapState: agent:archived → archived', () => {
+  assert.strictEqual(mapState({ number: 1, title: '', labels: [{ name: 'agent:archived' }] }), 'archived');
+});
+
 test('mapState: agent:running → running', () => {
   assert.strictEqual(mapState({ number: 1, title: '', labels: [{ name: 'agent:running' }] }), 'running');
 });
@@ -157,6 +161,14 @@ test('mapState: agent:blocked → blocked', () => {
 
 test('mapState: agent:queued → ready', () => {
   assert.strictEqual(mapState({ number: 1, title: '', labels: [{ name: 'agent:queued' }] }), 'ready');
+});
+
+test('mapState: agent:todo → todo', () => {
+  assert.strictEqual(mapState({ number: 1, title: '', labels: [{ name: 'agent:todo' }] }), 'todo');
+});
+
+test('mapState: agent:triage → triage', () => {
+  assert.strictEqual(mapState({ number: 1, title: '', labels: [{ name: 'agent:triage' }] }), 'triage');
 });
 
 test('mapState: no labels → open', () => {
@@ -173,6 +185,10 @@ test('mapState: string labels work', () => {
 
 test('mapState: priority — done takes precedence', () => {
   assert.strictEqual(mapState({ number: 1, title: '', labels: [{ name: 'agent:running' }, { name: 'agent:done' }] }), 'done');
+});
+
+test('mapState: priority — archived takes precedence over running', () => {
+  assert.strictEqual(mapState({ number: 1, title: '', labels: [{ name: 'agent:running' }, { name: 'agent:archived' }] }), 'archived');
 });
 
 // ── findLinkedPR tests ───────────────────────────────────────────────────────
@@ -342,6 +358,29 @@ test('projectTasks: open task has no worker and no PR', () => {
   assert.strictEqual(tasks[0].linkedPR, null);
 });
 
+test('projectTasks: triage task has no worker', () => {
+  const issues = [{ number: 410, title: 'Triage', body: '', labels: [{ name: 'agent:triage' }] }];
+  const workers = { workers: [{ issue: 410, branch: 'b', claimant: 'c', claimedAt: 't', lastHeartbeat: 't', expiresAt: 't' }] };
+  const { tasks } = projectTasks(issues, [], workers, null);
+  assert.strictEqual(tasks[0].state, 'triage');
+  assert.strictEqual(tasks[0].worker, null);
+});
+
+test('projectTasks: todo task has no worker', () => {
+  const issues = [{ number: 420, title: 'Backlog', body: '', labels: [{ name: 'agent:todo' }] }];
+  const workers = { workers: [{ issue: 420, branch: 'b', claimant: 'c', claimedAt: 't', lastHeartbeat: 't', expiresAt: 't' }] };
+  const { tasks } = projectTasks(issues, [], workers, null);
+  assert.strictEqual(tasks[0].state, 'todo');
+  assert.strictEqual(tasks[0].worker, null);
+});
+
+test('projectTasks: archived task has no worker', () => {
+  const issues = [{ number: 430, title: 'Old', body: '', labels: [{ name: 'agent:archived' }] }];
+  const { tasks } = projectTasks(issues, [], null, null);
+  assert.strictEqual(tasks[0].state, 'archived');
+  assert.strictEqual(tasks[0].worker, null);
+});
+
 // ── buildProjection tests ────────────────────────────────────────────────────
 
 test('buildProjection: correct schema shape', () => {
@@ -432,6 +471,9 @@ test('fixture: reads from fixture and produces projection', () => {
       { number: 200, title: 'Feature A', body: '', labels: [{ name: 'agent:running' }] },
       { number: 275, title: 'Feature B', body: '', labels: [{ name: 'agent:done' }] },
       { number: 400, title: 'New feature', body: '', labels: [] },
+      { number: 410, title: 'Triage item', body: '', labels: [{ name: 'agent:triage' }] },
+      { number: 420, title: 'Backlog item', body: '', labels: [{ name: 'agent:todo' }] },
+      { number: 430, title: 'Old item', body: '', labels: [{ name: 'agent:archived' }] },
     ],
     openPRs: [
       { number: 50, title: 'feat', body: 'Closes #275', headRefName: '' },
@@ -446,7 +488,7 @@ test('fixture: reads from fixture and produces projection', () => {
     assert.strictEqual(exitCode, 0);
     const proj = JSON.parse(stdout);
     assert.strictEqual(proj.markerVersion, 1);
-    assert.strictEqual(proj.tasks.length, 4);
+    assert.strictEqual(proj.tasks.length, 7);
     // Discussion
     const discussion = proj.tasks.find(t => t.issue === 96);
     assert.strictEqual(discussion.state, 'discussion/open');
@@ -463,6 +505,18 @@ test('fixture: reads from fixture and produces projection', () => {
     // Open
     const open = proj.tasks.find(t => t.issue === 400);
     assert.strictEqual(open.state, 'open');
+    // Triage
+    const triage = proj.tasks.find(t => t.issue === 410);
+    assert.strictEqual(triage.state, 'triage');
+    assert.strictEqual(triage.worker, null);
+    // Todo
+    const todo = proj.tasks.find(t => t.issue === 420);
+    assert.strictEqual(todo.state, 'todo');
+    assert.strictEqual(todo.worker, null);
+    // Archived
+    const archived = proj.tasks.find(t => t.issue === 430);
+    assert.strictEqual(archived.state, 'archived');
+    assert.strictEqual(archived.worker, null);
   } finally {
     if (fs.existsSync(fixturePath)) fs.unlinkSync(fixturePath);
   }
