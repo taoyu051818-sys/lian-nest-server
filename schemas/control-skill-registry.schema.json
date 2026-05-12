@@ -1,0 +1,221 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/control-skill-registry.schema.json",
+  "title": "ControlSkillRegistryEntry",
+  "description": "Schema for a governed control skill registry entry. Each entry models a single control skill with stable identity, risk classification, human approval gates, input schema, preview/execute phases, knowledge writeback declarations, and audit requirements. See docs/ai-native/control-skill-registry.md for policy and field-level documentation.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "skillId",
+    "label",
+    "description",
+    "riskLevel",
+    "humanRequired",
+    "dangerous",
+    "inputSchema",
+    "preview",
+    "execute",
+    "factsProduced"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1."
+    },
+    "skillId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$|^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$",
+      "description": "Stable skill identifier. Dot-delimited domain.subject[.verb] (e.g. 'merge.prs', 'issue.state.close') or kebab-case (e.g. 'merge-prs', 'launch-batch'). Must be unique within the registry."
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Human-readable skill name for the WebUI and Command Steward."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "One-line purpose of this skill."
+    },
+    "riskLevel": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"],
+      "description": "Risk classification. Controls confirmation escalation: low = optional confirmation, medium = required confirmation, high = required + human gate, critical = typed phrase + reason."
+    },
+    "humanRequired": {
+      "type": "boolean",
+      "description": "When true, the skill cannot be dispatched by automated agents — a human must initiate or confirm. Required for high/critical risk skills."
+    },
+    "dangerous": {
+      "type": "boolean",
+      "description": "When true, the skill has side effects (file writes, API calls, process launches). Dangerous skills require preview-first execution."
+    },
+    "inputSchema": {
+      "type": "object",
+      "description": "JSON schema fragment defining the skill's input parameters. Used for client-side and server-side validation.",
+      "properties": {
+        "required": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Field names the caller must supply."
+        },
+        "optional": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Field names with defaults."
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string" },
+              "description": { "type": "string" },
+              "enum": { "type": "array", "items": {} },
+              "minimum": { "type": "number" },
+              "maximum": { "type": "number" },
+              "minItems": { "type": "integer", "minimum": 0 },
+              "maxItems": { "type": "integer", "minimum": 0 },
+              "minLength": { "type": "integer", "minimum": 0 },
+              "maxLength": { "type": "integer", "minimum": 0 },
+              "pattern": { "type": "string" },
+              "default": {},
+              "items": { "type": "object" }
+            },
+            "additionalProperties": false
+          },
+          "description": "Per-field type and constraint definitions."
+        }
+      },
+      "additionalProperties": false
+    },
+    "preview": {
+      "type": "object",
+      "description": "Preview phase descriptor. Preview computes projected effects with no side effects.",
+      "required": ["safe", "dryRun"],
+      "properties": {
+        "safe": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true. Preview produces no side effects."
+        },
+        "dryRun": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true. Result is marked as dry-run."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Human-readable description of what preview returns."
+        }
+      },
+      "additionalProperties": false
+    },
+    "execute": {
+      "type": "object",
+      "description": "Execute phase descriptor. Execute applies the action and requires human confirmation for non-low-risk skills.",
+      "required": ["requiresConfirmation"],
+      "properties": {
+        "requiresConfirmation": {
+          "type": "boolean",
+          "description": "Whether execute requires explicit human confirmation. True for medium+ risk skills."
+        },
+        "confirmPhrase": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "Exact phrase the operator must type to confirm execution (e.g. 'LAUNCH', 'MERGE'). Present for high/critical risk skills. Null otherwise."
+        },
+        "blocked": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, execute is permanently blocked (preview-only skill)."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Human-readable description of what execute does."
+        }
+      },
+      "additionalProperties": false
+    },
+    "factsProduced": {
+      "type": "array",
+      "description": "Knowledge artifacts produced on successful execution. Integrates with the knowledge-driven scaling rule. Empty for read-only or preview-only skills.",
+      "items": {
+        "type": "object",
+        "required": ["type", "ledger"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Fact type identifier (e.g. 'merge-result', 'worker-launch', 'issue-closure', 'health-transition')."
+          },
+          "ledger": {
+            "type": "string",
+            "enum": ["fact-events.ndjson", "knowledge-updates.ndjson", "task-board.json"],
+            "description": "Target ledger where the artifact is written."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Human-readable description of the artifact."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "audit": {
+      "type": "object",
+      "description": "Audit trail requirements for this skill.",
+      "required": ["verbosity"],
+      "properties": {
+        "verbosity": {
+          "type": "string",
+          "enum": ["minimal", "standard", "full"],
+          "description": "Audit verbosity level. minimal = low-risk read-only, standard = medium-risk, full = high/critical-risk."
+        },
+        "logPreview": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether preview invocations are audit-logged. True by default."
+        }
+      },
+      "additionalProperties": false
+    },
+    "module": {
+      "type": ["string", "null"],
+      "description": "Path to the action module implementing this skill (e.g. 'tools/provider-pool-webui/actions/merge-prs.js'). Null for static registry entries."
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": { "riskLevel": { "enum": ["high", "critical"] } }
+      },
+      "then": {
+        "required": ["humanRequired"],
+        "properties": {
+          "humanRequired": { "const": true }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "dangerous": { "const": true } }
+      },
+      "then": {
+        "properties": {
+          "preview": {
+            "required": ["safe", "dryRun"]
+          }
+        }
+      }
+    }
+  ]
+}
