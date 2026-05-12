@@ -256,6 +256,41 @@ test('findWorker: uses workerClass fallback for claimant', () => {
   assert.strictEqual(w.claimant, 'docs');
 });
 
+test('findWorker: matches by issueNumber (real manifest contract)', () => {
+  const workers = {
+    workers: [{
+      issueNumber: 258,
+      branch: 'claude/wave6-20260511',
+      claimant: 'backend-programmer',
+      claimedAt: '2026-05-11T09:00:00Z',
+      lastHeartbeat: '2026-05-11T09:25:00Z',
+      expiresAt: '2026-05-11T10:30:00Z',
+    }],
+  };
+  const w = findWorker({ number: 258 }, workers);
+  assert.ok(w !== null);
+  assert.strictEqual(w.branch, 'claude/wave6-20260511');
+  assert.strictEqual(w.claimant, 'backend-programmer');
+});
+
+test('findWorker: issueNumber takes precedence over issue', () => {
+  const workers = {
+    workers: [{
+      issueNumber: 200,
+      issue: 999,
+      branch: 'correct-branch',
+      claimant: 'c',
+      claimedAt: 't',
+      lastHeartbeat: 't',
+      expiresAt: 't',
+    }],
+  };
+  const w = findWorker({ number: 200 }, workers);
+  assert.ok(w !== null);
+  assert.strictEqual(w.branch, 'correct-branch');
+  assert.strictEqual(findWorker({ number: 999 }, workers), null);
+});
+
 // ── inferConflictGroup tests ─────────────────────────────────────────────────
 
 test('conflictGroup: explicit from body', () => {
@@ -518,6 +553,30 @@ test('fixture: reads from fixture and produces projection', () => {
     const archived = proj.tasks.find(t => t.issue === 430);
     assert.strictEqual(archived.state, 'archived');
     assert.strictEqual(archived.worker, null);
+  } finally {
+    if (fs.existsSync(fixturePath)) fs.unlinkSync(fixturePath);
+  }
+});
+
+test('fixture: issueNumber in activeWorkers attaches worker to task', () => {
+  const fixturePath = tmpFile('issueNumber-fixture');
+  const fixture = {
+    issues: [
+      { number: 258, title: 'Feature', body: '', labels: [{ name: 'agent:running' }] },
+    ],
+    openPRs: [],
+    activeWorkers: {
+      workers: [{ issueNumber: 258, branch: 'claude/real-manifest', claimant: 'backend', claimedAt: '2026-05-11T09:00:00Z', lastHeartbeat: '2026-05-11T09:25:00Z', expiresAt: '2026-05-11T10:30:00Z' }],
+    },
+  };
+  fs.writeFileSync(fixturePath, JSON.stringify(fixture), 'utf8');
+  try {
+    const { stdout, exitCode } = run(['--fixture', fixturePath, '--stdout']);
+    assert.strictEqual(exitCode, 0);
+    const proj = JSON.parse(stdout);
+    const t = proj.tasks.find(task => task.issue === 258);
+    assert.ok(t.worker !== null, 'worker attached via issueNumber');
+    assert.strictEqual(t.worker.branch, 'claude/real-manifest');
   } finally {
     if (fs.existsSync(fixturePath)) fs.unlinkSync(fixturePath);
   }

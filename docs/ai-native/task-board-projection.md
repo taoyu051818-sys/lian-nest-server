@@ -293,7 +293,7 @@ The task board projection composes with the existing state files:
 
 | Projection | Relationship |
 |------------|-------------|
-| `active-workers.json` | Task board subsumes this for lifecycle state. Active workers projection remains the source for `conflictGroup` conflict detection in the launch gate. |
+| `active-workers.json` | Task board subsumes this for lifecycle state. Active workers projection remains the source for `conflictGroup` conflict detection in the launch gate. Worker matching uses `issueNumber` (preferred) with fallback to `issue` for legacy manifests. |
 | `launch-locks.json` | Task board tracks claim ownership. Launch locks track file-level write conflicts. Both must agree on which workers are active. |
 | `main-health.json` | Health state gates which worker types may launch. Task board does not override health gates. |
 | GitHub issue labels (`agent:*`) | Labels are the human-visible mirror. The task board is the machine-readable mirror. Both must agree; the reconciler enforces consistency. |

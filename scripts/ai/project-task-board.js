@@ -214,7 +214,7 @@ function findLinkedPR(issue, openPRs) {
 function findWorker(issue, activeWorkers) {
   if (!activeWorkers || !Array.isArray(activeWorkers.workers)) return null;
   const issueNum = issue.number;
-  const match = activeWorkers.workers.find(w => w.issue === issueNum);
+  const match = activeWorkers.workers.find(w => (w.issueNumber ?? w.issue) === issueNum);
   if (!match) return null;
   return {
     branch: match.branch || null,
@@ -450,6 +450,12 @@ function runSelfTest() {
   assert(w.branch === 'claude/wave6', 'worker branch');
   assert(w.claimant === 'backend-programmer', 'worker claimant');
   assert(findWorker({ number: 999 }, workers) === null, 'no worker for issue');
+
+  // Test: findWorker with issueNumber (real manifest contract)
+  const issueNumberWorkers = { workers: [{ issueNumber: 258, branch: 'claude/wave6', claimant: 'backend-programmer', claimedAt: '2026-01-01T00:00:00Z', lastHeartbeat: '2026-01-01T00:15:00Z', expiresAt: '2026-01-01T01:30:00Z' }] };
+  const w2 = findWorker({ number: 258 }, issueNumberWorkers);
+  assert(w2 !== null, 'finds worker by issueNumber');
+  assert(w2.branch === 'claude/wave6', 'issueNumber worker branch');
 
   // Test: findWorker with null activeWorkers
   assert(findWorker({ number: 1 }, null) === null, 'null activeWorkers');
