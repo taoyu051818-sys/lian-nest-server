@@ -12,15 +12,17 @@ launcher, and monitoring.
 ## Overview
 
 The active workers projection is a single JSON file that records which AI
-workers are currently in-flight. It is the canonical source of truth for
-conflict-group-based scheduling: the launch gate reads this file to block
-tasks that would overlap with active work.
+workers are planned, running, completed, failed, stale, blocked, or waiting for
+human input. It is the canonical source of truth for conflict-group-based
+scheduling: the launch gate reads this file to block tasks that would overlap
+with active work, and bounded parallel launch writes lifecycle state for the
+Command Steward and wait monitor.
 
 | Aspect | Value |
 |--------|-------|
-| Schema version | `markerVersion: 1` |
+| Schema version | `markerVersion: 1` legacy, `markerVersion: 2` bounded parallel |
 | JSON Schema draft | `draft-07` |
-| Writer | State reconciler or batch launcher |
+| Writer | State reconciler, batch launcher, or wait-parallel-workers |
 | Path | `.github/ai-state/active-workers.json` |
 
 ---
@@ -31,9 +33,21 @@ tasks that would overlap with active work.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `markerVersion` | `integer` (const `1`) | Schema version. Increment when the shape changes. |
+| `markerVersion` | `integer` (`1` or `2`) | Schema version. Version 2 adds bounded parallel lifecycle fields. |
 | `capturedAt` | `string` (ISO-8601) | Timestamp when this projection was last written. |
 | `workers` | `ActiveWorker[]` | Active worker entries. Empty array when no workers are running. |
+
+### Optional Batch Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `batchId` | `string or null` | Launcher batch id, e.g. `worker-batch-20260512T120000Z`. |
+| `mode` | `dry-run`, `execute`, or `null` | Whether this projection was emitted by a preview or execute run. |
+| `requestedParallelism` | `integer or null` | Requested `-MaxParallelWorkers`, capped at 30. |
+| `effectiveParallelism` | `integer or null` | Concurrency after provider/resource/conflict/risk/review/merge/failure gates. |
+| `blockedParallelismReason` | `string or null` | Why effective parallelism is lower than requested. |
+| `lastWaitAt` | `string or null` | Last wait monitor update time. |
+| `lastWaitSummary` | `object or null` | Completed/failed/running/stale/blocked/needs-human counters. |
 
 ---
 
@@ -52,7 +66,20 @@ Each entry in the `workers` array describes a single active worker.
 | Field | Type | Description |
 |-------|------|-------------|
 | `issue` | `integer or null` (min 1) | GitHub issue number the worker is assigned to. |
+| `issueNumber` | `integer or null` | GitHub issue number, preferred by version 2 writers. |
 | `branch` | `string or null` (min 1 char) | Git branch or worktree the worker is operating on. |
+| `worktree` | `string or null` | Worker worktree path. |
+| `taskFile` | `string or null` | Per-worker single-task JSON file. |
+| `pid` | `integer or null` | Process id for the worker wrapper. |
+| `status` | `string or null` | `planned`, `running`, `completed`, `failed`, `stale`, `blocked`, or `needs-human`. |
+| `startedAt` / `endedAt` | `string or null` | Worker lifecycle timestamps. |
+| `exitCode` | `integer or null` | Worker exit code. |
+| `logPath` / `stderrPath` | `string or null` | Local stdout/stderr log paths. |
+| `resultPath` | `string or null` | Per-worker result marker JSON path. |
+| `risk` | `low`, `medium`, `high`, or `null` | Task risk tier. |
+| `actorRole` | `string or null` | Worker role. |
+| `providerSlot` | `string or null` | Provider slot, when assigned. |
+| `failureClass` / `failureSummary` / `safeToRetry` | nullable | Failure aggregation fields set by `wait-parallel-workers.ps1`. |
 
 ---
 
@@ -83,17 +110,36 @@ The JSON Schema enforces these constraints:
 }
 ```
 
-### Single Active Worker
+### Single Active Worker (version 2)
 
 ```json
 {
-  "markerVersion": 1,
+  "markerVersion": 2,
   "capturedAt": "2026-05-11T12:00:00Z",
+  "batchId": "worker-batch-20260512T120000Z",
+  "mode": "execute",
+  "requestedParallelism": 30,
+  "effectiveParallelism": 3,
+  "blockedParallelismReason": "provider slots=3",
   "workers": [
     {
       "conflictGroup": "auth-core",
       "issue": 258,
-      "branch": "claude/wave6-20260510-090000-issue-258-auth-slice1"
+      "issueNumber": 258,
+      "branch": "claude/wave6-20260510-090000-issue-258-auth-slice1",
+      "worktree": ".claude/worktrees/claude/wave6-issue-258",
+      "taskFile": ".ai/worker-logs/worker-batch/issue-258.task.json",
+      "pid": 12345,
+      "status": "running",
+      "startedAt": "2026-05-11T12:00:00Z",
+      "endedAt": null,
+      "exitCode": null,
+      "logPath": ".ai/worker-logs/worker-batch/issue-258.out.log",
+      "stderrPath": ".ai/worker-logs/worker-batch/issue-258.err.log",
+      "resultPath": ".ai/worker-logs/worker-batch/issue-258.result.json",
+      "risk": "medium",
+      "actorRole": "runtime-feature-worker",
+      "providerSlot": "provider-default"
     }
   ]
 }
@@ -133,8 +179,9 @@ The JSON Schema enforces these constraints:
 |----------|------------|---------|
 | **Launch gate** (`check-launch-gate.ps1`) | `workers[].conflictGroup` | Block tasks whose conflict group matches an active worker. |
 | **State reconciler** | `workers`, `capturedAt` | Detect stale workers and projection drift. |
-| **Batch launcher** (`batch-launch.ps1`) | Full file | Pass to launch gate before dispatching each batch. |
-| **Monitoring** | `capturedAt` | Detect stale projections (no write in > N minutes). |
+| **Batch launcher** (`batch-launch.ps1`) | Full file | Writes planned/running entries and passes it to launch gate before dispatch. |
+| **Parallel wait monitor** (`wait-parallel-workers.ps1`) | `pid`, `resultPath`, logs | Updates completed/failed/stale state and failure classification. |
+| **Monitoring/WebUI** | `capturedAt`, `workers`, `lastWaitSummary` | Detect stale projections and summarize worker fleet state. |
 
 ---
 
@@ -142,7 +189,7 @@ The JSON Schema enforces these constraints:
 
 The `markerVersion` field enables forward-compatible evolution:
 
-- **Current version:** `1`
+- **Current versions:** `1` legacy minimal, `2` bounded parallel lifecycle.
 - **Consumers must reject** records with an unrecognized `markerVersion`.
 - **New optional fields** may be added without incrementing the version.
 - **Removing or renaming fields** or changing required fields requires a version bump.

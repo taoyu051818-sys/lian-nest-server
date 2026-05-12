@@ -1,0 +1,35 @@
+{
+  "markerVersion": 2,
+  "capturedAt": "2026-05-12T00:00:00.000Z",
+  "batchId": "worker-batch-example",
+  "mode": "dry-run",
+  "requestedParallelism": 30,
+  "effectiveParallelism": 3,
+  "blockedParallelismReason": "provider slots=3; resource slots=12",
+  "lastWaitAt": null,
+  "lastWaitSummary": null,
+  "workers": [
+    {
+      "issueNumber": 1291,
+      "issue": 1291,
+      "branch": "claude/issue-1291-task-board-projection",
+      "worktree": ".claude/worktrees/claude/issue-1291-task-board-projection",
+      "taskFile": ".ai/worker-logs/worker-batch-example/issue-1291.task.json",
+      "pid": null,
+      "status": "planned",
+      "startedAt": null,
+      "endedAt": null,
+      "exitCode": null,
+      "logPath": ".ai/worker-logs/worker-batch-example/issue-1291.out.log",
+      "stderrPath": ".ai/worker-logs/worker-batch-example/issue-1291.err.log",
+      "resultPath": ".ai/worker-logs/worker-batch-example/issue-1291.result.json",
+      "conflictGroup": "task-board-projection",
+      "risk": "low",
+      "actorRole": "self-cycle-control-plane-worker",
+      "providerSlot": null,
+      "failureClass": null,
+      "failureSummary": null,
+      "safeToRetry": null
+    }
+  ]
+}

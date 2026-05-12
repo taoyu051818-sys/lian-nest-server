@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Pre-launch gate checker that validates planned tasks against main health
     state, launch policy, provider pool, and conflict metadata before worker
@@ -137,10 +137,7 @@ function Write-Step { param([string]$Msg) if (-not $Json) { Write-Host "[step] $
 function Write-Ok   { param([string]$Msg) if (-not $Json) { Write-Host "[ok]   $Msg" -ForegroundColor Green } }
 function Write-Warn { param([string]$Msg) if (-not $Json) { Write-Host "[warn] $Msg" -ForegroundColor Yellow } }
 function Write-Fail {
-    param([string]$Msg)
-    if ($Json) {
-        [Console]::Error.WriteLine("[fail] $Msg")
-    } else {
+    param([string]$Msg)    if (-not $Json) {
         Write-Host "[fail] $Msg" -ForegroundColor Red
     }
 }
@@ -197,7 +194,7 @@ if ($MainState -ne "") {
             Write-Step "Read health state from ${HealthFile}: $resolvedState"
         }
     } catch {
-        Write-Warn "Could not parse $HealthFile — assuming red (fail-safe)"
+        Write-Warn "Could not parse $HealthFile 鈥?assuming red (fail-safe)"
         $resolvedState = "red"
     }
 } else {
@@ -222,6 +219,8 @@ if ($RunningTasksFile -ne "") {
 
         if ($runningTasks -is [System.Array]) {
             $runningList = @($runningTasks)
+        } elseif ($runningTasks.PSObject.Properties.Name -contains "workers" -and $runningTasks.workers) {
+            $runningList = @($runningTasks.workers)
         } else {
             $runningList = @($runningTasks)
         }
@@ -252,7 +251,7 @@ $policyVersion = $null
 $policyTimeoutDefaults = $null
 $policyPermissionMatrix = $null
 
-# Hardcoded default matrix — matches current behavior when policy file is absent
+# Hardcoded default matrix 鈥?matches current behavior when policy file is absent
 $defaultPermissionMatrix = @{
     "green"  = @("runtime-feature", "foundation-fix", "docs", "health-repair", "test-only", "research")
     "yellow" = @("foundation-fix", "docs", "health-repair", "research")
@@ -300,10 +299,10 @@ if (Test-Path $PolicyFile) {
 
         $policyLoaded = $true
     } catch {
-        Write-Warn "Could not parse $PolicyFile — using hardcoded defaults"
+        Write-Warn "Could not parse $PolicyFile 鈥?using hardcoded defaults"
     }
 } else {
-    Write-Warn "No launch policy at $PolicyFile — using hardcoded defaults"
+    Write-Warn "No launch policy at $PolicyFile 鈥?using hardcoded defaults"
 }
 
 # Use policy matrix if loaded, otherwise fall back to defaults
@@ -376,10 +375,10 @@ if (Test-Path $ProviderPoolFile) {
             Write-Warn "Provider pool: $w"
         }
     } catch {
-        Write-Warn "Could not parse $ProviderPoolFile — provider pool checks skipped"
+        Write-Warn "Could not parse $ProviderPoolFile 鈥?provider pool checks skipped"
     }
 } else {
-    Write-Step "No provider pool file at $ProviderPoolFile — provider pool checks skipped"
+    Write-Step "No provider pool file at $ProviderPoolFile 鈥?provider pool checks skipped"
 }
 
 # ---------------------------------------------------------------------------
@@ -437,10 +436,10 @@ if (Test-Path $ResourcePolicyFile) {
         }
         Write-Step "Using resource thresholds from policy file"
     } catch {
-        Write-Warn "Could not parse $ResourcePolicyFile — using hardcoded defaults"
+        Write-Warn "Could not parse $ResourcePolicyFile 鈥?using hardcoded defaults"
     }
 } else {
-    Write-Step "No local resource policy at $ResourcePolicyFile — using hardcoded defaults"
+    Write-Step "No local resource policy at $ResourcePolicyFile 鈥?using hardcoded defaults"
 }
 
 # Load local resource state
@@ -461,12 +460,12 @@ if (Test-Path $ResourceFile) {
         # Check global resource state
         if ($resourceGlobalState -eq "critical") {
             $resourceBlocking = $true
-            $resourceWarnings += "Local resources CRITICAL — launch blocked."
+            $resourceWarnings += "Local resources CRITICAL 鈥?launch blocked."
         } elseif ($resourceGlobalState -eq "unknown") {
             $resourceBlocking = $true
-            $resourceWarnings += "Local resource state unknown (stale or missing data) — launch blocked (fail-closed)."
+            $resourceWarnings += "Local resource state unknown (stale or missing data) 鈥?launch blocked (fail-closed)."
         } elseif ($resourceGlobalState -eq "constrained") {
-            $resourceWarnings += "Local resources CONSTRAINED — one or more resources above warning threshold."
+            $resourceWarnings += "Local resources CONSTRAINED 鈥?one or more resources above warning threshold."
         }
 
         # Evaluate individual resource metrics against policy thresholds
@@ -483,10 +482,10 @@ if (Test-Path $ResourceFile) {
                 if ($cpuPct -ge $cpuThreshold.block) {
                     $cpuLevel = "block"
                     $resourceBlocking = $true
-                    $resourceWarnings += "CPU at ${cpuPct}% — exceeds block threshold ($($cpuThreshold.block)%)."
+                    $resourceWarnings += "CPU at ${cpuPct}% 鈥?exceeds block threshold ($($cpuThreshold.block)%)."
                 } elseif ($cpuPct -ge $cpuThreshold.warn) {
                     $cpuLevel = "warn"
-                    $resourceWarnings += "CPU at ${cpuPct}% — exceeds warning threshold ($($cpuThreshold.warn)%)."
+                    $resourceWarnings += "CPU at ${cpuPct}% 鈥?exceeds warning threshold ($($cpuThreshold.warn)%)."
                 }
                 $resourceChecks["cpu"] = [ordered]@{
                     usagePercent = $cpuPct
@@ -508,10 +507,10 @@ if (Test-Path $ResourceFile) {
                 if ($memPct -ge $memThreshold.block) {
                     $memLevel = "block"
                     $resourceBlocking = $true
-                    $resourceWarnings += "Memory at ${memPct}% — exceeds block threshold ($($memThreshold.block)%)."
+                    $resourceWarnings += "Memory at ${memPct}% 鈥?exceeds block threshold ($($memThreshold.block)%)."
                 } elseif ($memPct -ge $memThreshold.warn) {
                     $memLevel = "warn"
-                    $resourceWarnings += "Memory at ${memPct}% — exceeds warning threshold ($($memThreshold.warn)%)."
+                    $resourceWarnings += "Memory at ${memPct}% 鈥?exceeds warning threshold ($($memThreshold.warn)%)."
                 }
                 $resourceChecks["memory"] = [ordered]@{
                     usagePercent = $memPct
@@ -533,10 +532,10 @@ if (Test-Path $ResourceFile) {
                 if ($diskPct -ge $diskThreshold.block) {
                     $diskLevel = "block"
                     $resourceBlocking = $true
-                    $resourceWarnings += "Disk at ${diskPct}% — exceeds block threshold ($($diskThreshold.block)%)."
+                    $resourceWarnings += "Disk at ${diskPct}% 鈥?exceeds block threshold ($($diskThreshold.block)%)."
                 } elseif ($diskPct -ge $diskThreshold.warn) {
                     $diskLevel = "warn"
-                    $resourceWarnings += "Disk at ${diskPct}% — exceeds warning threshold ($($diskThreshold.warn)%)."
+                    $resourceWarnings += "Disk at ${diskPct}% 鈥?exceeds warning threshold ($($diskThreshold.warn)%)."
                 }
                 $resourceChecks["disk"] = [ordered]@{
                     usagePercent = $diskPct
@@ -558,10 +557,10 @@ if (Test-Path $ResourceFile) {
                 if ($procCount -ge $procThreshold.block) {
                     $procLevel = "block"
                     $resourceBlocking = $true
-                    $resourceWarnings += "Process count at $procCount — exceeds block threshold ($($procThreshold.block))."
+                    $resourceWarnings += "Process count at $procCount 鈥?exceeds block threshold ($($procThreshold.block))."
                 } elseif ($procCount -ge $procThreshold.warn) {
                     $procLevel = "warn"
-                    $resourceWarnings += "Process count at $procCount — exceeds warning threshold ($($procThreshold.warn))."
+                    $resourceWarnings += "Process count at $procCount 鈥?exceeds warning threshold ($($procThreshold.warn))."
                 }
                 $resourceChecks["processCount"] = [ordered]@{
                     runningCount = $procCount
@@ -580,12 +579,12 @@ if (Test-Path $ResourceFile) {
             }
         }
     } catch {
-        Write-Fail "Could not parse $ResourceFile — blocking launch (fail-closed)"
+        Write-Fail "Could not parse $ResourceFile 鈥?blocking launch (fail-closed)"
         $resourceBlocking = $true
-        $resourceWarnings += "Failed to parse resource state file — fail-closed enforcement."
+        $resourceWarnings += "Failed to parse resource state file 鈥?fail-closed enforcement."
     }
 } else {
-    Write-Step "No local resource file at $ResourceFile — resource checks skipped"
+    Write-Step "No local resource file at $ResourceFile 鈥?resource checks skipped"
 }
 
 # ---------------------------------------------------------------------------
@@ -955,7 +954,7 @@ if ($Json) {
     if ($runningWorkerConflicts.Count -gt 0) {
         Write-Host "Running-worker conflicts:" -ForegroundColor Red
         foreach ($rw in $runningWorkerConflicts) {
-            Write-Host "  group '$($rw.conflictGroup)' — task issue #$($rw.taskIssue) blocked by active worker issue #$($rw.runningIssue)" -ForegroundColor Red
+            Write-Host "  group '$($rw.conflictGroup)' 鈥?task issue #$($rw.taskIssue) blocked by active worker issue #$($rw.runningIssue)" -ForegroundColor Red
         }
         Write-Host ""
     }
@@ -977,11 +976,12 @@ if ($Json) {
     }
 
     if ($anyBlocked -or $resourceBlocking) {
-        Write-Fail "Gate CHECK FAILED — one or more tasks blocked, conflicts detected, or resources critical."
+        Write-Fail "Gate CHECK FAILED 鈥?one or more tasks blocked, conflicts detected, or resources critical."
     } else {
-        Write-Ok "Gate CHECK PASSED — all tasks cleared for launch."
+        Write-Ok "Gate CHECK PASSED 鈥?all tasks cleared for launch."
     }
 }
 
 # Exit code
 if ($anyBlocked -or $resourceBlocking) { exit 1 } else { exit 0 }
+
