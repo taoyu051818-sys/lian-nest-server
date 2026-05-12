@@ -19,6 +19,7 @@ const STATE_URL = '/api/state';
 const POLICY_URL = '/api/policy';
 const WEBUI_STATE_URL = '/api/resources';
 const PLANNING_URL = '/api/planning';
+const HEALTH_URL = '/api/health';
 const REFRESH_INTERVAL_MS = 30_000;
 
 // Action API endpoints (relative to WebUI server origin)
@@ -26,6 +27,11 @@ const ACTIONS_LIST_URL = '/api/actions';
 const ACTIONS_PREVIEW_URL = '/api/actions/preview';
 const ACTIONS_EXECUTE_URL = '/api/actions/execute';
 const SERVER_AUDIT_URL = '/api/audit';
+
+// ── shell state ──────────────────────────────────────────────────────
+
+let activeSection = 'dashboard';
+let lastRefreshAt = null;
 
 // Documentation links for action modules — maps action ID to relative doc path
 const ACTION_DOC_LINKS = {
@@ -2524,6 +2530,30 @@ async function refresh(root) {
     fetchServerAudit(),
   ]);
 
+  // Health data for status strip
+  let healthData;
+  try {
+    healthData = await fetchJSON(HEALTH_URL);
+  } catch {
+    healthData = null;
+  }
+
+  lastRefreshAt = new Date().toISOString();
+
+  // Update status strip
+  const statusStrip = document.getElementById('status-strip');
+  if (statusStrip) {
+    const newStrip = renderStatusStrip(healthData, state);
+    statusStrip.replaceChildren(...newStrip.childNodes);
+  }
+
+  // Update nav rail (to refresh badges if needed)
+  const navRail = document.querySelector('.nav-rail');
+  if (navRail) {
+    const newRail = renderNavRail();
+    navRail.replaceChildren(...newRail.childNodes);
+  }
+
   const policyMap = Object.fromEntries(
     (policy.providers ?? []).map(p => [p.id, p]),
   );
@@ -2562,30 +2592,32 @@ async function refresh(root) {
   // Build planning console panel
   const planningEl = renderPlanningConsole(planningData);
 
-  // Tab bar
-  const dashboardPanel = el('div', { className: 'tab-panel tab-panel--active', id: 'tab-dashboard' }, dashboardChildren);
-  const consolePanel = el('div', { className: 'tab-panel', id: 'tab-console' }, [consoleEl]);
-  const planningPanel = el('div', { className: 'tab-panel', id: 'tab-planning' }, [planningEl]);
+  // Build audit panel (standalone section)
+  const auditEl = renderAuditSection();
+  const auditPanel = el('div', { className: 'console-section' }, [
+    el('h2', { textContent: 'Audit Log' }),
+    auditEl,
+  ]);
 
-  const dashboardTab = el('button', {
-    className: 'tab-btn tab-btn--active',
-    textContent: 'Dashboard',
-    onClick: () => switchTab('dashboard'),
-  });
-  const consoleTab = el('button', {
-    className: 'tab-btn',
-    textContent: 'Operation Console',
-    onClick: () => switchTab('console'),
-  });
-  const planningTab = el('button', {
-    className: 'tab-btn',
-    textContent: 'Planning Console',
-    onClick: () => switchTab('planning'),
-  });
+  // Section panels
+  const dashboardPanel = el('div', {
+    className: `section-panel ${activeSection === 'dashboard' ? 'section-panel--active' : ''}`,
+    'data-section': 'dashboard',
+  }, dashboardChildren);
+  const consolePanel = el('div', {
+    className: `section-panel ${activeSection === 'console' ? 'section-panel--active' : ''}`,
+    'data-section': 'console',
+  }, [consoleEl]);
+  const planningPanel = el('div', {
+    className: `section-panel ${activeSection === 'planning' ? 'section-panel--active' : ''}`,
+    'data-section': 'planning',
+  }, [planningEl]);
+  const auditSectionPanel = el('div', {
+    className: `section-panel ${activeSection === 'audit' ? 'section-panel--active' : ''}`,
+    'data-section': 'audit',
+  }, [auditPanel]);
 
-  const tabBar = el('div', { className: 'tab-bar' }, [dashboardTab, consoleTab, planningTab]);
-
-  root.replaceChildren(tabBar, dashboardPanel, consolePanel, planningPanel);
+  root.replaceChildren(dashboardPanel, consolePanel, planningPanel, auditSectionPanel);
 }
 
 function switchTab(tab) {
@@ -2601,6 +2633,99 @@ function switchTab(tab) {
   if (tabs[tabIndex]) tabs[tabIndex].classList.add('tab-btn--active');
 }
 
+// ── shell rendering ──────────────────────────────────────────────────
+
+const NAV_SECTIONS = [
+  { id: 'dashboard', icon: '■', label: 'Dash' },
+  { id: 'console', icon: '⚙', label: 'Ops' },
+  { id: 'planning', icon: '▶', label: 'Plan' },
+  { id: 'audit', icon: '‖', label: 'Audit' },
+];
+
+function renderNavRail() {
+  const rail = el('nav', { className: 'nav-rail' });
+  rail.append(el('div', { className: 'nav-rail__brand', textContent: 'LP' }));
+  rail.append(el('div', { className: 'nav-rail__sep' }));
+
+  for (const section of NAV_SECTIONS) {
+    const item = el('button', {
+      className: `nav-rail__item ${activeSection === section.id ? 'nav-rail__item--active' : ''}`,
+      'data-section': section.id,
+      title: section.label,
+      onClick: () => switchSection(section.id),
+    }, [
+      el('span', { className: 'nav-rail__icon', textContent: section.icon }),
+      el('span', { className: 'nav-rail__label', textContent: section.label }),
+    ]);
+    rail.append(item);
+  }
+
+  return rail;
+}
+
+function renderStatusStrip(healthData, stateData) {
+  const strip = el('div', { className: 'status-strip' });
+  strip.append(el('span', { className: 'status-strip__title', textContent: 'LIAN Control Console' }));
+
+  // Health indicator
+  const healthState = healthData?.status || 'unknown';
+  const dotClass = healthState === 'ok'
+    ? 'status-strip__health-dot--green'
+    : healthState === 'degraded'
+      ? 'status-strip__health-dot--yellow'
+      : 'status-strip__health-dot--red';
+  strip.append(el('span', { className: 'status-strip__health' }, [
+    el('span', { className: `status-strip__health-dot ${dotClass}` }),
+    el('span', { textContent: healthState.toUpperCase() }),
+  ]));
+
+  // Provider counts
+  const global = stateData?.global;
+  if (global) {
+    strip.append(el('span', { className: 'status-strip__chip' }, [
+      el('span', { textContent: `${global.availableProviders ?? 0} avail` }),
+    ]));
+    strip.append(el('span', { className: 'status-strip__chip' }, [
+      el('span', { textContent: `${global.totalActiveWorkers ?? 0} workers` }),
+    ]));
+    if ((global.exhaustedProviders ?? 0) > 0) {
+      strip.append(el('span', {
+        className: 'status-strip__chip',
+        style: 'color:var(--status-exhausted);border-color:var(--status-exhausted)',
+        textContent: `${global.exhaustedProviders} exhausted`,
+      }));
+    }
+  }
+
+  // Localhost binding
+  strip.append(el('span', {
+    className: 'status-strip__chip',
+    textContent: '127.0.0.1',
+  }));
+
+  // Last refresh
+  if (lastRefreshAt) {
+    strip.append(el('span', {
+      className: 'status-strip__ts',
+      textContent: formatTimestamp(lastRefreshAt),
+    }));
+  }
+
+  return strip;
+}
+
+function switchSection(sectionId) {
+  activeSection = sectionId;
+  // Update nav rail active state
+  document.querySelectorAll('.nav-rail__item').forEach((item) => {
+    item.classList.toggle('nav-rail__item--active', item.dataset.section === sectionId);
+  });
+  // Update panels
+  document.querySelectorAll('.section-panel').forEach((panel) => {
+    panel.classList.toggle('section-panel--active', panel.dataset.section === sectionId);
+  });
+}
+
 function boot() {
   const root = document.getElementById('provider-pool-root');
   if (!root) {
@@ -2608,8 +2733,23 @@ function boot() {
     return;
   }
   injectConsoleStyles();
+  initShell(root);
   refresh(root);
   setInterval(() => refresh(root), REFRESH_INTERVAL_MS);
+}
+
+function initShell(root) {
+  const shell = root.closest('.app-shell');
+  if (!shell) return;
+
+  // Insert nav rail before main
+  const navRail = renderNavRail();
+  shell.insertBefore(navRail, root);
+
+  // Insert status strip before main (after nav in DOM order, but grid handles layout)
+  const statusStrip = el('div', { className: 'status-strip', id: 'status-strip' });
+  statusStrip.append(el('span', { className: 'status-strip__title', textContent: 'LIAN Control Console' }));
+  shell.insertBefore(statusStrip, root);
 }
 
 if (document.readyState === 'loading') {
