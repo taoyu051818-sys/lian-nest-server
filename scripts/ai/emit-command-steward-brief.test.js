@@ -84,7 +84,8 @@ test('dry-run: prints DRY RUN banner with valid JSON and all top-level keys', ()
   assert.ok(typeof snapshot.capturedAt === 'string');
   const keys = ['schemaVersion', 'capturedAt', 'systemStatus', 'providerSummary',
     'workerSummary', 'trustSummary', 'lockSummary', 'metaSignalsSummary',
-    'riskSignalsSummary', 'opportunitySignalsSummary', 'budgetSummary', 'blockers',
+    'riskSignalsSummary', 'opportunitySignalsSummary', 'budgetSummary', 'parallelSummary',
+    'issueProductionSummary', 'blockers',
     'recommendedNextActions', 'humanRequiredItems', 'inputSources'];
   for (const key of keys) { assert.ok(key in snapshot, `missing key: ${key}`); }
 });
@@ -164,6 +165,36 @@ test('budgetSummary: has expected shape when telemetry absent', () => {
   assert.strictEqual(typeof snapshot.budgetSummary.costEstimate.pricingBasis, 'string', 'costEstimate.pricingBasis');
 });
 
+// ── Issue production summary shape ───────────────────────────────────────────
+
+test('issueProductionSummary: has expected shape when launchCandidates absent', () => {
+  const { stdout } = run(['--stdout']);
+  const snapshot = JSON.parse(stdout);
+  assert.strictEqual(snapshot.issueProductionSummary.loaded, false, 'issueProductionSummary.loaded');
+  assert.strictEqual(snapshot.issueProductionSummary.readyIssueCount, 0, 'readyIssueCount');
+  assert.strictEqual(snapshot.issueProductionSummary.totalOpen, 0, 'totalOpen');
+  assert.strictEqual(snapshot.issueProductionSummary.topUpNeeded, false, 'topUpNeeded');
+  assert.strictEqual(snapshot.issueProductionSummary.topUpGap, null, 'topUpGap');
+  assert.ok(typeof snapshot.issueProductionSummary.riskBreakdown === 'object', 'riskBreakdown is object');
+  assert.ok(typeof snapshot.issueProductionSummary.classBreakdown === 'object', 'classBreakdown is object');
+  assert.strictEqual(snapshot.issueProductionSummary.lastCycle, null, 'lastCycle is null');
+  assert.ok(typeof snapshot.issueProductionSummary.recommendation === 'string', 'recommendation is string');
+});
+
+test('issueProductionSummary: riskBreakdown has low/medium/high buckets', () => {
+  const { stdout } = run(['--stdout']);
+  const snapshot = JSON.parse(stdout);
+  for (const bucket of ['low', 'medium', 'high']) {
+    assert.strictEqual(typeof snapshot.issueProductionSummary.riskBreakdown[bucket], 'number', `riskBreakdown.${bucket}`);
+  }
+});
+
+test('operatorBrief: has issueProduction string field', () => {
+  const { stdout } = run(['--stdout']);
+  const snapshot = JSON.parse(stdout);
+  assert.ok(typeof snapshot.operatorBrief.issueProduction === 'string', 'operatorBrief.issueProduction is string');
+});
+
 // ── Blockers shape ───────────────────────────────────────────────────────────
 
 test('blockers: array with source, severity, message on each entry', () => {
@@ -209,14 +240,14 @@ test('humanRequiredItems: array with required fields and always has next-wave-sc
 
 // ── Input sources ────────────────────────────────────────────────────────────
 
-test('inputSources: has all 10 boolean flags', () => {
+test('inputSources: has all boolean flags', () => {
   const { stdout } = run(['--stdout']);
   const snapshot = JSON.parse(stdout);
   const expected = [
     'healthLoaded', 'providerPoolLoaded', 'localResourceLoaded',
     'activeWorkersLoaded', 'workerTrustLoaded', 'metaSignalsLoaded',
     'riskSignalsLoaded', 'opportunitySignalsLoaded', 'launchLocksLoaded',
-    'workerTelemetryLoaded',
+    'workerTelemetryLoaded', 'lastCycleLoaded', 'launchCandidatesLoaded',
   ];
   for (const key of expected) {
     assert.strictEqual(typeof snapshot.inputSources[key], 'boolean', `inputSources.${key}`);
@@ -299,7 +330,7 @@ test('self-test: --self-test exits 0', () => {
 test('consistency: blockers have valid sources; human actions appear in humanRequiredItems', () => {
   const { stdout } = run(['--stdout']);
   const snapshot = JSON.parse(stdout);
-  const validSources = ['health', 'resources', 'providers', 'trust', 'meta-signals', 'budget'];
+  const validSources = ['health', 'resources', 'providers', 'trust', 'meta-signals', 'budget', 'issue-production'];
   for (const b of snapshot.blockers) {
     assert.ok(validSources.includes(b.source), `valid source: ${b.source}`);
   }

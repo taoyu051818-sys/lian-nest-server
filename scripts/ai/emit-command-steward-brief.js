@@ -41,6 +41,7 @@ const INPUT_FILES = {
   launchLocks:       'launch-locks.json',
   workerTelemetry:   'worker-telemetry-events.ndjson',
   lastCycle:         'self-cycle-run.json',
+  launchCandidates:  'launch-candidates.json',
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -93,14 +94,15 @@ INPUT FILES (all optional — absent files produce conservative defaults)
     main-health.json, provider-pool.json, local-resource.json,
     active-workers.json, worker-trust.json, meta-signals.json,
     risk-signals.json, opportunity-signals.json, launch-locks.json,
-    worker-telemetry-events.ndjson
+    worker-telemetry-events.ndjson, launch-candidates.json
 
 BRIEF SECTIONS
     operatorBrief (top-of-page human UX: status badge, primary action, blocker summary),
     systemStatus, providerSummary, workerSummary, trustSummary,
     lockSummary, metaSignalsSummary, riskSignalsSummary,
-    opportunitySignalsSummary, budgetSummary, blockers,
-    recommendedNextActions, humanRequiredItems
+    opportunitySignalsSummary, budgetSummary, parallelSummary,
+    issueProductionSummary (ready issues, top-up gap, recommendation),
+    blockers, recommendedNextActions, humanRequiredItems
 
 EXIT CODES
     0   Brief produced
@@ -503,6 +505,87 @@ function buildBudgetSummary(inputs) {
   };
 }
 
+function buildIssueProductionSummary(inputs) {
+  const lc = inputs.launchCandidates;
+  const active = inputs.activeWorkers;
+  const lastCycle = inputs.lastCycle;
+
+  const readyIssueCount = lc && lc.summary && typeof lc.summary.candidateCount === 'number'
+    ? lc.summary.candidateCount
+    : 0;
+  const excludedCount = lc && lc.summary && typeof lc.summary.excludedCount === 'number'
+    ? lc.summary.excludedCount
+    : 0;
+  const totalOpen = lc && lc.summary && typeof lc.summary.totalOpen === 'number'
+    ? lc.summary.totalOpen
+    : 0;
+
+  const requestedParallelism = active && typeof active.requestedParallelism === 'number'
+    ? active.requestedParallelism
+    : null;
+  const effectiveParallelism = active && typeof active.effectiveParallelism === 'number'
+    ? active.effectiveParallelism
+    : null;
+  const runningWorkers = active && Array.isArray(active.workers)
+    ? active.workers.filter(w => w && w.status === 'running').length
+    : 0;
+
+  const topUpGap = requestedParallelism !== null ? requestedParallelism - readyIssueCount : null;
+  const topUpNeeded = topUpGap !== null && topUpGap > 0;
+
+  // Risk breakdown of ready issues
+  const candidates = lc && Array.isArray(lc.candidates) ? lc.candidates : [];
+  const riskBreakdown = { low: 0, medium: 0, high: 0 };
+  const classBreakdown = {};
+  for (const c of candidates) {
+    const risk = c.risk || 'medium';
+    if (riskBreakdown[risk] !== undefined) riskBreakdown[risk]++;
+    const cls = c.workerClass || 'unknown';
+    classBreakdown[cls] = (classBreakdown[cls] || 0) + 1;
+  }
+
+  // Last cycle context
+  const lastCycleSelected = lastCycle && Array.isArray(lastCycle.selectedCandidates)
+    ? lastCycle.selectedCandidates.length
+    : null;
+  const lastCycleStatus = lastCycle ? lastCycle.finalStatus || null : null;
+
+  // Recommendation
+  let recommendation;
+  if (!lc) {
+    recommendation = 'Launch candidate data unavailable. Run detect-launch-candidates to assess issue pool.';
+  } else if (topUpNeeded && readyIssueCount === 0) {
+    recommendation = `No ready issues for ${requestedParallelism} requested workers. Produce issues immediately.`;
+  } else if (topUpNeeded && topUpGap > 10) {
+    recommendation = `Critical gap: ${readyIssueCount} ready issues vs ${requestedParallelism} requested. Produce at least ${topUpGap} more issues.`;
+  } else if (topUpNeeded) {
+    recommendation = `Issue pool thin: ${readyIssueCount} ready for ${requestedParallelism} requested. Top up with ${topUpGap} more issues.`;
+  } else if (readyIssueCount > 0) {
+    recommendation = `Issue pool sufficient: ${readyIssueCount} ready issues for ${requestedParallelism || 0} requested workers.`;
+  } else {
+    recommendation = 'No ready issues and no parallelism requested. Issue production not urgent.';
+  }
+
+  return {
+    loaded: !!lc,
+    readyIssueCount,
+    totalOpen,
+    excludedCount,
+    requestedParallelism,
+    effectiveParallelism,
+    activeWorkerCount: runningWorkers,
+    topUpGap,
+    topUpNeeded,
+    riskBreakdown,
+    classBreakdown,
+    lastCycle: lastCycleSelected !== null ? {
+      selectedCandidates: lastCycleSelected,
+      finalStatus: lastCycleStatus,
+    } : null,
+    recommendation,
+  };
+}
+
 // ── Blockers ─────────────────────────────────────────────────────────────────
 
 function collectBlockers(inputs, systemStatus) {
@@ -555,6 +638,25 @@ function collectBlockers(inputs, systemStatus) {
   const budget = buildBudgetSummary(inputs);
   for (const bb of budget.budgetBlockers) {
     blockers.push({ source: 'budget', severity: bb.severity, message: bb.message });
+  }
+
+  // Issue-production blockers
+  const issueProd = buildIssueProductionSummary(inputs);
+  if (issueProd.loaded && issueProd.topUpNeeded) {
+    const gap = issueProd.topUpGap;
+    if (gap > 10) {
+      blockers.push({
+        source: 'issue-production',
+        severity: 'high',
+        message: `Issue pool critically low: ${issueProd.readyIssueCount} ready for ${issueProd.requestedParallelism} requested workers (gap: ${gap})`,
+      });
+    } else {
+      blockers.push({
+        source: 'issue-production',
+        severity: 'medium',
+        message: `Issue pool below requested parallelism: ${issueProd.readyIssueCount} ready for ${issueProd.requestedParallelism} requested (gap: ${gap})`,
+      });
+    }
   }
 
   return blockers;
@@ -647,6 +749,38 @@ function buildRecommendedActions(inputs, systemStatus, blockers) {
     });
   }
 
+  // Issue-production actions
+  const issueProd = buildIssueProductionSummary(inputs);
+  if (issueProd.loaded && issueProd.topUpNeeded && issueProd.readyIssueCount === 0) {
+    actions.push({
+      priority: 'urgent',
+      action: 'produce-issues',
+      description: `No ready issues for ${issueProd.requestedParallelism} requested workers. Run issue producer to create bounded task issues.`,
+      humanRequired: true,
+    });
+  } else if (issueProd.loaded && issueProd.topUpNeeded && issueProd.topUpGap > 10) {
+    actions.push({
+      priority: 'high',
+      action: 'produce-issues',
+      description: `Critical issue shortage: ${issueProd.readyIssueCount} ready vs ${issueProd.requestedParallelism} requested. Produce at least ${issueProd.topUpGap} more issues.`,
+      humanRequired: true,
+    });
+  } else if (issueProd.loaded && issueProd.topUpNeeded) {
+    actions.push({
+      priority: 'medium',
+      action: 'top-up-issues',
+      description: `Issue pool thin: ${issueProd.readyIssueCount} ready for ${issueProd.requestedParallelism} requested. Top up with ${issueProd.topUpGap} more issues.`,
+      humanRequired: false,
+    });
+  } else if (!issueProd.loaded) {
+    actions.push({
+      priority: 'low',
+      action: 'run-launch-candidate-detection',
+      description: 'Launch candidate data unavailable. Run detect-launch-candidates to assess issue pool.',
+      humanRequired: false,
+    });
+  }
+
   // Default: no blockers and healthy → next wave decision
   if (blockers.length === 0 && systemStatus.overall === 'operational') {
     actions.push({
@@ -722,6 +856,7 @@ function buildHumanRequiredItems(inputs, systemStatus, blockers, actions) {
 // ── Operator brief (top-of-page human UX) ────────────────────────────────────
 
 function buildOperatorBrief(inputs, systemStatus, blockers, actions, humanRequiredItems) {
+  const issueProd = buildIssueProductionSummary(inputs);
   // Status badge: maps overall status to a simple badge
   const badgeMap = {
     operational: { badge: 'green', label: 'OPERATIONAL' },
@@ -791,6 +926,9 @@ function buildOperatorBrief(inputs, systemStatus, blockers, actions, humanRequir
       status: lastCycleStatus,
       completedAt: lastCycleAt,
     } : null,
+    issueProduction: issueProd.loaded
+      ? `${issueProd.readyIssueCount} ready issues. ${issueProd.topUpNeeded ? `Top-up needed: gap of ${issueProd.topUpGap}.` : 'Pool sufficient.'}`
+      : 'Issue production data unavailable.',
     humanDecisionCount: humanRequiredItems.length,
   };
 }
@@ -808,6 +946,7 @@ function buildBrief(inputs) {
   const opportunitySignalsSummary = buildOpportunitySignalsSummary(inputs);
   const budgetSummary = buildBudgetSummary(inputs);
   const parallelSummary = buildParallelSummary(inputs);
+  const issueProductionSummary = buildIssueProductionSummary(inputs);
 
   const blockers = collectBlockers(inputs, systemStatus);
   const recommendedNextActions = buildRecommendedActions(inputs, systemStatus, blockers);
@@ -834,6 +973,7 @@ function buildBrief(inputs) {
     opportunitySignalsSummary,
     budgetSummary,
     parallelSummary,
+    issueProductionSummary,
     blockers,
     recommendedNextActions,
     humanRequiredItems,
@@ -869,6 +1009,9 @@ function runSelfTest() {
   assert(empty.humanRequiredItems.length > 0, 'has human required items');
   assert(empty.budgetSummary.loaded === false, 'budgetSummary not loaded when null');
   assert(empty.budgetSummary.recentWorkerCount === 0, 'budgetSummary workerCount 0 when null');
+  assert(empty.issueProductionSummary.loaded === false, 'issueProductionSummary not loaded when null');
+  assert(empty.issueProductionSummary.readyIssueCount === 0, 'issueProductionSummary readyIssueCount 0 when null');
+  assert(empty.issueProductionSummary.topUpNeeded === false, 'issueProductionSummary topUpNeeded false when null');
   for (const key of Object.keys(empty.inputSources)) {
     assert(empty.inputSources[key] === false, `inputSources.${key} is false`);
   }
@@ -888,6 +1031,7 @@ function runSelfTest() {
       { eventType: 'complete', taskId: 'w1', capturedAt: '2026-01-01T01:00:00.000Z', timing: { elapsedMs: 120000, softTimeMinutes: 30, hardTimeMinutes: 60 }, tokenUsage: { inputTokens: 40000, outputTokens: 8000, source: 'api_response', confidence: 'high' }, estimatedCost: { amountCents: 20, currency: 'USD', model: 'claude-opus-4-7', pricingBasis: 'api_list' }, gateOutcome: { passed: true } },
       { eventType: 'complete', taskId: 'w2', capturedAt: '2026-01-01T02:00:00.000Z', timing: { elapsedMs: 180000, softTimeMinutes: 30, hardTimeMinutes: 60 }, tokenUsage: { inputTokens: 20000, outputTokens: 5000, source: 'log_parse', confidence: 'medium' }, estimatedCost: { amountCents: 10, currency: 'USD', model: 'claude-sonnet-4-6', pricingBasis: 'estimated' }, gateOutcome: { passed: true } },
     ],
+    launchCandidates: { schemaVersion: 1, capturedAt: '2026-01-01T00:00:00.000Z', mode: 'dry-run', summary: { totalOpen: 10, candidateCount: 5, excludedCount: 5 }, candidates: [{ number: 200, title: 'Feature A', workerClass: 'runtime-feature', risk: 'medium', labels: [] }, { number: 300, title: 'Feature B', workerClass: 'docs', risk: 'low', labels: [] }], excluded: [] },
   };
   const full = buildBrief(fullInputs);
   assert(full.systemStatus.overall === 'operational', 'overall operational with green health');
@@ -912,6 +1056,16 @@ function runSelfTest() {
   assert(full.parallelSummary.effectiveParallelism === 3, 'parallelSummary effectiveParallelism');
   assert(full.parallelSummary.activeWorkerCount === 1, 'parallelSummary activeWorkerCount');
   assert(full.parallelSummary.safeToIncreaseConcurrency === false, 'parallelSummary blocked while worker running');
+  assert(full.issueProductionSummary.loaded === true, 'issueProductionSummary loaded');
+  assert(full.issueProductionSummary.readyIssueCount === 5, 'issueProductionSummary readyIssueCount 5');
+  assert(full.issueProductionSummary.totalOpen === 10, 'issueProductionSummary totalOpen 10');
+  assert(full.issueProductionSummary.requestedParallelism === 30, 'issueProductionSummary requestedParallelism 30');
+  assert(full.issueProductionSummary.topUpNeeded === true, 'issueProductionSummary topUpNeeded true');
+  assert(full.issueProductionSummary.topUpGap === 25, 'issueProductionSummary topUpGap 25');
+  assert(full.issueProductionSummary.riskBreakdown.medium === 1, 'issueProductionSummary riskBreakdown medium');
+  assert(full.issueProductionSummary.riskBreakdown.low === 1, 'issueProductionSummary riskBreakdown low');
+  assert(full.issueProductionSummary.classBreakdown['runtime-feature'] === 1, 'issueProductionSummary classBreakdown runtime-feature');
+  assert(typeof full.issueProductionSummary.recommendation === 'string', 'issueProductionSummary recommendation is string');
   for (const key of Object.keys(full.inputSources)) {
     assert(full.inputSources[key] === true, `inputSources.${key} is true`);
   }
@@ -923,10 +1077,13 @@ function runSelfTest() {
   assert(typeof full.operatorBrief.blockerSummary === 'string', 'operatorBrief blockerSummary is string');
   assert(typeof full.operatorBrief.workerActivity === 'string', 'operatorBrief workerActivity is string');
   assert(typeof full.operatorBrief.providerHealth === 'string', 'operatorBrief providerHealth is string');
+  assert(typeof full.operatorBrief.issueProduction === 'string', 'operatorBrief issueProduction is string');
+  assert(full.operatorBrief.issueProduction.includes('Top-up needed'), 'operatorBrief mentions top-up');
   assert(typeof full.operatorBrief.humanDecisionCount === 'number', 'operatorBrief humanDecisionCount is number');
   const expectedKeys = ['schemaVersion', 'capturedAt', 'operatorBrief', 'systemStatus', 'providerSummary',
     'workerSummary', 'trustSummary', 'lockSummary', 'metaSignalsSummary',
-    'riskSignalsSummary', 'opportunitySignalsSummary', 'budgetSummary', 'parallelSummary', 'blockers',
+    'riskSignalsSummary', 'opportunitySignalsSummary', 'budgetSummary', 'parallelSummary',
+    'issueProductionSummary', 'blockers',
     'recommendedNextActions', 'humanRequiredItems', 'inputSources'];
   for (const key of expectedKeys) { assert(key in full, `key ${key} present`); }
 
@@ -978,6 +1135,39 @@ function runSelfTest() {
   assert(budgetBlock.budgetSummary.budgetBlockers.some(b => b.type === 'hard-time-limit'), 'budgetBlock has hard-time-limit');
   assert(budgetBlock.budgetSummary.budgetBlockers.some(b => b.type === 'gate-failures'), 'budgetBlock has gate-failures');
   assert(budgetBlock.blockers.some(b => b.source === 'budget'), 'blockers include budget source');
+
+  // Test: issue-production — top-up needed (gap > 10 → high severity blocker)
+  const topUpInputs = { ...emptyInputs,
+    activeWorkers: { requestedParallelism: 30, effectiveParallelism: 3, workers: [{ status: 'running' }] },
+    launchCandidates: { schemaVersion: 1, capturedAt: '2026-01-01T00:00:00.000Z', summary: { totalOpen: 5, candidateCount: 3, excludedCount: 2 }, candidates: [{ number: 100, title: 'A', workerClass: 'runtime-feature', risk: 'medium' }], excluded: [] },
+  };
+  const topUp = buildBrief(topUpInputs);
+  assert(topUp.issueProductionSummary.loaded === true, 'topUp loaded');
+  assert(topUp.issueProductionSummary.readyIssueCount === 3, 'topUp readyIssueCount 3');
+  assert(topUp.issueProductionSummary.topUpNeeded === true, 'topUp topUpNeeded true');
+  assert(topUp.issueProductionSummary.topUpGap === 27, 'topUp topUpGap 27');
+  assert(topUp.blockers.some(b => b.source === 'issue-production' && b.severity === 'high'), 'topUp high blocker');
+  assert(topUp.recommendedNextActions.some(a => a.action === 'produce-issues'), 'topUp has produce-issues action');
+
+  // Test: issue-production — pool sufficient (no top-up blocker)
+  const sufficientInputs = { ...emptyInputs,
+    activeWorkers: { requestedParallelism: 5, effectiveParallelism: 3, workers: [{ status: 'running' }] },
+    launchCandidates: { schemaVersion: 1, capturedAt: '2026-01-01T00:00:00.000Z', summary: { totalOpen: 20, candidateCount: 10, excludedCount: 10 }, candidates: [], excluded: [] },
+  };
+  const sufficient = buildBrief(sufficientInputs);
+  assert(sufficient.issueProductionSummary.topUpNeeded === false, 'sufficient topUpNeeded false');
+  assert(!sufficient.blockers.some(b => b.source === 'issue-production'), 'sufficient no issue-production blocker');
+
+  // Test: issue-production — small gap (medium severity blocker)
+  const smallGapInputs = { ...emptyInputs,
+    activeWorkers: { requestedParallelism: 10, effectiveParallelism: 3, workers: [{ status: 'running' }] },
+    launchCandidates: { schemaVersion: 1, capturedAt: '2026-01-01T00:00:00.000Z', summary: { totalOpen: 15, candidateCount: 8, excludedCount: 7 }, candidates: [], excluded: [] },
+  };
+  const smallGap = buildBrief(smallGapInputs);
+  assert(smallGap.issueProductionSummary.topUpNeeded === true, 'smallGap topUpNeeded true');
+  assert(smallGap.issueProductionSummary.topUpGap === 2, 'smallGap topUpGap 2');
+  assert(smallGap.blockers.some(b => b.source === 'issue-production' && b.severity === 'medium'), 'smallGap medium blocker');
+  assert(smallGap.recommendedNextActions.some(a => a.action === 'top-up-issues'), 'smallGap has top-up-issues action');
 
   // Report
   console.log(`\n  emit-command-steward-brief self-test`);
