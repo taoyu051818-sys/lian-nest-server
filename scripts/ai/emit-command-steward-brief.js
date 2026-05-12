@@ -1,0 +1,700 @@
+#!/usr/bin/env node
+
+/**
+ * emit-command-steward-brief.js
+ *
+ * Reads control-plane state projections from .github/ai-state/ and emits
+ * a deterministic, sanitized Command Steward brief with status, blockers,
+ * recommended next actions, and human-required items.
+ *
+ * All optional inputs produce safe conservative defaults when absent.
+ * Default mode is dry-run. Pass --live to persist.
+ *
+ * Usage:
+ *   node scripts/ai/emit-command-steward-brief.js [--live] [--stdout] [--self-test] [--help]
+ *
+ * Exit codes: 0 — brief produced, 2 — invalid arguments
+ */
+
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const STATE_DIR = path.join(REPO_ROOT, '.github', 'ai-state');
+const DEFAULT_OUT = path.join(STATE_DIR, 'command-steward-brief.json');
+
+const SCHEMA_VERSION = 1;
+
+const INPUT_FILES = {
+  health:            'main-health.json',
+  providerPool:      'provider-pool.json',
+  localResource:     'local-resource.json',
+  activeWorkers:     'active-workers.json',
+  workerTrust:       'worker-trust.json',
+  metaSignals:       'meta-signals.json',
+  riskSignals:       'risk-signals.json',
+  opportunitySignals: 'opportunity-signals.json',
+  launchLocks:       'launch-locks.json',
+};
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function readJsonFile(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(content);
+  } catch {
+    return null;
+  }
+}
+
+function printHelp() {
+  const help = `
+emit-command-steward-brief.js — Command Steward brief emitter (v1)
+
+USAGE
+    node scripts/ai/emit-command-steward-brief.js [options]
+
+OPTIONS
+    --live          Write the brief to the output file (default: dry-run).
+    --out <path>    Output path (default: .github/ai-state/command-steward-brief.json).
+    --stdout        Print JSON to stdout without banner.
+    --self-test     Run built-in assertions and exit.
+    --help          Show this help message and exit.
+
+INPUT FILES (all optional — absent files produce conservative defaults)
+    main-health.json, provider-pool.json, local-resource.json,
+    active-workers.json, worker-trust.json, meta-signals.json,
+    risk-signals.json, opportunity-signals.json, launch-locks.json
+
+BRIEF SECTIONS
+    systemStatus, providerSummary, workerSummary, trustSummary,
+    lockSummary, metaSignalsSummary, riskSignalsSummary,
+    opportunitySignalsSummary, blockers, recommendedNextActions,
+    humanRequiredItems
+
+EXIT CODES
+    0   Brief produced
+    2   Invalid arguments
+`.trimStart();
+  process.stdout.write(help);
+}
+
+function parseArgs(argv) {
+  const args = {
+    live: false,
+    out: DEFAULT_OUT,
+    stdout: false,
+    help: false,
+    selfTest: false,
+  };
+  let i = 2;
+  while (i < argv.length) {
+    const arg = argv[i];
+    if (arg === '--help' || arg === '-h') {
+      args.help = true;
+    } else if (arg === '--live') {
+      args.live = true;
+    } else if (arg === '--out') {
+      i++;
+      if (i >= argv.length) { console.error('Error: --out requires a path'); process.exit(2); }
+      args.out = argv[i];
+    } else if (arg === '--stdout') {
+      args.stdout = true;
+    } else if (arg === '--self-test') {
+      args.selfTest = true;
+    } else {
+      console.error(`Unknown argument: ${arg}`);
+      process.exit(2);
+    }
+    i++;
+  }
+  return args;
+}
+
+// ── Sanitization ─────────────────────────────────────────────────────────────
+
+const SECRET_PATTERNS = [
+  /token/i,
+  /secret/i,
+  /key/i,
+  /password/i,
+  /credential/i,
+  /auth/i,
+  /bearer/i,
+];
+
+function sanitizeValue(value) {
+  if (typeof value === 'string') {
+    // Truncate long strings to prevent leaking log content
+    if (value.length > 200) return value.slice(0, 200) + '…';
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(sanitizeValue);
+  if (value !== null && typeof value === 'object') return sanitizeObject(value);
+  return value;
+}
+
+function sanitizeObject(obj) {
+  const result = {};
+  for (const [key, value] of Object.entries(obj)) {
+    // Strip secret-shaped keys entirely
+    if (SECRET_PATTERNS.some(p => p.test(key))) continue;
+    result[key] = sanitizeValue(value);
+  }
+  return result;
+}
+
+// ── Section builders ─────────────────────────────────────────────────────────
+
+function buildSystemStatus(inputs) {
+  const health = inputs.health;
+  const resources = inputs.localResource;
+
+  const healthState = health && health.state ? health.state : 'unknown';
+  const healthCapturedAt = health && health.capturedAt ? health.capturedAt : null;
+  const allowedWorkerClasses = health && health.allowedWorkerClasses
+    ? health.allowedWorkerClasses
+    : [];
+  const failedChecks = health && health.failedChecks ? health.failedChecks : [];
+
+  const resourceState = resources && resources.global
+    ? resources.global.resourceState
+    : 'unknown';
+
+  // Overall status: worst of health and resource state
+  // Unknown inputs are rank -1 (ignored unless all are unknown)
+  const stateRank = { green: 0, healthy: 0, yellow: 1, constrained: 1, red: 2, critical: 2, black: 3 };
+  const healthRank = stateRank[healthState] !== undefined ? stateRank[healthState] : -1;
+  const resourceRank = stateRank[resourceState] !== undefined ? stateRank[resourceState] : -1;
+  const maxRank = Math.max(healthRank, resourceRank);
+  const rankToState = ['operational', 'degraded', 'critical', 'unrecoverable'];
+  const overall = maxRank < 0 ? 'unknown' : rankToState[maxRank];
+
+  return {
+    overall,
+    health: {
+      state: healthState,
+      capturedAt: healthCapturedAt,
+      failedChecks,
+      allowedWorkerClasses,
+    },
+    resources: {
+      state: resourceState,
+      capturedAt: resources && resources.global ? resources.global.capturedAt : null,
+    },
+  };
+}
+
+function buildProviderSummary(inputs) {
+  const pool = inputs.providerPool;
+  if (!pool) {
+    return { loaded: false, available: 0, exhausted: 0, disabled: 0, totalCapacity: 0, activeWorkers: 0 };
+  }
+
+  const global = pool.global || {};
+
+  return {
+    loaded: true,
+    available: global.availableProviders || 0,
+    exhausted: global.exhaustedProviders || 0,
+    disabled: global.disabledProviders || 0,
+    totalCapacity: global.globalMaxWorkers || 0,
+    activeWorkers: global.totalActiveWorkers || 0,
+  };
+}
+
+function buildWorkerSummary(inputs) {
+  const workers = inputs.activeWorkers;
+  if (!workers || !Array.isArray(workers.workers)) {
+    return { loaded: false, count: 0, workers: [] };
+  }
+
+  return {
+    loaded: true,
+    count: workers.workers.length,
+  };
+}
+
+function buildTrustSummary(inputs) {
+  const trust = inputs.workerTrust;
+  if (!trust) {
+    return { loaded: false, classCount: 0, schedulingRules: 0, minTrustToLaunch: null };
+  }
+
+  const classes = trust.workerClasses || {};
+  const scheduling = trust.scheduling || {};
+
+  return {
+    loaded: true,
+    classCount: Object.keys(classes).length,
+    schedulingRules: Array.isArray(scheduling.rules) ? scheduling.rules.length : 0,
+    minTrustToLaunch: scheduling.minTrustToLaunch !== undefined ? scheduling.minTrustToLaunch : null,
+    highTrustThreshold: scheduling.highTrustThreshold !== undefined ? scheduling.highTrustThreshold : null,
+  };
+}
+
+function buildLockSummary(inputs) {
+  const locks = inputs.launchLocks;
+  if (!locks || !Array.isArray(locks.locks)) {
+    return { loaded: false, activeLocks: 0, locks: [] };
+  }
+
+  return {
+    loaded: true,
+    activeLocks: locks.locks.length,
+  };
+}
+
+function buildMetaSignalsSummary(inputs) {
+  const meta = inputs.metaSignals;
+  if (!meta || !meta.signals) {
+    return { loaded: false, failureScore: null, frictionScore: null, riskScore: null, trust: null, topPain: null };
+  }
+
+  const sig = meta.signals;
+  return {
+    loaded: true,
+    failureScore: typeof sig.failureScore === 'number' ? sig.failureScore : null,
+    frictionScore: typeof sig.frictionScore === 'number' ? sig.frictionScore : null,
+    riskScore: typeof sig.riskScore === 'number' ? sig.riskScore : null,
+    cost: typeof sig.cost === 'number' ? sig.cost : null,
+    trust: typeof sig.trust === 'number' ? sig.trust : null,
+    topPain: sig.topPain || null,
+  };
+}
+
+function buildRiskSignalsSummary(inputs) {
+  const risk = inputs.riskSignals;
+  if (!risk || !Array.isArray(risk.signals)) {
+    return { loaded: false, count: 0, signals: [] };
+  }
+
+  return {
+    loaded: true,
+    count: risk.signals.length,
+    signals: risk.signals.slice(0, 10).map(sanitizeValue),
+  };
+}
+
+function buildOpportunitySignalsSummary(inputs) {
+  const opp = inputs.opportunitySignals;
+  if (!opp || !Array.isArray(opp.signals)) {
+    return { loaded: false, count: 0, signals: [] };
+  }
+
+  return {
+    loaded: true,
+    count: opp.signals.length,
+    signals: opp.signals.slice(0, 10).map(sanitizeValue),
+  };
+}
+
+// ── Blockers ─────────────────────────────────────────────────────────────────
+
+function collectBlockers(inputs, systemStatus) {
+  const blockers = [];
+
+  // Health blockers
+  if (!inputs.health) {
+    blockers.push({ source: 'health', severity: 'warning', message: 'main-health.json missing — health state unknown' });
+  } else if (systemStatus.health.state === 'red' || systemStatus.health.state === 'black') {
+    blockers.push({
+      source: 'health',
+      severity: systemStatus.health.state === 'black' ? 'critical' : 'high',
+      message: `Main branch health is ${systemStatus.health.state}`,
+      failedChecks: systemStatus.health.failedChecks,
+    });
+  }
+
+  // Resource blockers
+  if (!inputs.localResource) {
+    blockers.push({ source: 'resources', severity: 'warning', message: 'local-resource.json missing — resource state unknown' });
+  } else if (systemStatus.resources.state === 'critical') {
+    blockers.push({ source: 'resources', severity: 'high', message: 'Local resources in critical state' });
+  }
+
+  // Provider blockers
+  const providerSummary = buildProviderSummary(inputs);
+  if (!providerSummary.loaded) {
+    blockers.push({ source: 'providers', severity: 'warning', message: 'provider-pool.json missing — provider state unknown' });
+  } else if (providerSummary.available === 0) {
+    blockers.push({ source: 'providers', severity: 'high', message: 'No available providers — worker dispatch blocked' });
+  } else if (providerSummary.exhausted > 0) {
+    blockers.push({ source: 'providers', severity: 'medium', message: `${providerSummary.exhausted} provider(s) exhausted` });
+  }
+
+  // Worker trust blockers
+  if (!inputs.workerTrust) {
+    blockers.push({ source: 'trust', severity: 'warning', message: 'worker-trust.json missing — trust policy unknown' });
+  }
+
+  // Meta signal blockers
+  const meta = buildMetaSignalsSummary(inputs);
+  if (meta.loaded && meta.failureScore !== null && meta.failureScore >= 50) {
+    blockers.push({ source: 'meta-signals', severity: 'high', message: `Failure score ${meta.failureScore} exceeds threshold` });
+  }
+  if (meta.loaded && meta.frictionScore !== null && meta.frictionScore >= 30) {
+    blockers.push({ source: 'meta-signals', severity: 'medium', message: `Friction score ${meta.frictionScore} indicates worker stalls` });
+  }
+
+  return blockers;
+}
+
+// ── Recommended next actions ─────────────────────────────────────────────────
+
+function buildRecommendedActions(inputs, systemStatus, blockers) {
+  const actions = [];
+
+  // Health-driven actions
+  if (systemStatus.health.state === 'red' || systemStatus.health.state === 'black') {
+    actions.push({
+      priority: 'urgent',
+      action: 'investigate-health-failure',
+      description: `Main branch health is ${systemStatus.health.state}. Run health gate and investigate failed checks.`,
+      humanRequired: true,
+    });
+  }
+
+  if (systemStatus.health.state === 'yellow') {
+    actions.push({
+      priority: 'high',
+      action: 'review-yellow-health',
+      description: 'Main branch health is yellow. Review failed checks and decide if fix workers should be dispatched.',
+      humanRequired: true,
+    });
+  }
+
+  // Provider-driven actions
+  const providerSummary = buildProviderSummary(inputs);
+  if (providerSummary.loaded && providerSummary.exhausted > 0) {
+    actions.push({
+      priority: 'medium',
+      action: 'review-exhausted-providers',
+      description: `${providerSummary.exhausted} provider(s) exhausted. Review cooldown status or clear manually.`,
+      humanRequired: false,
+    });
+  }
+
+  if (providerSummary.loaded && providerSummary.disabled > 0) {
+    actions.push({
+      priority: 'high',
+      action: 'review-disabled-providers',
+      description: `${providerSummary.disabled} provider(s) disabled. Investigate auth or manual disable.`,
+      humanRequired: true,
+    });
+  }
+
+  // Worker-driven actions
+  const workerSummary = buildWorkerSummary(inputs);
+  if (workerSummary.loaded && workerSummary.count > 0) {
+    actions.push({
+      priority: 'low',
+      action: 'monitor-active-workers',
+      description: `${workerSummary.count} worker(s) in flight. Monitor heartbeat and progress.`,
+      humanRequired: false,
+    });
+  }
+
+  // Friction-driven actions
+  const meta = buildMetaSignalsSummary(inputs);
+  if (meta.loaded && meta.frictionScore !== null && meta.frictionScore >= 30) {
+    actions.push({
+      priority: 'medium',
+      action: 'investigate-worker-friction',
+      description: `Friction score ${meta.frictionScore} indicates worker stalls. Check heartbeat logs.`,
+      humanRequired: false,
+    });
+  }
+
+  // Resource-driven actions
+  if (systemStatus.resources.state === 'constrained') {
+    actions.push({
+      priority: 'medium',
+      action: 'throttle-batch-size',
+      description: 'Local resources constrained. Reduce batch size for new worker dispatch.',
+      humanRequired: false,
+    });
+  }
+
+  // Lock-driven actions
+  const lockSummary = buildLockSummary(inputs);
+  if (lockSummary.loaded && lockSummary.activeLocks > 0) {
+    actions.push({
+      priority: 'low',
+      action: 'review-active-locks',
+      description: `${lockSummary.activeLocks} launch lock(s) held. Check for stale locks.`,
+      humanRequired: false,
+    });
+  }
+
+  // Default: no blockers and healthy → next wave decision
+  if (blockers.length === 0 && systemStatus.overall === 'operational') {
+    actions.push({
+      priority: 'low',
+      action: 'plan-next-wave',
+      description: 'System is operational with no blockers. Plan next wave of issues.',
+      humanRequired: true,
+    });
+  }
+
+  return actions;
+}
+
+// ── Human-required items ─────────────────────────────────────────────────────
+
+function buildHumanRequiredItems(inputs, systemStatus, blockers, actions) {
+  const items = [];
+
+  // Always human-owned decisions
+  items.push({
+    category: 'governance',
+    item: 'next-wave-scoping',
+    description: 'Decide scope and create next batch of issues.',
+  });
+
+  // Health-state human decisions
+  if (systemStatus.health.state === 'red' || systemStatus.health.state === 'black') {
+    items.push({
+      category: 'health',
+      item: 'health-override',
+      description: `Main branch is ${systemStatus.health.state}. Decide whether to override gate or halt automation.`,
+    });
+  }
+
+  // Provider human decisions
+  const providerSummary = buildProviderSummary(inputs);
+  if (providerSummary.loaded && providerSummary.disabled > 0) {
+    items.push({
+      category: 'providers',
+      item: 'provider-re-enable',
+      description: 'Disabled providers require manual investigation before re-enabling.',
+    });
+  }
+
+  // Merge decisions for high-risk PRs
+  if (systemStatus.health.state === 'green' || systemStatus.health.state === 'yellow') {
+    items.push({
+      category: 'merge',
+      item: 'high-risk-pr-review',
+      description: 'High-risk PRs (src/**, prisma/**, auth) require human review before merge.',
+    });
+  }
+
+  // Actions that are human-required
+  const humanActions = actions.filter(a => a.humanRequired);
+  for (const action of humanActions) {
+    items.push({
+      category: 'action',
+      item: action.action,
+      description: action.description,
+    });
+  }
+
+  // Deduplicate by item key
+  const seen = new Set();
+  return items.filter(item => {
+    if (seen.has(item.item)) return false;
+    seen.add(item.item);
+    return true;
+  });
+}
+
+// ── Build brief ──────────────────────────────────────────────────────────────
+
+function buildBrief(inputs) {
+  const systemStatus = buildSystemStatus(inputs);
+  const providerSummary = buildProviderSummary(inputs);
+  const workerSummary = buildWorkerSummary(inputs);
+  const trustSummary = buildTrustSummary(inputs);
+  const lockSummary = buildLockSummary(inputs);
+  const metaSignalsSummary = buildMetaSignalsSummary(inputs);
+  const riskSignalsSummary = buildRiskSignalsSummary(inputs);
+  const opportunitySignalsSummary = buildOpportunitySignalsSummary(inputs);
+
+  const blockers = collectBlockers(inputs, systemStatus);
+  const recommendedNextActions = buildRecommendedActions(inputs, systemStatus, blockers);
+  const humanRequiredItems = buildHumanRequiredItems(inputs, systemStatus, blockers, recommendedNextActions);
+
+  const inputSources = {};
+  for (const [key, filename] of Object.entries(INPUT_FILES)) {
+    inputSources[`${key}Loaded`] = inputs[key] !== null;
+  }
+
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    capturedAt: new Date().toISOString(),
+    systemStatus,
+    providerSummary,
+    workerSummary,
+    trustSummary,
+    lockSummary,
+    metaSignalsSummary,
+    riskSignalsSummary,
+    opportunitySignalsSummary,
+    blockers,
+    recommendedNextActions,
+    humanRequiredItems,
+    inputSources,
+  };
+}
+
+// ── Self-test ────────────────────────────────────────────────────────────────
+
+function runSelfTest() {
+  let passed = 0;
+  let failed = 0;
+
+  function assert(condition, msg) {
+    if (!condition) {
+      failed++;
+      console.error(`  FAIL: ${msg}`);
+    } else {
+      passed++;
+    }
+  }
+
+  // Test: buildBrief with all null inputs
+  const emptyInputs = {};
+  for (const key of Object.keys(INPUT_FILES)) { emptyInputs[key] = null; }
+  const empty = buildBrief(emptyInputs);
+  assert(empty.schemaVersion === 1, 'schemaVersion is 1');
+  assert(typeof empty.capturedAt === 'string', 'capturedAt is string');
+  assert(empty.systemStatus.overall === 'unknown', 'overall unknown with all null');
+  assert(empty.blockers.length > 0, 'has blockers when all null');
+  assert(empty.humanRequiredItems.length > 0, 'has human required items');
+  for (const key of Object.keys(empty.inputSources)) {
+    assert(empty.inputSources[key] === false, `inputSources.${key} is false`);
+  }
+
+  // Test: buildBrief with full healthy inputs
+  const fullInputs = {
+    health: { state: 'green', capturedAt: '2026-01-01T00:00:00.000Z', failedChecks: [], allowedWorkerClasses: ['all'] },
+    providerPool: { global: { totalActiveWorkers: 0, globalMaxWorkers: 3, availableProviders: 1, exhaustedProviders: 0, disabledProviders: 0 } },
+    localResource: { global: { resourceState: 'healthy', capturedAt: '2026-01-01T00:00:00.000Z' } },
+    activeWorkers: { workers: [{ issue: 100 }] },
+    workerTrust: { workerClasses: { 'runtime-feature': {} }, scheduling: { minTrustToLaunch: 0.3, highTrustThreshold: 0.7, rules: [{}] } },
+    metaSignals: { signals: { failureScore: 0, frictionScore: 0, riskScore: 10, cost: 5, trust: 90, topPain: 'none' } },
+    riskSignals: { signals: [{ id: 'r1' }] },
+    opportunitySignals: { signals: [{ id: 'o1' }] },
+    launchLocks: { locks: [{ conflictGroup: 'test' }] },
+  };
+  const full = buildBrief(fullInputs);
+  assert(full.systemStatus.overall === 'operational', 'overall operational with green health');
+  assert(full.providerSummary.loaded && full.providerSummary.available === 1, 'provider loaded');
+  assert(full.workerSummary.loaded && full.workerSummary.count === 1, 'worker loaded');
+  assert(full.trustSummary.loaded && full.trustSummary.classCount === 1, 'trust loaded');
+  assert(full.lockSummary.loaded && full.lockSummary.activeLocks === 1, 'locks loaded');
+  assert(full.metaSignalsSummary.loaded && full.metaSignalsSummary.failureScore === 0, 'meta loaded');
+  assert(full.riskSignalsSummary.loaded && full.riskSignalsSummary.count === 1, 'risk loaded');
+  assert(full.opportunitySignalsSummary.loaded && full.opportunitySignalsSummary.count === 1, 'opp loaded');
+  for (const key of Object.keys(full.inputSources)) {
+    assert(full.inputSources[key] === true, `inputSources.${key} is true`);
+  }
+  const expectedKeys = ['schemaVersion', 'capturedAt', 'systemStatus', 'providerSummary',
+    'workerSummary', 'trustSummary', 'lockSummary', 'metaSignalsSummary',
+    'riskSignalsSummary', 'opportunitySignalsSummary', 'blockers',
+    'recommendedNextActions', 'humanRequiredItems', 'inputSources'];
+  for (const key of expectedKeys) { assert(key in full, `key ${key} present`); }
+
+  // Test: red health
+  const redInputs = { ...emptyInputs, health: { state: 'red', capturedAt: '2026-01-01T00:00:00.000Z', failedChecks: ['tsc'] } };
+  const red = buildBrief(redInputs);
+  assert(red.systemStatus.overall === 'critical', 'overall critical with red health');
+  assert(red.blockers.find(b => b.source === 'health').severity === 'high', 'red blocker is high');
+  assert(red.recommendedNextActions.some(a => a.action === 'investigate-health-failure'), 'has investigate action');
+  assert(red.humanRequiredItems.some(i => i.item === 'health-override'), 'has health override');
+
+  // Test: black health
+  const blackInputs = { ...emptyInputs, health: { state: 'black', capturedAt: '2026-01-01T00:00:00.000Z' } };
+  assert(buildBrief(blackInputs).blockers.find(b => b.source === 'health').severity === 'critical', 'black blocker is critical');
+
+  // Test: degraded status
+  const degradedInputs = { ...emptyInputs,
+    health: { state: 'yellow', capturedAt: '2026-01-01T00:00:00.000Z', failedChecks: ['prisma'] },
+    localResource: { global: { resourceState: 'constrained', capturedAt: '2026-01-01T00:00:00.000Z' } },
+  };
+  const degraded = buildBrief(degradedInputs);
+  assert(degraded.systemStatus.overall === 'degraded', 'overall degraded');
+  assert(degraded.recommendedNextActions.some(a => a.action === 'review-yellow-health'), 'has yellow action');
+  assert(degraded.recommendedNextActions.some(a => a.action === 'throttle-batch-size'), 'has throttle action');
+
+  // Test: no available providers
+  const noProvInputs = { ...emptyInputs,
+    providerPool: { global: { availableProviders: 0, exhaustedProviders: 1, disabledProviders: 0, globalMaxWorkers: 3, totalActiveWorkers: 0 } },
+  };
+  assert(buildBrief(noProvInputs).blockers.some(b => b.source === 'providers' && b.severity === 'high'), 'no provider blocker');
+
+  // Test: high friction
+  const frictionInputs = { ...emptyInputs, metaSignals: { signals: { failureScore: 0, frictionScore: 40, riskScore: 0, trust: 60, topPain: 'stale' } } };
+  const friction = buildBrief(frictionInputs);
+  assert(friction.blockers.some(b => b.source === 'meta-signals'), 'friction blocker');
+  assert(friction.recommendedNextActions.some(a => a.action === 'investigate-worker-friction'), 'friction action');
+
+  // Report
+  console.log(`\n  emit-command-steward-brief self-test`);
+  console.log(`  ${passed}/${passed + failed} passed`);
+  if (failed > 0) {
+    console.log(`\n  Some self-tests failed.\n`);
+    process.exit(1);
+  } else {
+    console.log(`\n  All self-tests passed.\n`);
+    process.exit(0);
+  }
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
+
+function main() {
+  const args = parseArgs(process.argv);
+
+  if (args.help) {
+    printHelp();
+    process.exit(0);
+  }
+
+  if (args.selfTest) {
+    runSelfTest();
+    return;
+  }
+
+  // Read all input files
+  const inputs = {};
+  for (const [key, filename] of Object.entries(INPUT_FILES)) {
+    inputs[key] = readJsonFile(path.join(STATE_DIR, filename));
+  }
+
+  const brief = buildBrief(inputs);
+  const json = JSON.stringify(brief, null, 2) + '\n';
+
+  if (args.stdout) {
+    process.stdout.write(json);
+    return;
+  }
+
+  if (!args.live) {
+    // Dry-run mode
+    const banner = [
+      '╔══════════════════════════════════════════════════════════════╗',
+      '║                     DRY RUN                                ║',
+      '╚══════════════════════════════════════════════════════════════╝',
+    ].join('\n');
+    process.stdout.write(`${banner}\n`);
+    process.stdout.write(`Target: ${path.relative(REPO_ROOT, args.out).replace(/\\/g, '/')}\n\n`);
+    process.stdout.write(json);
+    return;
+  }
+
+  // Live mode — write the file
+  const outDir = path.dirname(args.out);
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(args.out, json, 'utf8');
+  process.stdout.write(`Command Steward brief written to ${path.relative(REPO_ROOT, args.out).replace(/\\/g, '/')}\n`);
+}
+
+main();
