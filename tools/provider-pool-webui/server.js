@@ -24,6 +24,8 @@ const PLANNING_CONSOLE_PATH = path.join(REPO_ROOT, ".github/ai-state/webui-plann
 const ACTIONS_DIR = path.join(__dirname, "actions");
 const AUDIT_PATH = path.join(__dirname, ".audit-log.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
+const STEWARD_POLICY_PATH = path.join(REPO_ROOT, ".github/ai-policy/constitution-steward-policy.json");
+const STEWARD_AUDIT_PATH = path.join(REPO_ROOT, ".github/ai-state/constitution-steward-audit.json");
 
 // --- CLI -------------------------------------------------------------------
 
@@ -46,6 +48,7 @@ ENDPOINTS
   GET /api/resources      Concurrency utilization and headroom
   GET /api/queue          Queue state projection (empty if no file)
   GET /api/planning       Planning console state (empty if no file)
+  GET /api/command-steward  Sanitized Constitution Steward brief
   GET /api/health         Server health check
   GET /api/actions        List available action modules
   POST /api/actions/preview  Preview an action (dry-run, no side effects)
@@ -127,6 +130,22 @@ function stripSecrets(policy) {
     delete sanitized.secretSources;
   }
   return sanitized;
+}
+
+function sanitizeStewardBrief(policy, audit) {
+  const sanitized = JSON.parse(JSON.stringify(policy));
+  delete sanitized.$schema;
+  if (Array.isArray(sanitized.protectedConstitutionalRules)) {
+    for (const rule of sanitized.protectedConstitutionalRules) {
+      delete rule.source;
+    }
+  }
+  return {
+    schemaVersion: audit.schemaVersion || 1,
+    capturedAt: audit.capturedAt || null,
+    policy: sanitized,
+    audits: Array.isArray(audit.audits) ? audit.audits : [],
+  };
 }
 
 // --- Action modules ---------------------------------------------------------
@@ -456,6 +475,18 @@ function handleRequest(req, res) {
     return;
   }
 
+  if (route === "/api/command-steward") {
+    const policy = readJsonFile(STEWARD_POLICY_PATH);
+    const audit = readJsonFile(STEWARD_AUDIT_PATH);
+    const brief = sanitizeStewardBrief(
+      policy || {},
+      audit || { schemaVersion: 1, capturedAt: null, audits: [] }
+    );
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(brief, null, 2));
+    return;
+  }
+
   // --- Action endpoints -------------------------------------------------------
 
   if (route === "/api/actions" && req.method === "GET") {
@@ -666,6 +697,7 @@ server.listen(args.port, "127.0.0.1", () => {
     `  Resources:   http://127.0.0.1:${addr.port}/api/resources\n` +
     `  Queue:       http://127.0.0.1:${addr.port}/api/queue\n` +
     `  Planning:    http://127.0.0.1:${addr.port}/api/planning\n` +
+    `  CmdSteward:  http://127.0.0.1:${addr.port}/api/command-steward\n` +
     `  Actions:     http://127.0.0.1:${addr.port}/api/actions\n` +
     `  Audit:       http://127.0.0.1:${addr.port}/api/audit\n` +
     `  Health:      http://127.0.0.1:${addr.port}/api/health\n`

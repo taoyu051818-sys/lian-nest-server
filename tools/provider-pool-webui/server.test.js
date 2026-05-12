@@ -174,6 +174,7 @@ console.log("\nserver.js CLI tests\n");
     assert(out.includes("/api/actions"), "CLI --help mentions /api/actions");
     assert(out.includes("/api/audit"), "CLI --help mentions /api/audit");
     assert(out.includes("/api/planning"), "CLI --help mentions /api/planning");
+    assert(out.includes("/api/command-steward"), "CLI --help mentions /api/command-steward");
   } catch {
     assert(false, "CLI --help exits 0");
   }
@@ -331,6 +332,22 @@ console.log("\nEADDRINUSE tests\n");
       assert(data.summary.blocked === 0, "GET /api/planning empty projection summary.blocked is 0");
       assert(data.summary.done === 0, "GET /api/planning empty projection summary.done is 0");
       assert(data.summary.total === 0, "GET /api/planning empty projection summary.total is 0");
+    }
+
+    // GET /api/command-steward (steward brief — always 200)
+    {
+      const res = await fetch(`http://127.0.0.1:${port}/api/command-steward`);
+      assert(res.status === 200, "GET /api/command-steward returns 200");
+      const data = JSON.parse(res.body);
+      assert(typeof data.schemaVersion === "number", "GET /api/command-steward has schemaVersion");
+      assert(data.policy !== undefined, "GET /api/command-steward has policy object");
+      assert(Array.isArray(data.audits), "GET /api/command-steward has audits array");
+      // Sanitization: no $schema or source fields leaked
+      const raw = JSON.stringify(data);
+      assert(!raw.includes('"$schema"'), "GET /api/command-steward strips $schema");
+      assert(!raw.includes('"source"'), "GET /api/command-steward strips source paths");
+      // No secret patterns
+      assert(!/sk-ant-/.test(raw), "GET /api/command-steward leaks no API keys");
     }
 
     // Security headers
@@ -521,6 +538,15 @@ console.log("\nEADDRINUSE tests\n");
       assert(res.status === 200, "audit: planning endpoint returns 200");
       const raw = JSON.stringify(JSON.parse(res.body));
       assert(!/sk-ant-/.test(raw), "audit: no raw API key pattern in planning response");
+    }
+
+    {
+      const res = await fetch(`http://127.0.0.1:${port}/api/command-steward`);
+      assert(res.status === 200, "audit: command-steward endpoint returns 200");
+      const raw = JSON.stringify(JSON.parse(res.body));
+      assert(!/sk-ant-/.test(raw), "audit: no raw API key pattern in command-steward response");
+      assert(!raw.includes('"$schema"'), "audit: command-steward strips $schema");
+      assert(!raw.includes('"source"'), "audit: command-steward strips source paths");
     }
 
     // Verify health endpoint leaks no secrets
