@@ -260,6 +260,39 @@ test('skills: includes self-cycle', () => {
   assert.strictEqual(skill.readOnly, true);
 });
 
+test('skills: includes autopilot-preview', () => {
+  const { stdout } = run(['--stdout']);
+  const snapshot = JSON.parse(stdout);
+  const skill = snapshot.skills.find(s => s.skillId === 'autopilot-preview');
+  assert.ok(skill, 'autopilot-preview should be present');
+  assert.strictEqual(skill.risk, 'low');
+  assert.strictEqual(skill.readOnly, true);
+  assert.strictEqual(skill.dangerous, false);
+  assert.strictEqual(skill.category, 'self-cycle');
+});
+
+test('skills: includes autonomy-handoff', () => {
+  const { stdout } = run(['--stdout']);
+  const snapshot = JSON.parse(stdout);
+  const skill = snapshot.skills.find(s => s.skillId === 'autonomy-handoff');
+  assert.ok(skill, 'autonomy-handoff should be present');
+  assert.strictEqual(skill.risk, 'low');
+  assert.strictEqual(skill.readOnly, true);
+  assert.strictEqual(skill.dangerous, false);
+  assert.strictEqual(skill.category, 'self-cycle');
+});
+
+test('skills: includes autonomy-readiness', () => {
+  const { stdout } = run(['--stdout']);
+  const snapshot = JSON.parse(stdout);
+  const skill = snapshot.skills.find(s => s.skillId === 'autonomy-readiness');
+  assert.ok(skill, 'autonomy-readiness should be present');
+  assert.strictEqual(skill.risk, 'low');
+  assert.strictEqual(skill.readOnly, true);
+  assert.strictEqual(skill.dangerous, false);
+  assert.strictEqual(skill.category, 'self-cycle');
+});
+
 test('skills: has both action-module and action-registry sources', () => {
   const { stdout } = run(['--stdout']);
   const snapshot = JSON.parse(stdout);

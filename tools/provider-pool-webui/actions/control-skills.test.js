@@ -97,6 +97,24 @@ console.log("\nPreview — dynamic modules\n");
   assert(selfCycle.hasPreview === true, "self-cycle has preview");
   assert(selfCycle.hasExecute === true, "self-cycle has execute");
   assert(selfCycle.dangerous === false, "self-cycle not dangerous");
+
+  // Check autopilot-preview dynamic module
+  var autopilot = r.skills.find(function (s) { return s.skillId === "autopilot-preview"; });
+  assert(autopilot !== undefined, "finds autopilot-preview module");
+  assert(autopilot.hasPreview === true, "autopilot-preview has preview");
+  assert(autopilot.dangerous === false, "autopilot-preview not dangerous");
+
+  // Check autonomy-handoff dynamic module
+  var handoff = r.skills.find(function (s) { return s.skillId === "autonomy-handoff"; });
+  assert(handoff !== undefined, "finds autonomy-handoff module");
+  assert(handoff.hasPreview === true, "autonomy-handoff has preview");
+  assert(handoff.dangerous === false, "autonomy-handoff not dangerous");
+
+  // Check autonomy-readiness dynamic module
+  var readiness = r.skills.find(function (s) { return s.skillId === "autonomy-readiness"; });
+  assert(readiness !== undefined, "finds autonomy-readiness module");
+  assert(readiness.hasPreview === true, "autonomy-readiness has preview");
+  assert(readiness.dangerous === false, "autonomy-readiness not dangerous");
 }
 
 // Preview — no duplicate skillIds
