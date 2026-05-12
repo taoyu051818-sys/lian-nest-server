@@ -100,6 +100,9 @@ param(
     [switch]$Json,
 
     [Parameter(Mandatory = $false)]
+    [string]$FixturePath,
+
+    [Parameter(Mandatory = $false)]
     [switch]$Help
 )
 
@@ -124,6 +127,7 @@ OPTIONS
     -DryRun                     Explicit dry-run (default behavior)
     -Execute                    Close eligible issues (mutating)
     -Json                       Output structured JSON
+    -FixturePath <string>       Load from JSON fixture (offline, disables mutation)
     -Help                       Show this help message
 
 DRY-RUN CONTRACT
@@ -148,19 +152,57 @@ if ($DryRun -and $Execute) {
     exit 1
 }
 
+if ($Execute -and $FixturePath) {
+    Write-Error "-Execute cannot be used with -FixturePath (fixture mode is read-only)."
+    exit 1
+}
+
 # ── Validation ───────────────────────────────────────────────────────────────
 
-if (-not $Repo) {
-    Write-Error "Repo is required. Pass -Repo OWNER/NAME or set GH_REPO env var."
+if (-not $FixturePath -and -not $Repo) {
+    Write-Error "Repo is required. Pass -Repo OWNER/NAME or set GH_REPO env var (not needed with -FixturePath)."
     exit 1
 }
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-function Write-Step($msg) { Write-Host "[step] $msg" -ForegroundColor Cyan }
-function Write-Ok($msg)   { Write-Host "[ok]   $msg" -ForegroundColor Green }
-function Write-Warn($msg) { Write-Host "[warn] $msg" -ForegroundColor Yellow }
-function Write-Info($msg) { Write-Host "[info] $msg" -ForegroundColor Gray }
+function Write-Step($msg) { if (-not $Json) { Write-Host "[step] $msg" -ForegroundColor Cyan } }
+function Write-Ok($msg)   { if (-not $Json) { Write-Host "[ok]   $msg" -ForegroundColor Green } }
+function Write-Warn($msg) { if (-not $Json) { Write-Host "[warn] $msg" -ForegroundColor Yellow } }
+function Write-Info($msg) { if (-not $Json) { Write-Host "[info] $msg" -ForegroundColor Gray } }
+
+# ── Refuse constants ─────────────────────────────────────────────────────────
+
+$REFUSE_LABELS = @("human-required")
+$REFUSE_TITLE_PATTERNS = @("umbrella")
+
+function Test-IsRefused {
+    param($Issue)
+    $title = if ($Issue.title) { $Issue.title } else { "" }
+
+    foreach ($pattern in $REFUSE_TITLE_PATTERNS) {
+        if ($title -match $pattern) {
+            return [PSCustomObject]@{
+                Refused = $true
+                Reason  = "Title matches refuse pattern: '$pattern'"
+            }
+        }
+    }
+
+    foreach ($label in $Issue.labels) {
+        $lname = if ($label -is [string]) { $label } else { $label.name }
+        foreach ($refuseLabel in $REFUSE_LABELS) {
+            if ($lname -eq $refuseLabel) {
+                return [PSCustomObject]@{
+                    Refused = $true
+                    Reason  = "Has refuse label: '$refuseLabel'"
+                }
+            }
+        }
+    }
+
+    return [PSCustomObject]@{ Refused = $false; Reason = "" }
+}
 
 # ── Main health gate ─────────────────────────────────────────────────────────
 
@@ -195,10 +237,19 @@ if (-not $SkipHealthCheck) {
 
 # ── Load issues with agent:done ──────────────────────────────────────────────
 
-Write-Step "Loading agent:done issues from $Repo"
+Write-Step "Loading agent:done issues"
 
 $issues = @()
-if ($IssueNumbers -and $IssueNumbers.Count -gt 0) {
+if ($FixturePath) {
+    Write-Info "Loading from fixture: $FixturePath"
+    if (-not (Test-Path $FixturePath)) {
+        Write-Error "Fixture file not found: $FixturePath"
+        exit 1
+    }
+    $fixtureData = Get-Content $FixturePath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $issues = @($fixtureData.issues | Where-Object { $null -ne $_ })
+} elseif ($IssueNumbers -and $IssueNumbers.Count -gt 0) {
+    Write-Info "Querying GitHub: $Repo"
     foreach ($num in $IssueNumbers) {
         try {
             $issue = gh issue view $num --repo $Repo --json number,title,state,labels,body,createdAt,updatedAt 2>$null | ConvertFrom-Json
@@ -219,6 +270,7 @@ if ($IssueNumbers -and $IssueNumbers.Count -gt 0) {
         }
     }
 } else {
+    Write-Info "Querying GitHub: $Repo"
     try {
         $raw = gh issue list --repo $Repo --label "agent:done" --json number,title,state,labels,body,createdAt,updatedAt --limit 100 2>$null
         if ($raw -and $raw.Trim() -ne "[]") {
@@ -232,28 +284,83 @@ if ($IssueNumbers -and $IssueNumbers.Count -gt 0) {
 if ($issues.Count -eq 0) {
     Write-Ok "No agent:done issues found."
     if ($Json) {
-        @{ issues = @(); mainHealth = $mainHealthState; dryRun = (-not $Execute) } | ConvertTo-Json -Depth 5
+        @{ issues = @(); refused = @(); mainHealth = $mainHealthState; dryRun = (-not $Execute) } | ConvertTo-Json -Depth 5
     }
     exit 0
 }
 
 Write-Info "Found $($issues.Count) agent:done issue(s)"
 
-# ── Fetch all PRs once (batch query) ────────────────────────────────────────
+# ── Refuse check ─────────────────────────────────────────────────────────────
 
-Write-Step "Fetching merged PRs from $Repo"
+Write-Step "Checking issue safety policy"
 
-$allPRs = @()
-try {
-    $prRaw = gh pr list --repo $Repo --state merged --json number,title,state,body,mergedAt --limit 200 2>$null
-    if ($prRaw -and $prRaw.Trim() -ne "[]") {
-        $allPRs = @($prRaw | ConvertFrom-Json)
+$refused = @()
+$allowed = @()
+
+foreach ($issue in $issues) {
+    $num = $issue.number
+    $check = Test-IsRefused -Issue $issue
+    if ($check.Refused) {
+        $refused += [ordered]@{
+            issue  = $num
+            title  = $issue.title
+            reason = $check.Reason
+        }
+        Write-Warn "  REFUSED #$num — $($check.Reason)"
+    } else {
+        $allowed += $issue
     }
-} catch {
-    Write-Warn "Could not fetch merged PRs: $_"
 }
 
-Write-Info "Found $($allPRs.Count) merged PR(s)"
+if ($refused.Count -gt 0) {
+    Write-Warn "$($refused.Count) issue(s) refused by safety policy."
+}
+
+$issues = $allowed
+
+if ($issues.Count -eq 0) {
+    Write-Ok "No allowed issues to process."
+    if ($Json) {
+        @{ issues = @(); refused = $refused; mainHealth = $mainHealthState; dryRun = (-not $Execute) } | ConvertTo-Json -Depth 5
+    }
+    exit 0
+}
+
+Write-Info "$($issues.Count) issue(s) allowed for processing"
+
+# ── Fetch all PRs once (batch query) ────────────────────────────────────────
+
+Write-Step "Fetching PRs"
+
+$allPRs = @()
+$openPRs = @()
+
+if ($FixturePath) {
+    Write-Info "Loading PRs from fixture"
+    $allPRs = @($fixtureData.mergedPRs | Where-Object { $null -ne $_ })
+    $openPRs = @($fixtureData.openPRs | Where-Object { $null -ne $_ })
+} else {
+    try {
+        $prRaw = gh pr list --repo $Repo --state merged --json number,title,state,body,mergedAt --limit 200 2>$null
+        if ($prRaw -and $prRaw.Trim() -ne "[]") {
+            $allPRs = @($prRaw | ConvertFrom-Json)
+        }
+    } catch {
+        Write-Warn "Could not fetch merged PRs: $_"
+    }
+
+    try {
+        $openPrRaw = gh pr list --repo $Repo --state open --json number,title,state,body --limit 200 2>$null
+        if ($openPrRaw -and $openPrRaw.Trim() -ne "[]") {
+            $openPRs = @($openPrRaw | ConvertFrom-Json)
+        }
+    } catch {
+        Write-Warn "Could not fetch open PRs: $_"
+    }
+}
+
+Write-Info "Found $($allPRs.Count) merged PR(s), $($openPRs.Count) open PR(s)"
 
 # ── Evaluate each issue ─────────────────────────────────────────────────────
 
@@ -273,6 +380,29 @@ foreach ($issue in $issues) {
             detail   = "Issue is already closed"
             mergedPR = $null
             action   = "none"
+        }
+        continue
+    }
+
+    # Check for open PR first — issue with open PR is not a close candidate
+    $hasOpenPR = $false
+    $openPRNum = $null
+    foreach ($pr in $openPRs) {
+        if ($pr.body -match "#$num" -or $pr.title -match "#$num") {
+            $hasOpenPR = $true
+            $openPRNum = $pr.number
+            break
+        }
+    }
+
+    if ($hasOpenPR) {
+        $results += [ordered]@{
+            issue    = $num
+            title    = $title
+            status   = "has-open-pr"
+            detail   = "Issue has open PR #$openPRNum; not a close candidate"
+            mergedPR = $null
+            action   = "skip"
         }
         continue
     }
@@ -328,17 +458,21 @@ $eligible = @($results | Where-Object { $_.status -eq "eligible" })
 $noPr     = @($results | Where-Object { $_.status -eq "no-merged-pr" })
 $blocked  = @($results | Where-Object { $_.status -eq "health-gate-blocked" })
 $closed   = @($results | Where-Object { $_.status -eq "already-closed" })
+$hasOpenPr = @($results | Where-Object { $_.status -eq "has-open-pr" })
 
 if ($Json) {
     $output = [ordered]@{
         mainHealth  = $mainHealthState
         dryRun      = (-not $Execute)
-        totalIssues = $issues.Count
+        totalIssues = $issues.Count + $refused.Count
         eligible    = $eligible.Count
         noPr        = $noPr.Count
         blocked     = $blocked.Count
         alreadyClosed = $closed.Count
+        hasOpenPr   = $hasOpenPr.Count
+        refused     = $refused.Count
         results     = $results
+        refusedIssues = $refused
     }
     $output | ConvertTo-Json -Depth 10
     exit 0
@@ -358,6 +492,7 @@ foreach ($r in $results) {
         "no-merged-pr"        { "SKIP  " }
         "health-gate-blocked" { "BLOCK " }
         "already-closed"      { "DONE  " }
+        "has-open-pr"         { "OPEN  " }
         default               { "????  " }
     }
     $color = switch ($r.status) {
@@ -365,6 +500,7 @@ foreach ($r in $results) {
         "no-merged-pr"        { "Yellow" }
         "health-gate-blocked" { "Red" }
         "already-closed"      { "DarkGray" }
+        "has-open-pr"         { "Yellow" }
         default               { "White" }
     }
     $prInfo = if ($r.mergedPR) { " PR#$($r.mergedPR)" } else { "" }
@@ -372,12 +508,22 @@ foreach ($r in $results) {
     Write-Host " #$($r.issue) $($r.title)$prInfo" -ForegroundColor Gray
 }
 
+if ($refused.Count -gt 0) {
+    Write-Host ""
+    Write-Host "  Refused: $($refused.Count)" -ForegroundColor Yellow
+    foreach ($r in $refused) {
+        Write-Host "    #$($r.issue) — $($r.reason)" -ForegroundColor Yellow
+    }
+}
+
 Write-Host ""
 $summaryParts = @(
     "$($eligible.Count) eligible",
     "$($noPr.Count) no merged PR",
     "$($blocked.Count) health-blocked",
-    "$($closed.Count) already closed"
+    "$($closed.Count) already closed",
+    "$($hasOpenPr.Count) has open PR",
+    "$($refused.Count) refused"
 )
 Write-Host "Summary: $($summaryParts -join ', ')" -ForegroundColor White
 Write-Host ""
