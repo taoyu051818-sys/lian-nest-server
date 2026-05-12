@@ -1,0 +1,39 @@
+﻿{
+  "schemaVersion": 1,
+  "goalId": "command-steward-self-cycle-autonomy",
+  "capturedAt": "2026-05-12T00:00:00Z",
+  "macroGoal": "Transition routine development orchestration from manual Codex guidance to a Command Steward led, preview-first, human-gated self-cycle.",
+  "northStar": "Two consecutive full cycles complete without Codex intervention except human-owned decisions.",
+  "cycle": [
+    "plan",
+    "launch",
+    "monitor",
+    "merge",
+    "health",
+    "issue-close",
+    "reconcile"
+  ],
+  "priorityLanes": [
+    "self-cycle-runner",
+    "command-steward",
+    "webui-control-plane",
+    "telemetry-budget",
+    "issue-lifecycle",
+    "state-reconcile"
+  ],
+  "hardRules": [
+    "Do not bypass launch, merge, health, or human-required gates.",
+    "Do not launch runtime workers when main health is red.",
+    "Do not auto-merge high-risk changes.",
+    "Do not close issues with open PRs.",
+    "Treat token, time, cost, and human intervention as facts.",
+    "Every self-cycle result must write back to GitHub, ai-state, docs, tests, or telemetry."
+  ],
+  "successCriteria": [
+    "Command Steward emits recommended actions from facts.",
+    "Self-cycle produces launch, merge, close, and reconcile candidates.",
+    "Post-merge health remains green.",
+    "State reconciler reports no critical drift.",
+    "Human only approves previewed actions and high-risk boundaries."
+  ]
+}
