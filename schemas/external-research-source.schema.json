@@ -1,0 +1,112 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/external-research-source.schema.json",
+  "title": "ExternalResearchSource",
+  "description": "Schema for an entry in the external research source registry. Each source defines how external research enters the AI-native control plane as evidence — never as direct execution commands. Aligned with docs/ai-native/external-research-sources.md and docs/ai-native/external-research-intake-loop.md.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "sourceId",
+    "name",
+    "url",
+    "sourceClass",
+    "defaultTier",
+    "researchCategory",
+    "intakeCadence",
+    "allowedUsage",
+    "humanGateRequired"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1."
+    },
+    "sourceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Unique kebab-case identifier for the source. E.g. ai-papers-weekly."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "description": "Human-readable source name. E.g. dair-ai/AI-Papers-of-the-Week."
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "maxLength": 2000,
+      "description": "Canonical URL of the source. Must not contain credentials."
+    },
+    "sourceClass": {
+      "type": "string",
+      "enum": [
+        "external-doc",
+        "web-scan",
+        "user-paste",
+        "opaque-external"
+      ],
+      "description": "Source class per external-research-intake-loop.md classification. external-doc = structured and maintained. web-scan = requires cross-verification. user-paste = manual review. opaque-external = quarantine until promoted."
+    },
+    "defaultTier": {
+      "type": "string",
+      "enum": ["A", "B", "C", "D"],
+      "description": "Default reliability tier. A = authoritative primary source, B = trusted secondary, C = community/heuristic, D = unverified or stale. See evidence-reliability-policy.md."
+    },
+    "researchCategory": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Kebab-case research domain tag. E.g. ai-papers-digest, agent-pattern."
+    },
+    "intakeCadence": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "description": "How often this source is checked. E.g. 'Weekly (per digest commit)', 'Daily', 'On-demand'."
+    },
+    "allowedUsage": {
+      "type": "string",
+      "enum": [
+        "evidence-only",
+        "evidence-with-auto-signal"
+      ],
+      "description": "How this source may influence the control plane. evidence-only = source is input to the intake loop only, no direct task creation. evidence-with-auto-signal = source may auto-generate opportunity signals (still gated before task creation)."
+    },
+    "humanGateRequired": {
+      "type": "boolean",
+      "description": "Whether opportunity signals from this source require human gate approval before promotion to task. All sources default to true."
+    },
+    "staleDays": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "Number of days after which evidence from this source is considered stale. Null uses the default (90 days). Fast-moving domains use 30 days."
+    },
+    "localClonePath": {
+      "type": ["string", "null"],
+      "maxLength": 1000,
+      "description": "Local filesystem path to a research clone, if applicable. Null if not cloned locally."
+    },
+    "lianSurfaces": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      },
+      "maxItems": 20,
+      "default": [],
+      "description": "LIAN surfaces this source may produce pattern claims for. Empty means unrestricted."
+    },
+    "notes": {
+      "type": ["string", "null"],
+      "maxLength": 2000,
+      "description": "Free-text notes about the source. Must not contain secrets."
+    }
+  },
+  "additionalProperties": false
+}
