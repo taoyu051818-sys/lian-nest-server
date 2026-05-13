@@ -23,10 +23,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { REPO_ROOT } = require('./lib');
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 const SOURCE_CLASSES = [
   'github-issue',

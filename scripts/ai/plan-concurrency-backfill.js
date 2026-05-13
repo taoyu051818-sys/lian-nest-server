@@ -32,7 +32,7 @@ const path = require('path');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const { REPO_ROOT, clamp } = require('./lib');
 const STATE_DIR = path.join(REPO_ROOT, '.github', 'ai-state');
 const DEFAULT_OUT = path.join(STATE_DIR, 'concurrency-backfill-plan.json');
 const SCHEMA_VERSION = 1;
@@ -143,10 +143,6 @@ function readJsonFile(filePath) {
   } catch {
     return null;
   }
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
 }
 
 // ── Capacity extraction ─────────────────────────────────────────────────────

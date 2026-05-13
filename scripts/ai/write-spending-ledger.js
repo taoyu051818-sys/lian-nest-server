@@ -12,11 +12,10 @@
 
 'use strict';
 
-const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const { REPO_ROOT, appendNdjson } = require('./lib');
 const DEFAULT_OUT = path.join(REPO_ROOT, '.github', 'ai-state', 'spending-ledger.ndjson');
 const SCHEMA_VERSION = 1;
 
@@ -571,8 +570,7 @@ function main() {
     process.exit(0);
   }
 
-  fs.mkdirSync(path.dirname(args.out), { recursive: true });
-  fs.appendFileSync(args.out, line + '\n', 'utf8');
+  appendNdjson(args.out, entry);
 
   console.log(`Spending entry appended to ${path.relative(REPO_ROOT, args.out).replace(/\\/g, '/')}`);
   console.log(`  taskId: ${entry.taskId}`);

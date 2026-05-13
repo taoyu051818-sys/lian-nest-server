@@ -22,20 +22,7 @@
 'use strict';
 
 const fs = require('fs');
-
-// ── Sanitization ─────────────────────────────────────────────────────────────
-
-function sanitize(text) {
-  if (typeof text !== 'string') return text;
-  return text
-    .replace(/[A-Za-z0-9+/=]{40,}/g, '[redacted-token]')
-    .replace(/ghp_[A-Za-z0-9]+/g, '[redacted-gh-token]')
-    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
-    .replace(/password[=:]\s*\S+/gi, 'password=[redacted]')
-    .replace(/secret[=:]\s*\S+/gi, 'secret=[redacted]')
-    .replace(/token[=:]\s*\S+/gi, 'token=[redacted]')
-    .slice(0, 500);
-}
+const { sanitize } = require('./lib');
 
 // ── Parsing ──────────────────────────────────────────────────────────────────
 

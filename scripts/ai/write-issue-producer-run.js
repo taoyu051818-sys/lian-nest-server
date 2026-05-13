@@ -29,10 +29,9 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { REPO_ROOT, sanitize, appendNdjson } = require('./lib');
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_OUT = path.join(REPO_ROOT, '.github', 'ai-state', 'issue-producer-runs.ndjson');
 const SCHEMA_VERSION = 1;
 
@@ -43,18 +42,6 @@ const RISKS = ['low', 'medium', 'high'];
 const ISSUE_STATUSES = ['proposed', 'created', 'blocked', 'failed'];
 
 // ── Sanitization ─────────────────────────────────────────────────────────────
-
-function sanitize(text) {
-  if (typeof text !== 'string') return text;
-  return text
-    .replace(/[A-Za-z0-9+/=]{40,}/g, '[redacted-token]')
-    .replace(/ghp_[A-Za-z0-9]+/g, '[redacted-gh-token]')
-    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
-    .replace(/password[=:]\s*\S+/gi, 'password=[redacted]')
-    .replace(/secret[=:]\s*\S+/gi, 'secret=[redacted]')
-    .replace(/token[=:]\s*\S+/gi, 'token=[redacted]')
-    .slice(0, 500);
-}
 
 function sanitizeObject(obj) {
   if (!obj || typeof obj !== 'object') return obj;
@@ -391,15 +378,6 @@ function buildRecord(args) {
   };
 }
 
-// ── Write logic ──────────────────────────────────────────────────────────────
-
-function appendRecord(outPath, record) {
-  var dir = path.dirname(outPath);
-  fs.mkdirSync(dir, { recursive: true });
-  var line = JSON.stringify(record) + '\n';
-  fs.appendFileSync(outPath, line, 'utf8');
-}
-
 // ── Self-test ────────────────────────────────────────────────────────────────
 
 function runSelfTest() {
@@ -617,7 +595,7 @@ function main() {
   }
 
   // Live mode
-  appendRecord(args.out, record);
+  appendNdjson(args.out, record);
   console.log('Issue producer run record appended to ' + path.relative(REPO_ROOT, args.out).replace(/\\/g, '/'));
   console.log('  runId: ' + record.runId);
   console.log('  actor: ' + record.actor);

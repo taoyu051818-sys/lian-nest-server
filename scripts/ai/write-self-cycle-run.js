@@ -25,10 +25,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { REPO_ROOT, sanitize, appendNdjson } = require('./lib');
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_OUT = path.join(REPO_ROOT, '.github', 'ai-state', 'self-cycle-runs.ndjson');
 const MANIFEST_VERSION = 1;
 
@@ -38,18 +37,6 @@ const STEP_STATUSES = ['pass', 'blocked', 'skip', 'error'];
 const STEP_NAMES = ['health-gate', 'provider-pool-preflight', 'launch-gate', 'batch-launch', 'cycle-summary'];
 
 // ── Sanitization ─────────────────────────────────────────────────────────────
-
-function sanitize(text) {
-  if (typeof text !== 'string') return text;
-  return text
-    .replace(/[A-Za-z0-9+/=]{40,}/g, '[redacted-token]')
-    .replace(/ghp_[A-Za-z0-9]+/g, '[redacted-gh-token]')
-    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
-    .replace(/password[=:]\s*\S+/gi, 'password=[redacted]')
-    .replace(/secret[=:]\s*\S+/gi, 'secret=[redacted]')
-    .replace(/token[=:]\s*\S+/gi, 'token=[redacted]')
-    .slice(0, 500);
-}
 
 function sanitizeObject(obj) {
   if (!obj || typeof obj !== 'object') return obj;
@@ -334,15 +321,6 @@ function buildManifest(args) {
   };
 }
 
-// ── Write logic ──────────────────────────────────────────────────────────────
-
-function appendManifest(outPath, manifest) {
-  var dir = path.dirname(outPath);
-  fs.mkdirSync(dir, { recursive: true });
-  var line = JSON.stringify(manifest) + '\n';
-  fs.appendFileSync(outPath, line, 'utf8');
-}
-
 // ── Self-test ────────────────────────────────────────────────────────────────
 
 function runSelfTest() {
@@ -508,7 +486,7 @@ function main() {
   }
 
   // Live mode
-  appendManifest(args.out, manifest);
+  appendNdjson(args.out, manifest);
   console.log('Self-cycle run manifest appended to ' + path.relative(REPO_ROOT, args.out).replace(/\\/g, '/'));
   console.log('  runId: ' + manifest.runId);
   console.log('  cycleMode: ' + manifest.cycleMode);

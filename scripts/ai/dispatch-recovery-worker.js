@@ -21,8 +21,8 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { REPO_ROOT } = require('./lib');
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_STATE_DIR = path.join(REPO_ROOT, '.github', 'ai-state');
 const DEFAULT_OUT = path.join(DEFAULT_STATE_DIR, 'recovery-dispatch.json');
 

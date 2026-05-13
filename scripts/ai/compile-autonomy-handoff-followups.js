@@ -38,7 +38,7 @@ const path = require('path');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const { REPO_ROOT } = require('./lib');
 const STATE_DIR = path.join(REPO_ROOT, '.github', 'ai-state');
 const DEFAULT_OUT = path.join(STATE_DIR, 'autonomy-handoff-followups.json');
 

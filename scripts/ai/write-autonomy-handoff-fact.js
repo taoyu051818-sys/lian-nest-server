@@ -26,10 +26,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { REPO_ROOT, sanitize, appendNdjson } = require('./lib');
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_OUT = path.join(REPO_ROOT, '.github', 'ai-state', 'autonomy-handoff-facts.ndjson');
 const EVENT_VERSION = 1;
 
@@ -42,18 +41,6 @@ const VALID_HANDOFF_TYPES = [
 ];
 
 // ── Sanitization ─────────────────────────────────────────────────────────────
-
-function sanitize(text) {
-  if (typeof text !== 'string') return text;
-  return text
-    .replace(/[A-Za-z0-9+/=]{40,}/g, '[redacted-token]')
-    .replace(/ghp_[A-Za-z0-9]+/g, '[redacted-gh-token]')
-    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
-    .replace(/password[=:]\s*\S+/gi, 'password=[redacted]')
-    .replace(/secret[=:]\s*\S+/gi, 'secret=[redacted]')
-    .replace(/token[=:]\s*\S+/gi, 'token=[redacted]')
-    .slice(0, 500);
-}
 
 function sanitizeObject(obj) {
   if (!obj || typeof obj !== 'object') return obj;
@@ -230,15 +217,6 @@ function buildEvent(args) {
   };
 }
 
-// ── Write logic ──────────────────────────────────────────────────────────────
-
-function appendEvent(outPath, event) {
-  const dir = path.dirname(outPath);
-  fs.mkdirSync(dir, { recursive: true });
-  const line = JSON.stringify(event) + '\n';
-  fs.appendFileSync(outPath, line, 'utf8');
-}
-
 // ── Self-test ────────────────────────────────────────────────────────────────
 
 function runSelfTest() {
@@ -382,7 +360,7 @@ function main() {
   }
 
   // Live mode
-  appendEvent(args.out, event);
+  appendNdjson(args.out, event);
   console.log(`Handoff fact appended to ${path.relative(REPO_ROOT, args.out).replace(/\\/g, '/')}`);
   console.log(`  handoffType: ${event.handoffType}`);
   console.log(`  capturedAt: ${event.capturedAt}`);

@@ -35,10 +35,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { REPO_ROOT, readJson, readNdjson } = require('./lib');
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const STATE_DIR = path.join(REPO_ROOT, '.github', 'ai-state');
 const DEFAULT_OUT = path.join(STATE_DIR, 'planning-console-state.json');
 
@@ -68,32 +67,6 @@ const TREND_WINDOW_7D_MS = 7 * 24 * 60 * 60 * 1000;
 const TREND_WINDOW_30D_MS = 30 * 24 * 60 * 60 * 1000;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function readJsonFile(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return null;
-  try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(content);
-  } catch {
-    return null;
-  }
-}
-
-function readNdjson(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  const content = fs.readFileSync(filePath, 'utf8');
-  const entries = [];
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      entries.push(JSON.parse(trimmed));
-    } catch {
-      // skip malformed lines silently — non-destructive
-    }
-  }
-  return entries;
-}
 
 function zeroByType() {
   const result = {};
@@ -516,7 +489,7 @@ function runSelfTest() {
   assert(dupeGaps.unresolvedGaps.entries[0].description === 'second', 'unresolvedGaps keeps latest per issue');
 
   // Test: readJsonFile with nonexistent path
-  const missing = readJsonFile('/nonexistent/path.json');
+  const missing = readJson('/nonexistent/path.json');
   assert(missing === null, 'readJsonFile missing returns null');
 
   // Test: readNdjson with nonexistent path
@@ -570,10 +543,10 @@ function main() {
 
   // Read inputs
   const gapEntries = readNdjson(path.join(STATE_DIR, INPUT_FILES.gapLedger));
-  const metaSignals = readJsonFile(path.join(STATE_DIR, INPUT_FILES.metaSignals));
-  const activeWorkers = readJsonFile(path.join(STATE_DIR, INPUT_FILES.activeWorkers));
-  const workerTrust = readJsonFile(path.join(STATE_DIR, INPUT_FILES.workerTrust));
-  const queue = readJsonFile(path.join(STATE_DIR, INPUT_FILES.queue));
+  const metaSignals = readJson(path.join(STATE_DIR, INPUT_FILES.metaSignals));
+  const activeWorkers = readJson(path.join(STATE_DIR, INPUT_FILES.activeWorkers));
+  const workerTrust = readJson(path.join(STATE_DIR, INPUT_FILES.workerTrust));
+  const queue = readJson(path.join(STATE_DIR, INPUT_FILES.queue));
 
   const snapshot = buildPlanningConsoleState({
     gapEntries,

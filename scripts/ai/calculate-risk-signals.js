@@ -30,7 +30,7 @@ const path = require('path');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const { REPO_ROOT, clamp } = require('./lib');
 const DEFAULT_INPUT = path.join(REPO_ROOT, '.github', 'ai-state', 'risk-signals.json');
 const DEFAULT_OUT = path.join(REPO_ROOT, '.github', 'ai-state', 'risk-signal-summary.json');
 
@@ -85,10 +85,6 @@ EXIT CODES
     2   Invalid arguments
 `.trimStart();
   process.stdout.write(help);
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
 }
 
 // ── Calculator ───────────────────────────────────────────────────────────────

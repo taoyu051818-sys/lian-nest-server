@@ -18,8 +18,7 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const { REPO_ROOT } = require('./lib');
 const DEFAULT_OUT = path.join(REPO_ROOT, '.github', 'ai-state', 'web-search-results.json');
 const API_ENDPOINT = 'https://api.xiaomimimo.com/v1/chat/completions';
 const MODEL = 'mimo-v2.5-pro';

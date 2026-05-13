@@ -31,7 +31,7 @@ const path = require('path');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const { REPO_ROOT, clamp, readJson } = require('./lib');
 const DEFAULT_SIGNALS_PATH = path.join(REPO_ROOT, '.github', 'ai-state', 'meta-signals.json');
 const DEFAULT_OUT = path.join(REPO_ROOT, '.github', 'ai-state', 'next-task-suggestions.json');
 
@@ -51,19 +51,6 @@ const PRIORITY_RANK = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function readJson(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return null;
-  try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(content);
-  } catch {
-    return null;
-  }
-}
 
 function printHelp() {
   const help = `

@@ -36,10 +36,9 @@
 const fs = require('fs');
 const crypto = require('crypto');
 const path = require('path');
+const { REPO_ROOT, readJson } = require('./lib');
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_OUT = path.join(REPO_ROOT, '.github', 'ai-state', 'agent-idea-gate-result.json');
 
 const SCHEMA_VERSION = 1;
@@ -100,15 +99,6 @@ EXIT CODES
     2   invalid arguments
 `.trimStart();
   process.stdout.write(help);
-}
-
-function readJson(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch {
-    return null;
-  }
 }
 
 function readStdin() {

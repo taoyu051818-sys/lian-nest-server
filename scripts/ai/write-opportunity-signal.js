@@ -28,10 +28,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { REPO_ROOT, sanitize, appendNdjson } = require('./lib');
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_OUT = path.join(REPO_ROOT, '.github', 'ai-state', 'opportunity-signals.ndjson');
 const SIGNAL_VERSION = 1;
 
@@ -56,18 +55,6 @@ const VALID_CONFIDENCE_LEVELS = ['high', 'medium', 'low'];
 const VALID_HEALTH_GATES = ['gate-all', 'gate-docs-only', 'gate-none'];
 
 // ── Sanitization ─────────────────────────────────────────────────────────────
-
-function sanitize(text) {
-  if (typeof text !== 'string') return text;
-  return text
-    .replace(/[A-Za-z0-9+/=]{40,}/g, '[redacted-token]')
-    .replace(/ghp_[A-Za-z0-9]+/g, '[redacted-gh-token]')
-    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
-    .replace(/password[=:]\s*\S+/gi, 'password=[redacted]')
-    .replace(/secret[=:]\s*\S+/gi, 'secret=[redacted]')
-    .replace(/token[=:]\s*\S+/gi, 'token=[redacted]')
-    .slice(0, 500);
-}
 
 function sanitizeObject(obj) {
   if (!obj || typeof obj !== 'object') return obj;
@@ -347,15 +334,6 @@ function buildSignal(args) {
   });
 }
 
-// ── Write logic ──────────────────────────────────────────────────────────────
-
-function appendSignal(outPath, signal) {
-  const dir = path.dirname(outPath);
-  fs.mkdirSync(dir, { recursive: true });
-  const line = JSON.stringify(signal) + '\n';
-  fs.appendFileSync(outPath, line, 'utf8');
-}
-
 // ── Self-test ────────────────────────────────────────────────────────────────
 
 function runSelfTest() {
@@ -485,7 +463,7 @@ function main() {
   }
 
   // Live mode
-  appendSignal(args.out, signal);
+  appendNdjson(args.out, signal);
   console.log(`Opportunity signal appended to ${path.relative(REPO_ROOT, args.out).replace(/\\/g, '/')}`);
   console.log(`  signalId: ${signal.signalId}`);
   console.log(`  status: ${signal.status}`);

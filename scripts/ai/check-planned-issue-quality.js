@@ -40,7 +40,7 @@ const path = require('path');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const { REPO_ROOT } = require('./lib');
 const DEFAULT_OUT = path.join(REPO_ROOT, '.github', 'ai-state', 'planned-issue-quality-result.json');
 
 const SCHEMA_VERSION = 1;

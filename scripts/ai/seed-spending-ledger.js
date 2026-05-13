@@ -15,8 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const { REPO_ROOT } = require('./lib');
 const DEFAULT_OUT = path.join(REPO_ROOT, '.github', 'ai-state', 'spending-ledger.ndjson');
 
 function parseArgs(argv) {
