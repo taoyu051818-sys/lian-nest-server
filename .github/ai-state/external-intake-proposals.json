@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-05-13T04:20:19.376Z",
+  "label": "agent:codex-action-needed",
+  "mode": "execute",
+  "source": "external-intake-bridge",
+  "externalFactCount": 8,
+  "opportunitySignalCount": 4,
+  "proposals": [],
+  "skippedDuplicates": [
+    {
+      "title": "Investigate: graph-based-state-machine",
+      "reason": "duplicate"
+    },
+    {
+      "title": "Investigate: conversational-agent-collaboration",
+      "reason": "duplicate"
+    },
+    {
+      "title": "Investigate: event-driven-guardrails",
+      "reason": "duplicate"
+    },
+    {
+      "title": "Investigate: reflexion-self-reflection",
+      "reason": "duplicate"
+    },
+    {
+      "title": "Investigate: delegation-and-oversight",
+      "reason": "duplicate"
+    },
+    {
+      "title": "Investigate: function-routing-between-agents",
+      "reason": "duplicate"
+    },
+    {
+      "title": "Investigate: structured-memory-retrieval",
+      "reason": "duplicate"
+    },
+    {
+      "title": "Experiment: Explicit state machine transitions for worker lifecycle reduce status inconsistency bugs",
+      "reason": "duplicate"
+    },
+    {
+      "title": "Experiment: Adding a structured memory retrieval layer to meta-signals improves issue production quality",
+      "reason": "duplicate"
+    },
+    {
+      "title": "Experiment: Adding Claude Code hooks for forbiddenFiles enforcement provides defense-in-depth against constitution violations",
+      "reason": "duplicate"
+    },
+    {
+      "title": "Experiment: Adding a failure reflection step to classify-self-cycle-failure.js that generates actionable self-critiques reduces repeat failures",
+      "reason": "duplicate"
+    }
+  ]
+}

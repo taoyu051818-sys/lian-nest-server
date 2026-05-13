@@ -1,0 +1,5 @@
+{"schemaVersion":1,"eventType":"loop-start","eventId":"e372aecf-d9b6-4803-9951-f9016f353f26","capturedAt":"2026-05-13T04:47:36.5349649Z","mode":"execute","repo":"taoyu051818-sys/lian-nest-server","maxParallel":30}
+{"schemaVersion":1,"eventType":"cycle-complete","eventId":"1aa6abe1-16f4-47a9-86df-7a00ab620ef2","capturedAt":"2026-05-13T04:47:46.7792356Z","completed":0,"failed":0,"total":0,"duration":10.2236818,"cycle":1}
+{"schemaVersion":1,"eventType":"cycle-complete","eventId":"255bb092-3009-4a93-9185-34a6f9a48a6a","capturedAt":"2026-05-13T04:48:23.5685629Z","completed":0,"failed":0,"total":0,"duration":6.7051885,"cycle":2}
+{"schemaVersion":1,"eventType":"cycle-complete","eventId":"774f7dd1-d16e-4240-8403-1384220d2286","capturedAt":"2026-05-13T04:48:59.5865440Z","completed":0,"failed":0,"total":0,"duration":5.9619414,"cycle":3}
+{"schemaVersion":1,"eventType":"loop-end","eventId":"7bcccd90-d59a-4a52-81ee-b510b00e1bca","capturedAt":"2026-05-13T04:48:59.6338184Z","totalWorkers":0,"cyclesCompleted":3}
