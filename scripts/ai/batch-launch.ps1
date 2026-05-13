@@ -257,22 +257,30 @@ function Build-Waves($Plans, [int]$MaxPerWave) {
         for ($i = 0; $i -lt $waves.Count; $i++) {
             $wave = $waves[$i]
             if ($wave.Count -ge $cap) { continue }
-            if ($isHighRisk -and $wave.Count -gt 0) { continue }
 
+            # Per-surface risk serialization: high-risk tasks serialize only
+            # with other high-risk/humanRequired tasks, not globally.
+            if ($isHighRisk) {
+                $waveHasHighRisk = $false
+                foreach ($existing in $wave) {
+                    if (([string]$existing.Task.risk -eq "high") -or (Test-HumanRequired $existing.Task)) {
+                        $waveHasHighRisk = $true
+                        break
+                    }
+                }
+                if ($waveHasHighRisk) { continue }
+            }
+
+            # Check existing wave for conflicts
             $waveGroups = @{}
             $waveLocks = @{}
-            $waveHasHighRisk = $false
             foreach ($existing in $wave) {
                 $waveGroups[[string]$existing.Task.conflictGroup] = $true
                 foreach ($existingLock in @(Get-TaskLocks $existing.Task)) {
                     $waveLocks[[string]$existingLock] = $true
                 }
-                if (([string]$existing.Task.risk -eq "high") -or (Test-HumanRequired $existing.Task)) {
-                    $waveHasHighRisk = $true
-                }
             }
 
-            if ($waveHasHighRisk) { continue }
             if ($waveGroups.ContainsKey($group)) { continue }
 
             $lockConflict = $false
@@ -542,7 +550,9 @@ $requestedParallelism = if ($Parallel) { [Math]::Min(30, [Math]::Max(1, $MaxPara
 $provider = Get-ProviderSlots $ProviderPoolStatePath $requestedParallelism
 $resource = Get-ResourceSlots $LocalResourceStatePath $requestedParallelism
 $conflictSafeSlots = Get-ConflictSafeSlots $taskPlans
-$riskSafeSlots = if (@($tasks | Where-Object { ([string]$_.risk -eq "high") -or (Test-HumanRequired $_) }).Count -gt 0) { 1 } else { $requestedParallelism }
+# Risk safety is now per-surface via Build-Waves, not a global scalar.
+# High-risk tasks serialize only with other high-risk/humanRequired tasks,
+# not with unrelated low/medium tasks on independent surfaces.
 $reviewSafeSlots = [Math]::Max(1, $ReviewCapacity)
 $mergeSafeSlots = [Math]::Max(1, $MergeCapacity)
 $failureSafeSlots = [Math]::Max(1, $FailureBudget)
@@ -551,7 +561,6 @@ $parallelInputs = @(
     [int]$provider.slots,
     [int]$resource.slots,
     $conflictSafeSlots,
-    $riskSafeSlots,
     $reviewSafeSlots,
     $mergeSafeSlots,
     $failureSafeSlots
@@ -564,19 +573,22 @@ if ($effectiveParallelism -lt $requestedParallelism) {
     if ([int]$provider.slots -lt $requestedParallelism) { $reasons += "provider slots=$($provider.slots)" }
     if ([int]$resource.slots -lt $requestedParallelism) { $reasons += "resource slots=$($resource.slots)" }
     if ($conflictSafeSlots -lt $requestedParallelism) { $reasons += "conflict-safe slots=$conflictSafeSlots" }
-    if ($riskSafeSlots -lt $requestedParallelism) { $reasons += "risk-safe slots=$riskSafeSlots" }
     if ($reviewSafeSlots -lt $requestedParallelism) { $reasons += "review capacity=$reviewSafeSlots" }
     if ($mergeSafeSlots -lt $requestedParallelism) { $reasons += "merge capacity=$mergeSafeSlots" }
     if ($failureSafeSlots -lt $requestedParallelism) { $reasons += "failure budget=$failureSafeSlots" }
     $blockedReason = $reasons -join "; "
 }
 
+# Per-surface risk info for output
+$highRiskCount = @($tasks | Where-Object { ([string]$_.risk -eq "high") -or (Test-HumanRequired $_) }).Count
+$riskInfo = if ($highRiskCount -gt 0) { "$highRiskCount high-risk task(s) — serialized per-surface via Build-Waves" } else { "none" }
+
 Write-Step "Parallel capacity plan"
 Write-Host "   Requested parallelism: $requestedParallelism"
 Write-Host "   Provider slots: $($provider.slots) ($($provider.reason))"
 Write-Host "   Resource slots: $($resource.slots) ($($resource.reason))"
 Write-Host "   Conflict-safe slots: $conflictSafeSlots"
-Write-Host "   Risk-safe slots: $riskSafeSlots"
+Write-Host "   Risk surface info: $riskInfo"
 Write-Host "   Review capacity: $reviewSafeSlots"
 Write-Host "   Merge capacity: $mergeSafeSlots"
 Write-Host "   Failure budget: $failureSafeSlots"
