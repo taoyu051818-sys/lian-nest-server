@@ -1,140 +1,315 @@
-# Investigation: Pluggable Checkers Architecture
+# Pluggable Checkers Investigation
 
-**Issue:** #1448
-**Date:** 2026-05-13
-**Status:** Research complete — findings below
+> **Closes:** [#1448](https://github.com/taoyu051818-sys/lian-nest-server/issues/1448)
+
+## Summary
+
+`scripts/ai/check-constitution-health.js` is a 1020-line monolith with 14
+check functions, zero plugin infrastructure, no configuration surface for
+thresholds, and no test suite. This document inventories the current state,
+maps every hardcoded threshold, documents schema divergence, and proposes a
+prioritized path to a pluggable architecture.
 
 ---
 
 ## Current State
 
-Constitution checking is split across three independent scripts with no shared registry, no plugin interface, and no configuration-driven check selection.
+| Metric | Value |
+|--------|-------|
+| File | `scripts/ai/check-constitution-health.js` |
+| Lines | 1020 |
+| Check functions | 14 |
+| Hardcoded thresholds | 23 |
+| Tests | 0 |
+| Plugin system | None |
+| Config surface | None |
 
-### Scripts
+### Check Functions
 
-| Script | Lines | Check Functions | Has Tests |
-|--------|-------|----------------|-----------|
-| `scripts/ai/check-constitution-health.js` | 1020 | 14 (3 Laws + 3 Seed Rules + 8 Runtime Health) | No |
-| `scripts/guards/check-constitution.js` | 280 | 5 (structural section validation) | Yes |
-| `scripts/guards/check-constitution-steward.js` | 300 | 5 pattern categories (22 regex rules) | Yes |
-
-### Hardcoded Thresholds in `check-constitution-health.js`
-
-All thresholds are inline constants with no external config surface:
-
-| Category | Thresholds |
-|----------|-----------|
-| State file TTLs | active-workers: 60m, local-resource: 10m, meta-signals: 30m, provider-pool: 60m, operational-entropy: 30m, risk-signals: 60m |
-| Trust scores | violation < 30, warning < 60 |
-| Failure/friction | failure >= 50, friction >= 30 |
-| Memory | violation > 90%, warning > 75% |
-| Process headroom | warning < 20% |
-| Provider capacity | warning > 80% |
-| Worker lifecycle | orphan: 30m, long-running: 10m |
-| PR staleness | 7 days |
-| Loop staleness | 24 hours |
-| Git windows | evidence: 7d, high-risk: 24h |
-
-### Schema Divergence
-
-- `check-constitution-health.js` produces ad-hoc JSON with `decision`, `checks[]`, `violations[]`, `warnings[]`
-- `check-constitution.js` produces `{ ok, sections, mismatches }`
-- `schemas/constitution-check-result.schema.json` defines a formal schema with `checkId`, `checkType`, `lawsEvaluated`, `proposedAmendments` — neither script fully conforms to it
+| # | Function | Category | Lines |
+|---|----------|----------|-------|
+| 1 | `checkRealityBeforeJudgment` | Three Laws | 179-258 |
+| 2 | `checkSelectionBeforeMemory` | Three Laws | 262-327 |
+| 3 | `checkGovernedRecursion` | Three Laws | 331-418 |
+| 4 | `checkHighRiskBoundaries` | Seed Constitution | 422-492 |
+| 5 | `checkMainRedLaunchStop` | Seed Constitution | 496-548 |
+| 6 | `checkWorkerScopeExpansion` | Seed Constitution | 552-613 |
+| 7 | `checkRepositoryBoundary` | SOP | 617-658 |
+| 8 | `checkStateFileStaleness` | Runtime Health | 662-690 |
+| 9 | `checkMetaSignalsVitality` | Runtime Health | 694-722 |
+| 10 | `checkBuildVitality` | Runtime Health | 726-746 |
+| 11 | `checkWorkerLifecycleHealth` | Runtime Health | 750-784 |
+| 12 | `checkConflictGroupContention` | Runtime Health | 788-806 |
+| 13 | `checkPRQueueHealth` | Runtime Health | 810-827 |
+| 14 | `checkAutonomousLoopHealth` | Runtime Health | 831-850 |
+| 15 | `checkResourcePressure` | Runtime Health | 854-879 |
 
 ---
 
-## Plugin Architecture Design
+## Hardcoded Thresholds Inventory
 
-### Standard Check Interface
+Every threshold below is an inline constant. Tuning requires a source edit
+and a new commit.
 
-Each check module would export:
+### State File Staleness TTLs (lines 666-673)
+
+| State File | TTL | Hardcoded Value |
+|------------|-----|-----------------|
+| `active-workers.json` | 60 min | `60 * 60 * 1000` |
+| `local-resource.json` | 10 min | `10 * 60 * 1000` |
+| `meta-signals.json` | 30 min | `30 * 60 * 1000` |
+| `provider-pool.json` | 60 min | `60 * 60 * 1000` |
+| `operational-entropy.json` | 30 min | `30 * 60 * 1000` |
+| `risk-signals.json` | 60 min | `60 * 60 * 1000` |
+
+### Meta Signals Thresholds (lines 703-719)
+
+| Signal | Threshold | Decision | Line |
+|--------|-----------|----------|------|
+| `trust` | `< 30` | VIOLATION | 714 |
+| `trust` | `< 60` | WARNING | 715 |
+| `failureScore` | `>= 50` | VIOLATION | 718 |
+| `frictionScore` | `>= 30` | WARNING | 719 |
+| All-zero detection | `=== 0` (all four signals) | WARNING | 703 |
+
+### Resource Pressure Thresholds (lines 862-874)
+
+| Resource | Threshold | Decision | Line |
+|----------|-----------|----------|------|
+| Memory usage | `> 90%` | VIOLATION | 862 |
+| Memory usage | `> 75%` | WARNING | 863 |
+| Process headroom | `< 20%` | WARNING | 866 |
+| Provider utilization | `> 80%` | WARNING | 874 |
+
+### Worker Lifecycle Thresholds (lines 769-782)
+
+| Condition | Threshold | Decision | Line |
+|-----------|-----------|----------|------|
+| Orphaned worker age | `> 30 min` | WARNING | 769 |
+| Long-running worker | `> 600000 ms` (10 min) | WARNING | 780 |
+
+### PR Queue Thresholds (lines 819-820)
+
+| Condition | Threshold | Decision | Line |
+|-----------|-----------|----------|------|
+| Stale PR age | `> 7 days` | WARNING | 819 |
+
+### Autonomous Loop Thresholds (line 844)
+
+| Condition | Threshold | Decision | Line |
+|-----------|-----------|----------|------|
+| Last event age | `> 24 hours` | WARNING | 844 |
+
+### Git Lookback Windows (lines 233, 448)
+
+| Context | Window | Line |
+|---------|--------|------|
+| Policy commit evidence check | `7 days` | 233 |
+| High-risk file modification check | `24 hours` | 448 |
+
+### Build Health Timeout (line 731)
+
+| Operation | Timeout | Line |
+|-----------|---------|------|
+| `npm run check` | `90000 ms` (90s) | 731 |
+
+---
+
+## Schema Divergence
+
+The formal output contract is defined in
+`schemas/constitution-check-result.schema.json`. The checker's actual output
+diverges from this schema in several ways:
+
+| Schema Field | Schema Type | Checker Output | Divergence |
+|--------------|-------------|----------------|------------|
+| `checkId` | Required string | Not emitted | **Missing** |
+| `checkType` | Required enum | Emits `checkType: "constitution-health"` | Value not in enum (`full-audit`, `targeted-audit`, `pre-merge`, `pre-launch`, `amendment-review`) |
+| `decision` | Required enum (`pass`/`warn`/`block`) | Emits `overallDecision` with values `pass`/`warning`/`violation` | **Different field name, different enum values** |
+| `lawsEvaluated` | Required array of law enums | Not emitted | **Missing** |
+| `checks[].name` | Required string | Not emitted per-finding | **Missing** |
+| `checks[].law` | Required law enum | Uses free-text `law` field (e.g., `"reality-before-judgment"`) | **Not in enum** |
+| `violations[].code` | Required string | Not emitted | **Missing** |
+| `violations[].severity` | Required enum (`error`/`critical`) | Not emitted | **Missing** |
+| `warnings[].code` | Required string | Not emitted | **Missing** |
+| `proposedAmendments` | Optional array | Not emitted | **Missing** |
+| `summary.humanReviewRequired` | Required boolean | Not emitted | **Missing** |
+| `targetScope` | Optional object | Not emitted | Missing (acceptable) |
+
+The checker produces a custom nested structure (`threeLaws`, `seedConstitution`,
+`sop`, `runtimeHealth`) that does not appear in the schema at all. The schema
+expects a flat `checks` array with per-check `name`, `law`, and `pass` fields.
+
+---
+
+## Test Coverage
+
+| Script | Has Tests | Lines |
+|--------|-----------|-------|
+| `check-constitution-health.js` | **No** | 1020 |
+| `check-launch-gate.ps1` | Yes (guard tests) | — |
+| `auto-trigger-health-gate.js` | Yes (guard tests) | — |
+
+The main checker has zero test coverage. Any refactor risk is unmitigated
+by automated tests.
+
+---
+
+## Proposed Architecture
+
+### Target Interface
+
+Each check becomes a separate module in `scripts/ai/checks/` with a
+standard interface:
 
 ```js
+// scripts/ai/checks/meta-signals-vitality.js
 module.exports = {
-  id: 'state-file-staleness',
-  category: 'runtime-health',       // three-laws | seed-rules | runtime-health | sop
-  description: 'State files within TTL',
-  lawsEvaluated: [],                 // which constitutional laws this check relates to
-  configKeys: ['ttlMinutes'],       // which config keys this check reads
-  check(ctx, config) {
-    // ctx: { stateDir, gitLog, workers, mainHealth, ... }
-    // config: resolved thresholds for this check
-    return {
-      decision: 'pass' | 'violation' | 'warning',
-      findings: [{ message, severity, evidence }]
-    };
-  }
+  id: 'meta-signals-vitality',
+  description: 'Validates meta signals (trust, failure, friction) are within bounds',
+  category: 'runtime-health',
+  law: 'reality',  // which constitutional law this check evaluates
+
+  /**
+   * @param {object} ctx - Shared context (repo root, state dir, config)
+   * @returns {Array<Finding>} findings
+   */
+  check(ctx) {
+    const thresholds = ctx.config['meta-signals-vitality'] || {};
+    const trustViolation = thresholds.trustViolation ?? 30;
+    const trustWarning = thresholds.trustWarning ?? 60;
+    // ... check logic using configurable thresholds
+    return findings;
+  },
 };
 ```
 
-### Registry
+### Registry Loader
 
-A registry module would:
-1. Discover check modules from a `checks/` directory (or explicit manifest)
-2. Load external config (JSON file) and merge with defaults
-3. Run checks in order, collecting results
-4. Produce output conforming to `schemas/constitution-check-result.schema.json`
+```js
+// scripts/ai/check-registry.js
+const checks = [];
+for (const file of fs.readdirSync(path.join(__dirname, 'checks'))) {
+  if (!file.endsWith('.js')) continue;
+  checks.push(require(path.join(__dirname, 'checks', file)));
+}
+module.exports = { checks };
+```
 
-### Config File Surface
+### Config File
 
 ```json
+// config/constitution-check-defaults.json
 {
-  "$schema": "../schemas/constitution-check-config.schema.json",
-  "version": 1,
-  "checks": {
-    "state-file-staleness": {
-      "enabled": true,
-      "ttlMinutes": {
-        "active-workers": 60,
-        "local-resource": 10,
-        "meta-signals": 30,
-        "provider-pool": 60,
-        "operational-entropy": 30,
-        "risk-signals": 60
-      }
-    },
-    "meta-signals-vitality": {
-      "enabled": true,
-      "trustViolation": 30,
-      "trustWarning": 60,
-      "failureThreshold": 50,
-      "frictionThreshold": 30
-    }
+  "state-staleness": {
+    "active-workers.json": { "maxAgeMs": 3600000 },
+    "local-resource.json": { "maxAgeMs": 600000 },
+    "meta-signals.json": { "maxAgeMs": 1800000 },
+    "provider-pool.json": { "maxAgeMs": 3600000 },
+    "operational-entropy.json": { "maxAgeMs": 1800000 },
+    "risk-signals.json": { "maxAgeMs": 3600000 }
+  },
+  "meta-signals-vitality": {
+    "trustViolation": 30,
+    "trustWarning": 60,
+    "failureScoreViolation": 50,
+    "frictionScoreWarning": 30
+  },
+  "resource-pressure": {
+    "memoryViolation": 90,
+    "memoryWarning": 75,
+    "headroomWarning": 20,
+    "providerUtilizationWarning": 80
+  },
+  "worker-lifecycle": {
+    "orphanAgeMs": 1800000,
+    "longRuntimeMs": 600000
+  },
+  "pr-queue": {
+    "stalePrDays": 7
+  },
+  "autonomous-loop": {
+    "staleEventHours": 24
+  },
+  "git-lookback": {
+    "policyCommitDays": 7,
+    "highRiskFileHours": 24
+  },
+  "build-health": {
+    "timeoutMs": 90000
   }
 }
 ```
 
 ---
 
-## Findings and Recommendation
+## Prioritized Implementation Steps
 
-### What works today
+Steps 1-3 are prerequisites for the plugin architecture (step 4). Each
+step is independently shippable and low-risk.
 
-- `check-constitution-health.js` is functionally comprehensive — 14 checks covering all three constitutional layers
-- The two guard scripts (`check-constitution.js`, `check-constitution-steward.js`) have tests and are well-bounded
-- `schemas/constitution-check-result.schema.json` already defines a formal output schema that could serve as the target contract
+### Step 1: Extract Thresholds to Config (Low Risk)
 
-### What doesn't work
+**What:** Create `config/constitution-check-defaults.json` with all 23
+thresholds. Modify `check-constitution-health.js` to read from config
+with inline defaults as fallback.
 
-- **No configurability:** Tuning any threshold requires editing source code and redeploying
-- **No test coverage** on the main health checker (1020 lines, 0 tests)
-- **Three scripts, three output formats:** No unified runner or result aggregation
-- **Schema debt:** The formal schema exists but nothing conforms to it
-- **No check discovery:** Adding a new check requires editing the monolith
+**Why:** Enables threshold tuning without source edits. Zero behavior
+change — defaults match current hardcoded values.
 
-### Actionable next steps (in priority order)
+**Effort:** ~2 hours.
 
-1. **Extract thresholds to a config file** — Lowest risk, highest immediate value. Create `config/constitution-check-defaults.json` with all hardcoded constants. Update `check-constitution-health.js` to read from it with fallback to current defaults. Zero behavior change, full configurability.
+### Step 2: Add Test Coverage (Low Risk)
 
-2. **Add tests for `check-constitution-health.js`** — The 1020-line monolith has zero test coverage. Before any refactoring, add tests that capture current behavior for each check function. Use the same self-contained pattern as the guard tests.
+**What:** Create `scripts/ai/__tests__/check-constitution-health.test.js`
+with unit tests for each check function. Use mock state files in a temp
+directory. Cover: pass case, warning case, violation case per function.
 
-3. **Align output with formal schema** — Make `check-constitution-health.js` conform to `schemas/constitution-check-result.schema.json`. This unblocks downstream consumers and validates the schema is fit for purpose.
+**Why:** 1020 lines with zero tests is the highest-risk aspect. Tests
+must exist before any refactor.
 
-4. **Extract checks into a `checks/` directory** — Each check becomes a module with the standard interface. The monolith becomes a thin runner that loads from the registry. This is the actual plugin architecture step, but it's safe only after steps 1-3.
+**Effort:** ~4 hours.
 
-### Risk assessment
+### Step 3: Align Output with Schema (Low Risk)
 
-- Steps 1-3 are low risk (config extraction, test addition, schema alignment)
-- Step 4 is medium risk (structural refactor of a production-critical script with no tests)
-- The issue title says "investigate" — this document completes that investigation
-- Full plugin architecture implementation should be a separate issue, gated on steps 1-3
+**What:** Modify the output assembly in `main()` to conform to
+`schemas/constitution-check-result.schema.json`. Add missing fields
+(`checkId`, `checkType` enum values, `lawsEvaluated`, per-check `name`
+and `law` enum, violation `code` and `severity`, `summary.humanReviewRequired`).
+
+**Why:** The schema exists but is not followed. Alignment enables
+consumers to validate output reliably.
+
+**Effort:** ~3 hours.
+
+### Step 4: Extract Checks to Plugin Architecture (Medium Risk)
+
+**What:** After steps 1-3, extract each check function into
+`scripts/ai/checks/<id>.js` with the standard interface. Create
+`scripts/ai/check-registry.js` as the loader. Refactor `main()` to
+iterate the registry.
+
+**Why:** Enables adding/removing checks without touching the runner.
+Each check becomes independently testable and reviewable.
+
+**Effort:** ~6 hours. **Gated on steps 1-3.**
+
+---
+
+## Risk Assessment
+
+| Step | Risk | Mitigation |
+|------|------|------------|
+| 1. Config extraction | Low | Defaults match current values; fallback chain |
+| 2. Test coverage | Low | Additive only; no behavior change |
+| 3. Schema alignment | Low | Output changes are additive; consumers should tolerate new fields |
+| 4. Plugin extraction | Medium | Requires step 2 (tests) to catch regressions |
+
+---
+
+## Recommendation
+
+Steps 1-3 should be completed as a single PR. Step 4 should be a separate
+issue gated on the test coverage from step 2. This investigation closes
+with the recommendation that the plugin architecture is feasible and
+well-bounded, but requires the prerequisite steps to be safe.
