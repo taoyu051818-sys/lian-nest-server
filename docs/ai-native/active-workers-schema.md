@@ -71,7 +71,7 @@ Each entry in the `workers` array describes a single active worker.
 | `worktree` | `string or null` | Worker worktree path. |
 | `taskFile` | `string or null` | Per-worker single-task JSON file. |
 | `pid` | `integer or null` | Process id for the worker wrapper. |
-| `status` | `string or null` | `planned`, `running`, `completed`, `failed`, `stale`, `blocked`, or `needs-human`. |
+| `status` | `string or null` | `planned`, `running`, `completed`, `failed`, `stale`, `blocked`, `needs-human`, or `cancelled`. |
 | `startedAt` / `endedAt` | `string or null` | Worker lifecycle timestamps. |
 | `exitCode` | `integer or null` | Worker exit code. |
 | `logPath` / `stderrPath` | `string or null` | Local stdout/stderr log paths. |
@@ -80,6 +80,91 @@ Each entry in the `workers` array describes a single active worker.
 | `actorRole` | `string or null` | Worker role. |
 | `providerSlot` | `string or null` | Provider slot, when assigned. |
 | `failureClass` / `failureSummary` / `safeToRetry` | nullable | Failure aggregation fields set by `wait-parallel-workers.ps1`. |
+
+---
+
+## Status Transitions
+
+The `status` field follows a declarative state machine. Each transition is
+owned by a specific component. Illegal transitions (e.g., `completed` →
+`running` without a re-launch) indicate drift and should be flagged by the
+state reconciler. The transition validator script at
+`scripts/ai/validate-worker-transition.js` enforces these rules.
+
+```
+                    +---------+
+                    | planned |
+                    +---------+
+                         |
+              batch-launch.ps1
+                    (gate pass)
+                         v
+                    +---------+
+          +-------->| running |<-----------+
+          |         +---------+            |
+          |           |  |  |             |
+   (re-launch)   exit 0 |  | exit !=0    |
+          |        |    |  |    |    human input
+          |        v    |  |    v         |
+          |  +-----------+ |  +--------+  |
+          |  | completed | |  | failed |--+
+          |  +-----------+ |  +--------+
+          |   (terminal)   |       |
+          |                |  +---------+
+          |                +->| stale   |--+---> completed
+          |                   +---------+  |
+          |                      |         +---> failed
+          |                      v
+          |               +------------+
+          +-------------->| blocked    |
+                          +------------+
+                               |
+                    +----------+
+                    |
+                    v
+               +------------+
+               |needs-human |--+---> running
+               +------------+  |
+                               +---> cancelled
+
+  Terminal states: completed, cancelled
+```
+
+### Transition Table
+
+| From | To | Owner | Guard Condition |
+|------|----|-------|-----------------|
+| `planned` | `running` | `batch-launch.ps1` | Launch gate passes, PID assigned |
+| `planned` | `blocked` | `batch-launch.ps1` | Launch gate blocks (conflict or health) |
+| `planned` | `cancelled` | Orchestrator | Explicit cancel command |
+| `blocked` | `planned` | Orchestrator | Conflict cleared, re-queued |
+| `blocked` | `cancelled` | Orchestrator | Explicit cancel command |
+| `running` | `completed` | `wait-parallel-workers.ps1` | Exit code 0, result file written |
+| `running` | `failed` | `wait-parallel-workers.ps1` | Exit code non-zero or timeout |
+| `running` | `needs-human` | Worker script | Human gate boundary triggered |
+| `running` | `stale` | `wait-claude-batch.ps1` | Heartbeat timeout exceeded |
+| `needs-human` | `running` | Orchestrator | Human input recorded in fact event |
+| `needs-human` | `cancelled` | Orchestrator | Explicit cancel after human review |
+| `stale` | `completed` | `wait-parallel-workers.ps1` | Late success detection (exit 0) |
+| `stale` | `failed` | `wait-parallel-workers.ps1` | Confirmed failure after grace period |
+| `stale` | `cancelled` | Orchestrator | Explicit cancel after stale timeout |
+| `failed` | `planned` | `batch-launch.ps1` | Explicit retry approval (human gate) |
+| `completed` | *(terminal)* | — | No outgoing transitions |
+| `cancelled` | *(terminal)* | — | No outgoing transitions |
+
+### Terminal States
+
+`completed` and `cancelled` are terminal. A `failed` worker may be
+re-launched as a new `planned` entry in a subsequent batch — this is a new
+worker entry, not a status transition.
+
+### See Also
+
+- [Worker Heartbeat](worker-heartbeat.md) — Heartbeat sub-state machine
+  (`running` → `running:no-output` → `stale`)
+- [Issue Lifecycle](issue-lifecycle.md) — Issue label transitions
+- [Graph-Based State Machine Investigation](graph-based-state-machine-investigation.md)
+  — Full analysis of LangGraph patterns applied to LIAN
 
 ---
 
