@@ -82,6 +82,38 @@ function Ensure-Directory([string]$Path) {
     }
 }
 
+function Write-HookSettings {
+    <#
+    .SYNOPSIS
+        Writes .claude/settings.json into a worktree with PreToolUse hooks
+        for forbiddenFiles enforcement.
+    #>
+    param([string]$WorktreeDir)
+
+    $hookScript = Join-Path (Get-Location).Path "scripts/ai/hook-forbidden-files-enforcer.js"
+    $hookCommand = "node $hookScript"
+
+    $settings = @{
+        hooks = @{
+            Write = @(
+                @{ type = "command"; command = $hookCommand }
+            )
+            Edit = @(
+                @{ type = "command"; command = $hookCommand }
+            )
+            NotebookEdit = @(
+                @{ type = "command"; command = $hookCommand }
+            )
+        }
+    }
+
+    $claudeDir = Join-Path $WorktreeDir ".claude"
+    Ensure-Directory $claudeDir
+    $settingsPath = Join-Path $claudeDir "settings.json"
+    $settings | ConvertTo-Json -Depth 10 | Set-Content -Path $settingsPath -Encoding UTF8
+    Write-Ok "Hook settings written to $settingsPath"
+}
+
 function Ensure-Worktree {
     <#
     .SYNOPSIS
@@ -697,12 +729,14 @@ if (-not $Parallel) {
         }
         $singleTaskFile = Join-Path ([System.IO.Path]::GetTempPath()) "single-task-$($task.targetIssue).json"
         Write-SingleTaskFile $task $singleTaskFile
+        Write-HookSettings -WorktreeDir $plan.WorktreeDir
         Write-Step "Running Claude Code worker for issue #$($task.targetIssue)"
         if ($WorkerCommand.Trim().Length -gt 0) {
             $env:LIAN_WORKER_TASK_FILE = $singleTaskFile
             $env:LIAN_WORKER_ISSUE = [string]$task.targetIssue
             Invoke-Expression $WorkerCommand
         } else {
+            $env:LIAN_WORKER_TASK_FILE = $singleTaskFile
             & ./scripts/ai/run-claude-print.ps1 -TaskFile $singleTaskFile -Branch $plan.BranchName -Worktree $plan.WorktreeDir
         }
         Remove-Item $singleTaskFile -ErrorAction SilentlyContinue
@@ -727,6 +761,7 @@ for ($i = 0; $i -lt $waves.Count; $i++) {
         if (-not $SkipWorktreeSetup) {
             Ensure-Worktree -BranchName $plan.BranchName -WorktreeDir $plan.WorktreeDir
         }
+        Write-HookSettings -WorktreeDir $plan.WorktreeDir
 
         $singleTaskFile = Join-Path $batchLogDir "issue-$issue.task.json"
         $outLog = Join-Path $batchLogDir "issue-$issue.out.log"
