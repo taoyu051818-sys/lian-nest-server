@@ -178,28 +178,10 @@ Default weights (tunable):
 | `w4` (recency) | 0.15 | Recent facts are usually more relevant |
 | `w5` (outcome) | 0.20 | Accepted/rejected experiments carry strong signals |
 
-### Retrieval Script Contract
+### Retrieval Script
 
-A new script `scripts/ai/retrieve-relevant-facts.js` would:
-
-```
-Input:
-  --issue <n>              GitHub issue number (for task context)
-  --domain <tags>          Comma-separated domain tags
-  --limit <n>              Max results (default: 20)
-  --minScore <0-1>         Minimum relevance threshold (default: 0.3)
-  --ledgers <list>         Which ledgers to search (default: all)
-  --dry-run                Print results without side effects (default)
-
-Output:
-  JSON array of ranked facts, each with:
-    - source: which ledger (fact-events, knowledge, external-facts, gap)
-    - entry: the original NDJSON entry
-    - relevanceScore: 0-1
-    - matchReason: human-readable explanation of score components
-```
-
-Example usage:
+A new script `scripts/ai/retrieve-relevant-facts.js` provides the
+retrieval layer. See the script for CLI usage and scoring details.
 
 ```bash
 # Find facts relevant to issue #1369 about agent memory systems
@@ -242,7 +224,7 @@ includes docs by directory scan. With the retrieval layer, it could
 optionally include relevant fact excerpts:
 
 ```
-Current:  docs/ -> all docs in directory
+Current:  docs/ → all docs in directory
 Proposed: docs/ + top-K relevant facts from ledgers (by issue domain)
 ```
 
