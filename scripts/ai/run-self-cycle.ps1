@@ -716,6 +716,112 @@ if ($SkipReconcile) {
 }
 
 # ===========================================================================
+# STEP 1.5: Constitution Health Pre-flight
+# ===========================================================================
+
+Write-SectionHeader "STEP 1.5 --- Constitution Health Pre-flight"
+
+$CONSTITUTION_CHECKS = Join-Path $SCRIPT_DIR "lib" "constitution-checks.js"
+$constitutionFindings = @()
+$runtimeFindings = @()
+$constitutionDecision = "pass"
+$runtimeDecision = "pass"
+
+if (Test-Path $CONSTITUTION_CHECKS) {
+    Write-Step "Running constitution and runtime health checks via lib module..."
+
+    # Run constitution checks (static compliance)
+    try {
+        $constNodeScript = Join-Path $SCRIPT_DIR "lib" "_run-constitution-checks.js"
+        $constJson = & node $constNodeScript 2>&1 | Out-String
+        if ($LASTEXITCODE -eq 0 -and $constJson) {
+            $constResult = $constJson | ConvertFrom-Json
+            $constitutionFindings = @($constResult.findings)
+            $constitutionDecision = $constResult.overallDecision
+
+            $constViolations = @($constitutionFindings | Where-Object { $_.decision -eq 'violation' })
+            $constWarnings = @($constitutionFindings | Where-Object { $_.decision -eq 'warning' })
+            $constPasses = @($constitutionFindings | Where-Object { $_.decision -eq 'pass' })
+
+            if ($constitutionDecision -eq 'violation') {
+                Write-Fail "Constitution checks: $($constViolations.Count) violation(s), $($constWarnings.Count) warning(s)"
+                foreach ($v in $constViolations) {
+                    Write-Fail "  [$($v.rule || $v.law)] $($v.message)"
+                }
+            } elseif ($constitutionDecision -eq 'warning') {
+                Write-Warn "Constitution checks: $($constWarnings.Count) warning(s), $($constPasses.Count) pass"
+            } else {
+                Write-Ok "Constitution checks: all $($constPasses.Count) checks passed"
+            }
+            Add-StepResult -Name "constitution-preflight" -Status $constitutionDecision `
+                           -Detail "$($constViolations.Count) violations, $($constWarnings.Count) warnings"
+        } else {
+            Write-Warn "Constitution checks returned no output"
+            Add-StepResult -Name "constitution-preflight" -Status "warning" -Detail "No output from checks"
+        }
+    } catch {
+        Write-Warn "Constitution checks failed: $_"
+        Add-StepResult -Name "constitution-preflight" -Status "warning" -Detail "Check execution failed: $_"
+    }
+
+    # Run runtime health checks (state staleness, build, resources)
+    try {
+        $runtimeNodeScript = Join-Path $SCRIPT_DIR "lib" "_run-runtime-checks.js"
+        $runtimeJson = & node $runtimeNodeScript 2>&1 | Out-String
+        if ($LASTEXITCODE -eq 0 -and $runtimeJson) {
+            $runtimeResult = $runtimeJson | ConvertFrom-Json
+            $runtimeFindings = @($runtimeResult.findings)
+            $runtimeDecision = $runtimeResult.overallDecision
+
+            $rtViolations = @($runtimeFindings | Where-Object { $_.decision -eq 'violation' })
+            $rtWarnings = @($runtimeFindings | Where-Object { $_.decision -eq 'warning' })
+            $rtPasses = @($runtimeFindings | Where-Object { $_.decision -eq 'pass' })
+
+            if ($runtimeDecision -eq 'violation') {
+                Write-Fail "Runtime health: $($rtViolations.Count) violation(s), $($rtWarnings.Count) warning(s)"
+                foreach ($v in $rtViolations) {
+                    Write-Fail "  [$($v.dimension)] $($v.message)"
+                }
+            } elseif ($runtimeDecision -eq 'warning') {
+                Write-Warn "Runtime health: $($rtWarnings.Count) warning(s), $($rtPasses.Count) pass"
+                foreach ($w in $rtWarnings) {
+                    Write-Warn "  [$($w.dimension)] $($w.message)"
+                }
+            } else {
+                Write-Ok "Runtime health: all $($rtPasses.Count) checks passed"
+            }
+            Add-StepResult -Name "runtime-health" -Status $runtimeDecision `
+                           -Detail "$($rtViolations.Count) violations, $($rtWarnings.Count) warnings"
+        }
+    } catch {
+        Write-Warn "Runtime health checks failed: $_"
+        Add-StepResult -Name "runtime-health" -Status "warning" -Detail "Check failed: $_"
+    }
+
+    # Block cycle if constitution checks found violations (unless autopilot)
+    if ($constitutionDecision -eq 'violation') {
+        if ($AutopilotPlan) {
+            Write-Warn "AUTOPILOT-PLAN: Constitution violations detected --- pipeline would be blocked."
+            Add-StepResult -Name "constitution-gate" -Status "blocked" `
+                           -Detail "Constitution violations (autopilot: recorded, not exited)"
+        } else {
+            Write-HumanStop -Reason "Constitution health check found violations. See details above." `
+                            -NextAction "Fix constitution violations before running the self-cycle."
+            Add-StepResult -Name "constitution-gate" -Status "blocked" `
+                           -Detail "Constitution violations detected" -HumanStop $true
+            $cycleResult.finalStatus = "blocked-by-constitution"
+            $cycleResult.completedAt = ([DateTime]::UtcNow).ToString("o")
+            Write-Host ""
+            Write-Host "Cycle result: $($cycleResult.finalStatus)" -ForegroundColor Red
+            exit 1
+        }
+    }
+} else {
+    Write-Warn "Constitution checks library not found at $CONSTITUTION_CHECKS --- skipping pre-flight"
+    Add-StepResult -Name "constitution-preflight" -Status "skipped" -Detail "Library not found"
+}
+
+# ===========================================================================
 # STEP 2: Main Health State
 # ===========================================================================
 
@@ -1117,6 +1223,7 @@ $finalColor = switch ($cycleResult.finalStatus) {
     "human-stop"               { "Magenta" }
     "blocked"                  { "Red" }
     "blocked-by-health"        { "Red" }
+    "blocked-by-constitution"  { "Red" }
     "blocked-by-gate"          { "Red" }
     "blocked-by-max-tasks"     { "Red" }
     "blocked-by-provider-pool" { "Red" }
@@ -1148,6 +1255,9 @@ switch ($cycleResult.finalStatus) {
     }
     "blocked-by-health" {
         Write-Host "Next: Fix main health (run post-merge-health-gate) before launching." -ForegroundColor Red
+    }
+    "blocked-by-constitution" {
+        Write-Host "Next: Fix constitution violations detected in pre-flight. Run check-constitution-health.js for details." -ForegroundColor Red
     }
     "blocked-by-gate" {
         Write-Host "Next: Resolve launch gate conflicts (duplicates, shared locks, health policy)." -ForegroundColor Red
