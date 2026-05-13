@@ -250,6 +250,7 @@ function buildWorkerSummary(inputs) {
 function buildParallelSummary(inputs) {
   const active = inputs.activeWorkers;
   const provider = buildProviderSummary(inputs);
+  const locks = buildLockSummary(inputs);
   const workers = active && Array.isArray(active.workers) ? active.workers : [];
   const failed = workers.filter(w => w && w.status === 'failed').length;
   const stale = workers.filter(w => w && w.status === 'stale').length;
@@ -265,20 +266,27 @@ function buildParallelSummary(inputs) {
     ? active.blockedParallelismReason
     : null;
 
+  // Task-surface independence analysis
+  const taskSurfaces = analyzeTaskSurfaces(workers, inputs);
+
   let safeToIncrease = false;
   let recommendation = 'Parallel worker state unavailable.';
   if (active && Array.isArray(active.workers)) {
     if (failed > 0 || stale > 0) {
-      recommendation = 'Do not increase concurrency until failed or stale workers are reconciled.';
+      recommendation = `Do not increase concurrency until ${failed} failed and ${stale} stale worker(s) are reconciled.`;
     } else if (provider.loaded && provider.available === 0) {
       recommendation = 'Do not increase concurrency; provider pool has no available providers.';
     } else if (effective !== null && requested !== null && effective < requested) {
       recommendation = `Do not increase yet; effective parallelism is reduced (${blockedReason || 'capacity gate'}).`;
+    } else if (taskSurfaces.hasConflicts) {
+      recommendation = `Task surfaces overlap: ${taskSurfaces.conflictSummary}. Serialize conflicting tasks before increasing concurrency.`;
     } else if (running === 0) {
       safeToIncrease = true;
-      recommendation = 'No active failed or stale workers; a small controlled increase can be previewed.';
+      recommendation = taskSurfaces.independent
+        ? `All ${taskSurfaces.uniqueGroups} task surface(s) are independent (no conflictGroup, allowedFiles, or lock overlap). Safe to increase concurrency.`
+        : 'No active failed or stale workers; a small controlled increase can be previewed.';
     } else {
-      recommendation = 'Workers are in flight; monitor completion before increasing concurrency.';
+      recommendation = `${running} worker(s) in flight across ${taskSurfaces.uniqueGroups} independent task surface(s). Monitor completion before increasing concurrency.`;
     }
   }
 
@@ -293,6 +301,74 @@ function buildParallelSummary(inputs) {
     blockedParallelismReason: blockedReason,
     safeToIncreaseConcurrency: safeToIncrease,
     recommendation,
+    taskSurfaces,
+  };
+}
+
+function analyzeTaskSurfaces(workers, inputs) {
+  if (!workers || workers.length === 0) {
+    return { independent: true, hasConflicts: false, uniqueGroups: 0, conflictSummary: 'no active workers' };
+  }
+
+  // Collect conflictGroups from active workers
+  const conflictGroups = new Map();
+  const fileScopes = new Map();
+
+  for (const w of workers) {
+    if (!w || w.status !== 'running') continue;
+    const cg = w.conflictGroup || null;
+    if (cg) {
+      const key = cg.toLowerCase();
+      conflictGroups.set(key, (conflictGroups.get(key) || 0) + 1);
+    }
+    // Track allowedFiles overlap if available
+    if (Array.isArray(w.allowedFiles)) {
+      for (const f of w.allowedFiles) {
+        fileScopes.set(f, (fileScopes.get(f) || 0) + 1);
+      }
+    }
+  }
+
+  // Check for shared locks
+  const lockGroups = new Set();
+  if (inputs.launchLocks && Array.isArray(inputs.launchLocks.locks)) {
+    for (const lock of inputs.launchLocks.locks) {
+      if (lock.conflictGroup) lockGroups.add(lock.conflictGroup.toLowerCase());
+    }
+  }
+
+  // Detect conflicts
+  const conflictingGroups = [];
+  for (const [group, count] of conflictGroups) {
+    if (count > 1) conflictingGroups.push(`${group} (${count} workers)`);
+  }
+
+  // Detect lock conflicts
+  const lockConflicts = [];
+  for (const [group] of conflictGroups) {
+    if (lockGroups.has(group)) lockConflicts.push(group);
+  }
+
+  // Detect file scope overlaps
+  const overlappingFiles = [];
+  for (const [file, count] of fileScopes) {
+    if (count > 1) overlappingFiles.push(`${file} (${count} workers)`);
+  }
+
+  const hasConflicts = conflictingGroups.length > 0 || lockConflicts.length > 0 || overlappingFiles.length > 0;
+  const conflictParts = [];
+  if (conflictingGroups.length > 0) conflictParts.push(`conflictGroup: ${conflictingGroups.join(', ')}`);
+  if (lockConflicts.length > 0) conflictParts.push(`lock: ${lockConflicts.join(', ')}`);
+  if (overlappingFiles.length > 0) conflictParts.push(`file overlap: ${overlappingFiles.join(', ')}`);
+
+  return {
+    independent: !hasConflicts,
+    hasConflicts,
+    uniqueGroups: conflictGroups.size,
+    conflictSummary: hasConflicts ? conflictParts.join('; ') : 'no conflicts detected',
+    conflictingGroups,
+    lockConflicts,
+    overlappingFiles,
   };
 }
 
@@ -550,16 +626,19 @@ function buildIssueProductionSummary(inputs) {
     : null;
   const lastCycleStatus = lastCycle ? lastCycle.finalStatus || null : null;
 
-  // Recommendation
+  // Recommendation — evidence-based: severity proportional to gap relative to capacity
   let recommendation;
   if (!lc) {
     recommendation = 'Launch candidate data unavailable. Run detect-launch-candidates to assess issue pool.';
   } else if (topUpNeeded && readyIssueCount === 0) {
-    recommendation = `No ready issues for ${requestedParallelism} requested workers. Produce issues immediately.`;
-  } else if (topUpNeeded && topUpGap > 10) {
-    recommendation = `Critical gap: ${readyIssueCount} ready issues vs ${requestedParallelism} requested. Produce at least ${topUpGap} more issues.`;
+    recommendation = `No ready issues for ${requestedParallelism} requested workers. Produce issues immediately — all worker slots would be idle.`;
   } else if (topUpNeeded) {
-    recommendation = `Issue pool thin: ${readyIssueCount} ready for ${requestedParallelism} requested. Top up with ${topUpGap} more issues.`;
+    const gapRatio = requestedParallelism > 0 ? topUpGap / requestedParallelism : 0;
+    if (gapRatio > 0.5) {
+      recommendation = `Critical gap: ${readyIssueCount} ready issues vs ${requestedParallelism} requested (${Math.round(gapRatio * 100)}% shortfall). Produce at least ${topUpGap} more issues to avoid idle workers.`;
+    } else {
+      recommendation = `Issue pool thin: ${readyIssueCount} ready for ${requestedParallelism} requested (${Math.round(gapRatio * 100)}% shortfall). Top up with ${topUpGap} more issues.`;
+    }
   } else if (readyIssueCount > 0) {
     recommendation = `Issue pool sufficient: ${readyIssueCount} ready issues for ${requestedParallelism || 0} requested workers.`;
   } else {
@@ -625,13 +704,29 @@ function collectBlockers(inputs, systemStatus) {
     blockers.push({ source: 'trust', severity: 'warning', message: 'worker-trust.json missing — trust policy unknown' });
   }
 
-  // Meta signal blockers
+  // Meta signal blockers — evidence-based: compare against trust and risk context
   const meta = buildMetaSignalsSummary(inputs);
-  if (meta.loaded && meta.failureScore !== null && meta.failureScore >= 50) {
-    blockers.push({ source: 'meta-signals', severity: 'high', message: `Failure score ${meta.failureScore} exceeds threshold` });
+  if (meta.loaded && meta.failureScore !== null) {
+    // A failure score is concerning when it exceeds the trust score (if available)
+    const trust = meta.trust !== null ? meta.trust : 50;
+    if (meta.failureScore > trust) {
+      blockers.push({
+        source: 'meta-signals',
+        severity: meta.failureScore > trust * 1.5 ? 'high' : 'medium',
+        message: `Failure score ${meta.failureScore} exceeds trust score ${trust} — worker reliability degrading`,
+      });
+    }
   }
-  if (meta.loaded && meta.frictionScore !== null && meta.frictionScore >= 30) {
-    blockers.push({ source: 'meta-signals', severity: 'medium', message: `Friction score ${meta.frictionScore} indicates worker stalls` });
+  if (meta.loaded && meta.frictionScore !== null) {
+    // Friction is concerning when it exceeds half the trust score
+    const trust = meta.trust !== null ? meta.trust : 50;
+    if (meta.frictionScore > trust / 2) {
+      blockers.push({
+        source: 'meta-signals',
+        severity: meta.frictionScore > trust ? 'high' : 'medium',
+        message: `Friction score ${meta.frictionScore} relative to trust ${trust} indicates worker stalls`,
+      });
+    }
   }
 
   // Budget blockers from telemetry
@@ -640,21 +735,24 @@ function collectBlockers(inputs, systemStatus) {
     blockers.push({ source: 'budget', severity: bb.severity, message: bb.message });
   }
 
-  // Issue-production blockers
+  // Issue-production blockers — evidence-based: severity proportional to gap relative to capacity
   const issueProd = buildIssueProductionSummary(inputs);
   if (issueProd.loaded && issueProd.topUpNeeded) {
     const gap = issueProd.topUpGap;
-    if (gap > 10) {
+    const requested = issueProd.requestedParallelism || 1;
+    // Severity is proportional: gap > 50% of requested is high, otherwise medium
+    const gapRatio = gap / requested;
+    if (gapRatio > 0.5) {
       blockers.push({
         source: 'issue-production',
         severity: 'high',
-        message: `Issue pool critically low: ${issueProd.readyIssueCount} ready for ${issueProd.requestedParallelism} requested workers (gap: ${gap})`,
+        message: `Issue pool critically low: ${issueProd.readyIssueCount} ready for ${requested} requested workers (gap: ${gap}, ${Math.round(gapRatio * 100)}% shortfall)`,
       });
     } else {
       blockers.push({
         source: 'issue-production',
         severity: 'medium',
-        message: `Issue pool below requested parallelism: ${issueProd.readyIssueCount} ready for ${issueProd.requestedParallelism} requested (gap: ${gap})`,
+        message: `Issue pool below requested parallelism: ${issueProd.readyIssueCount} ready for ${requested} requested (gap: ${gap}, ${Math.round(gapRatio * 100)}% shortfall)`,
       });
     }
   }
@@ -717,15 +815,18 @@ function buildRecommendedActions(inputs, systemStatus, blockers) {
     });
   }
 
-  // Friction-driven actions
+  // Friction-driven actions — evidence-based: friction relative to trust
   const meta = buildMetaSignalsSummary(inputs);
-  if (meta.loaded && meta.frictionScore !== null && meta.frictionScore >= 30) {
-    actions.push({
-      priority: 'medium',
-      action: 'investigate-worker-friction',
-      description: `Friction score ${meta.frictionScore} indicates worker stalls. Check heartbeat logs.`,
-      humanRequired: false,
-    });
+  if (meta.loaded && meta.frictionScore !== null) {
+    const trust = meta.trust !== null ? meta.trust : 50;
+    if (meta.frictionScore > trust / 2) {
+      actions.push({
+        priority: meta.frictionScore > trust ? 'high' : 'medium',
+        action: 'investigate-worker-friction',
+        description: `Friction score ${meta.frictionScore} relative to trust ${trust} indicates worker stalls. Check heartbeat logs and recent telemetry events.`,
+        humanRequired: false,
+      });
+    }
   }
 
   // Resource-driven actions
@@ -749,29 +850,32 @@ function buildRecommendedActions(inputs, systemStatus, blockers) {
     });
   }
 
-  // Issue-production actions
+  // Issue-production actions — evidence-based: gap ratio determines priority
   const issueProd = buildIssueProductionSummary(inputs);
   if (issueProd.loaded && issueProd.topUpNeeded && issueProd.readyIssueCount === 0) {
     actions.push({
       priority: 'urgent',
       action: 'produce-issues',
-      description: `No ready issues for ${issueProd.requestedParallelism} requested workers. Run issue producer to create bounded task issues.`,
-      humanRequired: true,
-    });
-  } else if (issueProd.loaded && issueProd.topUpNeeded && issueProd.topUpGap > 10) {
-    actions.push({
-      priority: 'high',
-      action: 'produce-issues',
-      description: `Critical issue shortage: ${issueProd.readyIssueCount} ready vs ${issueProd.requestedParallelism} requested. Produce at least ${issueProd.topUpGap} more issues.`,
+      description: `No ready issues for ${issueProd.requestedParallelism} requested workers. All worker slots would be idle. Run issue producer to create bounded task issues.`,
       humanRequired: true,
     });
   } else if (issueProd.loaded && issueProd.topUpNeeded) {
-    actions.push({
-      priority: 'medium',
-      action: 'top-up-issues',
-      description: `Issue pool thin: ${issueProd.readyIssueCount} ready for ${issueProd.requestedParallelism} requested. Top up with ${issueProd.topUpGap} more issues.`,
-      humanRequired: false,
-    });
+    const gapRatio = issueProd.requestedParallelism > 0 ? issueProd.topUpGap / issueProd.requestedParallelism : 0;
+    if (gapRatio > 0.5) {
+      actions.push({
+        priority: 'high',
+        action: 'produce-issues',
+        description: `Critical issue shortage: ${issueProd.readyIssueCount} ready vs ${issueProd.requestedParallelism} requested (${Math.round(gapRatio * 100)}% shortfall). Produce at least ${issueProd.topUpGap} more issues.`,
+        humanRequired: true,
+      });
+    } else {
+      actions.push({
+        priority: 'medium',
+        action: 'top-up-issues',
+        description: `Issue pool thin: ${issueProd.readyIssueCount} ready for ${issueProd.requestedParallelism} requested (${Math.round(gapRatio * 100)}% shortfall). Top up with ${issueProd.topUpGap} more issues.`,
+        humanRequired: false,
+      });
+    }
   } else if (!issueProd.loaded) {
     actions.push({
       priority: 'low',

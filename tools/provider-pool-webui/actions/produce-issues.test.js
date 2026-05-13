@@ -166,6 +166,8 @@ function run() {
     assert(typeof proposal.hasRollback === "boolean", "proposal has hasRollback");
     assert(typeof proposal.hasFollowUp === "boolean", "proposal has hasFollowUp");
     assert(typeof proposal.quality === "object", "proposal has quality");
+    assert(typeof proposal.classification === "string", "proposal has classification");
+    assert(typeof proposal.classificationReason === "string", "proposal has classificationReason");
   }
 
   // --- Preview: body contains CONTROL APPENDIX --------------------------------
@@ -209,10 +211,12 @@ function run() {
     // Full quality spec
     var res = mod.preview({ specs: [validSpec()] });
     var quality = res.proposals[0].quality;
-    assert(quality.score === 6, "full spec scores 6/6");
-    assert(quality.maxScore === 6, "max score is 6");
+    assert(quality.score === 7, "full spec scores 7/7");
+    assert(quality.maxScore === 7, "max score is 7");
     assert(quality.percentage === 100, "100% quality");
     assert(quality.feedback.length === 0, "no feedback for full spec");
+    assert(typeof quality.classification === "string", "quality has classification");
+    assert(typeof quality.classificationReason === "string", "quality has classificationReason");
   }
 
   {
@@ -227,8 +231,8 @@ function run() {
       })],
     });
     var quality = res.proposals[0].quality;
-    assert(quality.score === 1, "minimal spec scores 1/6");
-    assert(quality.percentage === 17, "17% quality for minimal");
+    assert(quality.score === 2, "minimal spec scores 2/7 (allowed files + classification)");
+    assert(quality.percentage === 29, "29% quality for minimal");
     assert(quality.feedback.length === 5, "5 feedback items for minimal");
   }
 
@@ -429,6 +433,55 @@ function run() {
     assert(feedback.includes("No forbidden files specified"), "feedback for missing forbidden");
     assert(feedback.includes("No follow-up defined"), "feedback for missing follow-up");
     assert(!feedback.includes("Missing acceptance criteria"), "no feedback for present acceptance");
+  }
+
+  // --- Preview: classification logic -----------------------------------------
+  console.log("\nPreview: classification logic\n");
+
+  {
+    // Gate-worthy: high-risk spec
+    var res = mod.preview({ specs: [validSpec({ risk: "high" })] });
+    assert(res.proposals[0].classification === "gate-worthy", "high-risk is gate-worthy");
+    assert(res.proposals[0].classificationReason.includes("High-risk"), "reason mentions high-risk");
+  }
+
+  {
+    // Gate-worthy: forbidden files
+    var res = mod.preview({ specs: [validSpec({ forbiddenFiles: ["src/auth/**"] })] });
+    assert(res.proposals[0].classification === "gate-worthy", "forbidden files is gate-worthy");
+    assert(res.proposals[0].classificationReason.includes("forbidden"), "reason mentions forbidden");
+  }
+
+  {
+    // Agent-judgment only: low-risk, no evidence, no acceptance
+    var res = mod.preview({ specs: [validSpec({
+      risk: "low",
+      evidence: undefined,
+      acceptance: undefined,
+      forbiddenFiles: [],
+    })] });
+    assert(res.proposals[0].classification === "agent-judgment-only", "low-risk no-evidence is agent-judgment-only");
+    assert(res.proposals[0].classificationReason.includes("Agent judgment"), "reason mentions agent judgment");
+  }
+
+  {
+    // Tool-worthy: evidence + multiple validation commands (no forbidden files)
+    var res = mod.preview({ specs: [validSpec({
+      validationCommands: ["npm run check", "npm test", "npm run lint"],
+      forbiddenFiles: [],
+    })] });
+    assert(res.proposals[0].classification === "tool-worthy", "evidence + multiple validations is tool-worthy");
+    assert(res.proposals[0].classificationReason.includes("tool"), "reason mentions tool");
+  }
+
+  {
+    // Issue-worthy: has evidence, medium risk, no forbidden files, single validation command
+    var res = mod.preview({ specs: [validSpec({
+      forbiddenFiles: [],
+      validationCommands: ["npm run check"],
+    })] });
+    assert(res.proposals[0].classification === "issue-worthy", "medium-risk with evidence is issue-worthy");
+    assert(res.proposals[0].classificationReason.length > 0, "issue-worthy has reason");
   }
 }
 

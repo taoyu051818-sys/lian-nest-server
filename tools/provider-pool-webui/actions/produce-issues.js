@@ -176,7 +176,49 @@ function buildIssueBody(spec) {
   return lines.join("\n");
 }
 
+function classifyProposal(spec) {
+  var evidence = spec.evidence;
+  var hasEvidence = !!(evidence && (Array.isArray(evidence) ? evidence.length > 0 : true));
+  var risk = spec.risk || "medium";
+  var hasForbiddenFiles = spec.forbiddenFiles && spec.forbiddenFiles.length > 0;
+
+  // Gate-worthy: high-risk or touches forbidden scopes
+  if (risk === "high" || hasForbiddenFiles) {
+    return {
+      classification: "gate-worthy",
+      reason: risk === "high"
+        ? "High-risk task requires human gate review before execution."
+        : "Touches forbidden file scope (" + spec.forbiddenFiles.join(", ") + ") — requires human approval.",
+    };
+  }
+
+  // Agent-judgment only: no evidence, low risk, no acceptance criteria
+  if (!hasEvidence && risk === "low" && (!spec.acceptance || spec.acceptance.length === 0)) {
+    return {
+      classification: "agent-judgment-only",
+      reason: "Low-risk task with no recorded evidence and no acceptance criteria. Agent judgment is sufficient — no issue tracking needed.",
+    };
+  }
+
+  // Tool-worthy: recurring pattern with verifiable output (has evidence + validation commands)
+  if (hasEvidence && spec.validationCommands && spec.validationCommands.length > 1) {
+    return {
+      classification: "tool-worthy",
+      reason: "Task has evidence of recurrence and multiple validation commands. A tool would make this more reliable and verifiable.",
+    };
+  }
+
+  // Issue-worthy: has evidence, acceptance criteria, or is medium risk
+  return {
+    classification: "issue-worthy",
+    reason: hasEvidence
+      ? "Has documented evidence and bounded scope. Worthy of issue tracking for accountability."
+      : "Medium-risk or has acceptance criteria. Issue tracking ensures verification before completion.",
+  };
+}
+
 function draftProposal(spec, labels) {
+  var classification = classifyProposal(spec);
   return {
     title: spec.title,
     body: buildIssueBody(spec),
@@ -192,6 +234,8 @@ function draftProposal(spec, labels) {
     hasAcceptance: !!(spec.acceptance && spec.acceptance.length > 0),
     hasRollback: !!spec.rollbackPlan,
     hasFollowUp: !!spec.followUp,
+    classification: classification.classification,
+    classificationReason: classification.reason,
   };
 }
 
@@ -199,7 +243,7 @@ function draftProposal(spec, labels) {
 
 function scoreProposal(proposal) {
   var score = 0;
-  var maxScore = 6;
+  var maxScore = 7;
   var feedback = [];
 
   // Has evidence
@@ -247,11 +291,20 @@ function scoreProposal(proposal) {
     feedback.push("allowedFiles has overly broad patterns");
   }
 
+  // Has classification with reason
+  if (proposal.classification && proposal.classificationReason) {
+    score++;
+  } else {
+    feedback.push("Missing evidence-based classification");
+  }
+
   return {
     score: score,
     maxScore: maxScore,
     percentage: Math.round((score / maxScore) * 100),
     feedback: feedback,
+    classification: proposal.classification || "unclassified",
+    classificationReason: proposal.classificationReason || "",
   };
 }
 
