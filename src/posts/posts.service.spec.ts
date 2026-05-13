@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotImplementedException, NotFoundException } from '@nestjs/common';
-import { PostsService } from './posts.service';
+import { PostsUsecase } from './posts.service';
 import { NodebbPostsProvider, NodebbTopicsProvider, BodyStatus } from '../nodebb';
 import { PostReactionType } from './types';
 
@@ -14,19 +14,19 @@ const mockTopicsProvider = {
   list: jest.fn(),
 };
 
-describe('PostsService', () => {
-  let service: PostsService;
+describe('PostsUsecase', () => {
+  let service: PostsUsecase;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        PostsService,
+        PostsUsecase,
         { provide: NodebbPostsProvider, useValue: mockPostsProvider },
         { provide: NodebbTopicsProvider, useValue: mockTopicsProvider },
       ],
     }).compile();
 
-    service = module.get<PostsService>(PostsService);
+    service = module.get<PostsUsecase>(PostsUsecase);
     jest.clearAllMocks();
   });
 

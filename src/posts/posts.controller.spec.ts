@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotImplementedException } from '@nestjs/common';
 import { PostsController } from './posts.controller';
-import { PostsService } from './posts.service';
+import { PostsUsecase } from './posts.service';
 
-const mockPostsService = {
+const mockPostsUsecase = {
   getPostDetail: jest.fn(),
   listPosts: jest.fn(),
   listReactions: jest.fn(),
@@ -23,7 +23,7 @@ describe('PostsController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [PostsController],
-      providers: [{ provide: PostsService, useValue: mockPostsService }],
+      providers: [{ provide: PostsUsecase, useValue: mockPostsUsecase }],
     }).compile();
 
     controller = module.get<PostsController>(PostsController);
@@ -37,25 +37,25 @@ describe('PostsController', () => {
   // ---- Read ----------------------------------------------------------------
 
   describe('listPosts', () => {
-    it('should delegate to PostsService.listPosts', async () => {
+    it('should delegate to PostsUsecase.listPosts', async () => {
       const mockResult = { items: [], totalCount: 0, page: 1, perPage: 20 };
-      mockPostsService.listPosts.mockResolvedValue(mockResult);
+      mockPostsUsecase.listPosts.mockResolvedValue(mockResult);
 
       const result = await controller.listPosts({ page: 1, perPage: 20 });
 
-      expect(mockPostsService.listPosts).toHaveBeenCalledWith({ page: 1, perPage: 20 });
+      expect(mockPostsUsecase.listPosts).toHaveBeenCalledWith({ page: 1, perPage: 20 });
       expect(result).toBe(mockResult);
     });
   });
 
   describe('getPostDetail', () => {
-    it('should delegate to PostsService.getPostDetail', async () => {
+    it('should delegate to PostsUsecase.getPostDetail', async () => {
       const mockDetail = { pid: 42, tid: 10, title: 'Test' };
-      mockPostsService.getPostDetail.mockResolvedValue(mockDetail);
+      mockPostsUsecase.getPostDetail.mockResolvedValue(mockDetail);
 
       const result = await controller.getPostDetail('42');
 
-      expect(mockPostsService.getPostDetail).toHaveBeenCalledWith('42');
+      expect(mockPostsUsecase.getPostDetail).toHaveBeenCalledWith('42');
       expect(result).toBe(mockDetail);
     });
   });
@@ -63,119 +63,119 @@ describe('PostsController', () => {
   // ---- Write ---------------------------------------------------------------
 
   describe('createPost', () => {
-    it('should delegate to PostsService.createPost', () => {
-      mockPostsService.createPost.mockImplementation(() => {
-        throw new NotImplementedException('PostsService.createPost');
+    it('should delegate to PostsUsecase.createPost', () => {
+      mockPostsUsecase.createPost.mockImplementation(() => {
+        throw new NotImplementedException('PostsUsecase.createPost');
       });
 
       expect(() => controller.createPost({ content: 'hello' })).toThrow(
         NotImplementedException,
       );
-      expect(mockPostsService.createPost).toHaveBeenCalledWith({ content: 'hello' });
+      expect(mockPostsUsecase.createPost).toHaveBeenCalledWith({ content: 'hello' });
     });
   });
 
   describe('updatePost', () => {
-    it('should delegate to PostsService.updatePost', () => {
-      mockPostsService.updatePost.mockImplementation(() => {
-        throw new NotImplementedException('PostsService.updatePost');
+    it('should delegate to PostsUsecase.updatePost', () => {
+      mockPostsUsecase.updatePost.mockImplementation(() => {
+        throw new NotImplementedException('PostsUsecase.updatePost');
       });
 
       expect(() => controller.updatePost('1', { content: 'updated' })).toThrow(
         NotImplementedException,
       );
-      expect(mockPostsService.updatePost).toHaveBeenCalledWith('1', { content: 'updated' });
+      expect(mockPostsUsecase.updatePost).toHaveBeenCalledWith('1', { content: 'updated' });
     });
   });
 
   describe('deletePost', () => {
-    it('should delegate to PostsService.deletePost', () => {
-      mockPostsService.deletePost.mockImplementation(() => {
-        throw new NotImplementedException('PostsService.deletePost');
+    it('should delegate to PostsUsecase.deletePost', () => {
+      mockPostsUsecase.deletePost.mockImplementation(() => {
+        throw new NotImplementedException('PostsUsecase.deletePost');
       });
 
       expect(() => controller.deletePost('1')).toThrow(NotImplementedException);
-      expect(mockPostsService.deletePost).toHaveBeenCalledWith('1');
+      expect(mockPostsUsecase.deletePost).toHaveBeenCalledWith('1');
     });
   });
 
   // ---- Reactions -----------------------------------------------------------
 
   describe('listReactions', () => {
-    it('should delegate to PostsService.listReactions', async () => {
+    it('should delegate to PostsUsecase.listReactions', async () => {
       const mockResult = [
         { type: 'like', count: 0, reactedByMe: false },
       ];
-      mockPostsService.listReactions.mockResolvedValue(mockResult);
+      mockPostsUsecase.listReactions.mockResolvedValue(mockResult);
 
       const result = await controller.listReactions('42');
 
-      expect(mockPostsService.listReactions).toHaveBeenCalledWith('42');
+      expect(mockPostsUsecase.listReactions).toHaveBeenCalledWith('42');
       expect(result).toBe(mockResult);
     });
   });
 
   describe('addReaction', () => {
-    it('should delegate to PostsService.addReaction', () => {
-      mockPostsService.addReaction.mockImplementation(() => {
-        throw new NotImplementedException('PostsService.addReaction');
+    it('should delegate to PostsUsecase.addReaction', () => {
+      mockPostsUsecase.addReaction.mockImplementation(() => {
+        throw new NotImplementedException('PostsUsecase.addReaction');
       });
 
       expect(() => controller.addReaction('1', { type: 'like' as any })).toThrow(
         NotImplementedException,
       );
-      expect(mockPostsService.addReaction).toHaveBeenCalledWith('1', { type: 'like' });
+      expect(mockPostsUsecase.addReaction).toHaveBeenCalledWith('1', { type: 'like' });
     });
   });
 
   describe('removeReaction', () => {
-    it('should delegate to PostsService.removeReaction', () => {
-      mockPostsService.removeReaction.mockImplementation(() => {
-        throw new NotImplementedException('PostsService.removeReaction');
+    it('should delegate to PostsUsecase.removeReaction', () => {
+      mockPostsUsecase.removeReaction.mockImplementation(() => {
+        throw new NotImplementedException('PostsUsecase.removeReaction');
       });
 
       expect(() => controller.removeReaction('1', 'like')).toThrow(
         NotImplementedException,
       );
-      expect(mockPostsService.removeReaction).toHaveBeenCalledWith('1', 'like');
+      expect(mockPostsUsecase.removeReaction).toHaveBeenCalledWith('1', 'like');
     });
   });
 
   // ---- Replies -------------------------------------------------------------
 
   describe('listReplies', () => {
-    it('should delegate to PostsService.listReplies', async () => {
+    it('should delegate to PostsUsecase.listReplies', async () => {
       const mockResult = { items: [], totalCount: 0, page: 1, perPage: 20 };
-      mockPostsService.listReplies.mockResolvedValue(mockResult);
+      mockPostsUsecase.listReplies.mockResolvedValue(mockResult);
 
       const result = await controller.listReplies('42', { page: 1, perPage: 20 });
 
-      expect(mockPostsService.listReplies).toHaveBeenCalledWith('42', { page: 1, perPage: 20 });
+      expect(mockPostsUsecase.listReplies).toHaveBeenCalledWith('42', { page: 1, perPage: 20 });
       expect(result).toBe(mockResult);
     });
   });
 
   describe('createReply', () => {
-    it('should delegate to PostsService.createReply', () => {
-      mockPostsService.createReply.mockImplementation(() => {
-        throw new NotImplementedException('PostsService.createReply');
+    it('should delegate to PostsUsecase.createReply', () => {
+      mockPostsUsecase.createReply.mockImplementation(() => {
+        throw new NotImplementedException('PostsUsecase.createReply');
       });
 
       expect(() => controller.createReply('1', { content: 'reply' })).toThrow(
         NotImplementedException,
       );
-      expect(mockPostsService.createReply).toHaveBeenCalledWith('1', { content: 'reply' });
+      expect(mockPostsUsecase.createReply).toHaveBeenCalledWith('1', { content: 'reply' });
     });
   });
 
   describe('deleteReply', () => {
-    it('should delegate to PostsService.deleteReply', () => {
-      mockPostsService.deleteReply.mockImplementation(() => {
-        throw new NotImplementedException('PostsService.deleteReply');
+    it('should delegate to PostsUsecase.deleteReply', () => {
+      mockPostsUsecase.deleteReply.mockImplementation(() => {
+        throw new NotImplementedException('PostsUsecase.deleteReply');
       });
 
       expect(() => controller.deleteReply('1', 'r1')).toThrow(NotImplementedException);
-      expect(mockPostsService.deleteReply).toHaveBeenCalledWith('1', 'r1');
+      expect(mockPostsUsecase.deleteReply).toHaveBeenCalledWith('1', 'r1');
     });
   });
 });
