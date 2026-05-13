@@ -174,35 +174,42 @@ function generateProposalsFromExternalFacts(facts) {
   for (const fact of facts) {
     // Skip genesis/placeholder entries
     if (fact.factType === 'evidence.intake' && fact.subject === 'external-facts ledger initialized') continue;
+    if (fact.eventVersion && fact.sourceClass === 'human-instruction' && fact.facts && fact.facts.sourceClass === 'human-instruction') continue;
 
-    // Convert external facts into bounded experiment proposals
-    const factType = fact.factType || 'unknown';
-    const subject = fact.subject || 'unknown';
-    const claim = fact.claim || '';
+    // Normalize fields across both schema formats
+    // Format A (external-fact.schema.json): entryVersion, factType, subject, claim, sourceReliability, tags
+    // Format B (write-external-fact.js output): eventVersion, sourceClass, facts.{topic,pattern,keyInsight,relevance}, reliabilityTier
+    const factType = fact.factType || fact.sourceClass || 'unknown';
+    const subject = fact.subject || (fact.facts && fact.facts.topic) || 'unknown';
+    const claim = fact.claim || (fact.facts && fact.facts.keyInsight) || '';
+    const reliability = fact.sourceReliability || fact.reliabilityTier || 'medium';
+    const relevance = (fact.facts && fact.facts.relevance) || '';
+    const pattern = (fact.facts && fact.facts.pattern) || '';
 
-    // Only generate proposals for facts that suggest actionable improvements
-    if (!fact.tags || fact.tags.length === 0) continue;
+    // For Format B (write-external-fact.js), all external-doc entries are actionable
+    const isExternalDoc = fact.sourceClass === 'external-doc' || (fact.factType && fact.factType.startsWith('external'));
+    const hasTags = fact.tags && fact.tags.length > 0;
+    const hasActionableContent = isExternalDoc || (fact.facts && fact.facts.keyInsight);
 
-    const hasActionableTag = fact.tags.some(t =>
-      ['improvement', 'opportunity', 'gap', 'performance', 'security', 'reliability'].includes(t)
-    );
-    if (!hasActionableTag) continue;
+    if (!hasTags && !hasActionableContent) continue;
+
+    const conflictSuffix = subject.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
 
     proposals.push({
-      title: `Investigate external signal: ${subject}`.slice(0, 200),
+      title: `Investigate: ${pattern || subject}`.slice(0, 200),
       taskType: 'research',
       risk: 'low',
-      conflictGroup: `external-intake-${factType.replace(/\./g, '-')}`,
+      conflictGroup: `external-intake-${conflictSuffix}`,
       actorRole: 'research-worker',
       allowedFiles: ['docs/ai-native/**', 'scripts/ai/**'],
       forbiddenFiles: FORBIDDEN_SCOPES,
       validationCommands: ['npm run check'],
-      rationale: `External fact (${factType}) about "${subject}": ${claim}`,
-      evidence: `Source reliability: ${fact.sourceReliability}. Captured at: ${fact.capturedAt}.`,
+      rationale: `External research (${factType}): ${claim}${relevance ? ` Relevance: ${relevance}` : ''}`,
+      evidence: `Source reliability: ${reliability}. Captured at: ${fact.capturedAt}. Source: ${fact.sourceUrl || 'N/A'}.`,
       rollbackFollowUp: 'If the investigation finds no actionable improvement, close the issue with a summary of findings.',
       macroGoal: 'external-intake-bridge',
       sourceFactId: fact.entryId || null,
-      sourceReliability: fact.sourceReliability,
+      sourceReliability: reliability,
     });
   }
 
@@ -277,22 +284,38 @@ function main() {
     // Test: empty facts produce no proposals
     assert(generateProposalsFromExternalFacts([]).length === 0, 'empty facts -> 0 proposals');
 
-    // Test: genesis entry is skipped
+    // Test: genesis entry is skipped (Format A)
     assert(generateProposalsFromExternalFacts([{
       entryVersion: 1, factType: 'evidence.intake', subject: 'external-facts ledger initialized',
       claim: 'init', capturedAt: '2026-01-01T00:00:00Z', sourceReliability: 'verified'
-    }]).length === 0, 'genesis entry skipped');
+    }]).length === 0, 'genesis entry skipped (Format A)');
 
-    // Test: actionable fact produces proposal
+    // Test: genesis entry is skipped (Format B — write-external-fact.js)
+    assert(generateProposalsFromExternalFacts([{
+      eventVersion: 1, sourceClass: 'human-instruction', capturedAt: '2026-01-01T00:00:00Z',
+      facts: { sourceClass: 'human-instruction', sanitized: true }
+    }]).length === 0, 'genesis entry skipped (Format B)');
+
+    // Test: actionable fact produces proposal (Format A)
     const actionableFact = {
       entryVersion: 1, factType: 'perf.degradation', subject: 'API latency',
       claim: 'API p99 latency increased 50%', capturedAt: '2026-01-01T00:00:00Z',
       sourceReliability: 'observed', tags: ['performance'],
     };
     const factProposals = generateProposalsFromExternalFacts([actionableFact]);
-    assert(factProposals.length === 1, 'actionable fact -> 1 proposal');
+    assert(factProposals.length === 1, 'actionable fact (Format A) -> 1 proposal');
     assert(factProposals[0].risk === 'low', 'fact proposal risk is low');
     assert(factProposals[0].taskType === 'research', 'fact proposal is research');
+
+    // Test: actionable fact produces proposal (Format B — write-external-fact.js)
+    const formatBFact = {
+      eventVersion: 1, sourceClass: 'external-doc', capturedAt: '2026-01-01T00:00:00Z',
+      sourceUrl: 'https://example.com', actor: 'research-intake', reliabilityTier: 'high', sanitized: true,
+      facts: { topic: 'agent-orchestration', pattern: 'graph-based', keyInsight: 'Graphs enable parallel', relevance: 'LIAN wave planning' },
+    };
+    const formatBProposals = generateProposalsFromExternalFacts([formatBFact]);
+    assert(formatBProposals.length === 1, 'external-doc (Format B) -> 1 proposal');
+    assert(formatBProposals[0].conflictGroup.includes('agent-orchestration'), 'conflictGroup from topic');
 
     // Test: opportunity signal produces proposal
     const oppSignal = {
@@ -331,8 +354,13 @@ function main() {
 
   // Read signals
   const externalFacts = readNdjsonFile(path.join(args.stateDir, 'external-facts.ndjson'));
+  // Read opportunity signals from both JSON and NDJSON formats
   const opportunitySignalsData = readJsonFile(path.join(args.stateDir, 'opportunity-signals.json'));
-  const opportunitySignals = (opportunitySignalsData && opportunitySignalsData.signals) || [];
+  const opportunitySignalsNddjson = readNdjsonFile(path.join(args.stateDir, 'opportunity-signals.ndjson'));
+  const opportunitySignals = [
+    ...((opportunitySignalsData && opportunitySignalsData.signals) || []),
+    ...opportunitySignalsNddjson,
+  ];
 
   // Generate proposals
   const factProposals = generateProposalsFromExternalFacts(externalFacts);
