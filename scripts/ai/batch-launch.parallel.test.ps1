@@ -175,11 +175,21 @@ try {
     Assert ($result.output -match "SERIALIZED: shared lock 'app-module'") "shared lock overlap is serialized"
     Assert ($result.output -match "Effective parallelism: 2") "shared lock limits conflict-safe parallelism"
 
-    $case5 = Join-Path $root "high-risk"
+    $case5 = Join-Path $root "high-risk-independent"
     $tasks = @((New-Task 9011 "safe-a"), (New-Task 9012 "risky" @() "high"))
     $result = Invoke-Launcher $case5 $tasks 30 30
-    Assert ($result.output -match "Risk-safe slots: 1") "high-risk task caps risk-safe slots"
-    Assert ($result.output -match "Effective parallelism: 1") "high-risk batch effective parallelism is 1"
+    Assert ($result.output -match "Risk surface info:.*1 high-risk") "high-risk task reports per-surface risk info"
+    Assert ($result.output -match "Effective parallelism: 2") "high-risk + low-risk independent surfaces have parallelism 2"
+
+    $case5b = Join-Path $root "high-risk-serialize"
+    $tasks = @((New-Task 9020 "risky-a" @() "high"), (New-Task 9021 "risky-b" @() "high"))
+    $result = Invoke-Launcher $case5b $tasks 30 30
+    Assert ($result.output -match "Effective parallelism: 1") "two high-risk tasks serialize to parallelism 1"
+
+    $case5c = Join-Path $root "high-risk-same-group"
+    $tasks = @((New-Task 9022 "shared"), (New-Task 9023 "shared" @() "high"))
+    $result = Invoke-Launcher $case5c $tasks 30 30
+    Assert ($result.output -match "Effective parallelism: 1") "high-risk + low-risk same conflictGroup serialize"
 
     $case6 = Join-Path $root "execute-mock"
     $tasks = @((New-Task 9013 "mock-a"), (New-Task 9014 "mock-b"))
