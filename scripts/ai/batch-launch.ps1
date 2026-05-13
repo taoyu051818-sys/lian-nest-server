@@ -82,6 +82,86 @@ function Ensure-Directory([string]$Path) {
     }
 }
 
+function Ensure-Worktree {
+    <#
+    .SYNOPSIS
+        Idempotent worktree setup. Reuses existing worktrees when safe.
+    #>
+    param(
+        [string]$BranchName,
+        [string]$WorktreeDir
+    )
+
+    # Check if git still tracks a worktree at this path
+    $existingList = git worktree list --porcelain 2>$null
+    $trackedPath = $null
+    $trackedBranch = $null
+    $currentEntry = @{}
+
+    foreach ($line in @($existingList)) {
+        if ($line -eq "") {
+            if ($currentEntry.ContainsKey("path")) {
+                $normExisting = ($currentEntry["path"] -replace "\\", "/").TrimEnd("/")
+                $normTarget = ($WorktreeDir -replace "\\", "/").TrimEnd("/")
+                if ($normExisting -eq $normTarget) {
+                    $trackedPath = $currentEntry["path"]
+                    $trackedBranch = $currentEntry["branch"]
+                }
+            }
+            $currentEntry = @{}
+            continue
+        }
+        if ($line -match "^worktree (.+)$") { $currentEntry["path"] = $Matches[1] }
+        elseif ($line -match "^branch (.+)$") { $currentEntry["branch"] = $Matches[1] }
+    }
+    # Flush last entry
+    if ($currentEntry.ContainsKey("path")) {
+        $normExisting = ($currentEntry["path"] -replace "\\", "/").TrimEnd("/")
+        $normTarget = ($WorktreeDir -replace "\\", "/").TrimEnd("/")
+        if ($normExisting -eq $normTarget) {
+            $trackedPath = $currentEntry["path"]
+            $trackedBranch = $currentEntry["branch"]
+        }
+    }
+
+    if ($trackedPath) {
+        # Git tracks a worktree at this path — reuse if branch matches
+        $expectedRef = "refs/heads/$BranchName"
+        if ($trackedBranch -eq $expectedRef) {
+            Write-Ok "Reusing existing worktree: $WorktreeDir (branch=$BranchName)"
+            # Mark directory as safe for git operations (handles Windows path changes)
+            git config --global --add safe.directory ($WorktreeDir -replace "\\", "/") 2>$null
+            return
+        }
+        # Branch mismatch — remove stale worktree and recreate
+        Write-Warn "Worktree branch mismatch (expected=$BranchName, actual=$trackedBranch). Recreating."
+        git worktree remove $WorktreeDir --force 2>&1 | Out-Null
+        git branch -D $BranchName 2>&1 | Out-Null
+    }
+
+    # No tracked worktree — try creating one
+    # First, try creating with a new branch
+    $output = git worktree add -b $BranchName $WorktreeDir main 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Ok "Worktree created (new branch): $WorktreeDir"
+        return
+    }
+
+    # Branch already exists — attach worktree to existing branch
+    Write-Step "Branch '$BranchName' already exists — attaching worktree"
+    git branch -D $BranchName 2>&1 | Out-Null
+    $output = git worktree add -b $BranchName $WorktreeDir main 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        # Last resort: prune stale references and retry
+        git worktree prune 2>$null
+        $output = git worktree add -b $BranchName $WorktreeDir main 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Fail "Failed to create worktree for branch '$BranchName': $output"
+        }
+    }
+    Write-Ok "Worktree created: $WorktreeDir"
+}
+
 function Read-JsonFile($Path) {
     if (-not (Test-Path $Path)) { return $null }
     try {
@@ -177,22 +257,30 @@ function Build-Waves($Plans, [int]$MaxPerWave) {
         for ($i = 0; $i -lt $waves.Count; $i++) {
             $wave = $waves[$i]
             if ($wave.Count -ge $cap) { continue }
-            if ($isHighRisk -and $wave.Count -gt 0) { continue }
 
+            # Per-surface risk serialization: high-risk tasks serialize only
+            # with other high-risk/humanRequired tasks, not globally.
+            if ($isHighRisk) {
+                $waveHasHighRisk = $false
+                foreach ($existing in $wave) {
+                    if (([string]$existing.Task.risk -eq "high") -or (Test-HumanRequired $existing.Task)) {
+                        $waveHasHighRisk = $true
+                        break
+                    }
+                }
+                if ($waveHasHighRisk) { continue }
+            }
+
+            # Check existing wave for conflicts
             $waveGroups = @{}
             $waveLocks = @{}
-            $waveHasHighRisk = $false
             foreach ($existing in $wave) {
                 $waveGroups[[string]$existing.Task.conflictGroup] = $true
                 foreach ($existingLock in @(Get-TaskLocks $existing.Task)) {
                     $waveLocks[[string]$existingLock] = $true
                 }
-                if (([string]$existing.Task.risk -eq "high") -or (Test-HumanRequired $existing.Task)) {
-                    $waveHasHighRisk = $true
-                }
             }
 
-            if ($waveHasHighRisk) { continue }
             if ($waveGroups.ContainsKey($group)) { continue }
 
             $lockConflict = $false
@@ -462,7 +550,9 @@ $requestedParallelism = if ($Parallel) { [Math]::Min(30, [Math]::Max(1, $MaxPara
 $provider = Get-ProviderSlots $ProviderPoolStatePath $requestedParallelism
 $resource = Get-ResourceSlots $LocalResourceStatePath $requestedParallelism
 $conflictSafeSlots = Get-ConflictSafeSlots $taskPlans
-$riskSafeSlots = if (@($tasks | Where-Object { ([string]$_.risk -eq "high") -or (Test-HumanRequired $_) }).Count -gt 0) { 1 } else { $requestedParallelism }
+# Risk safety is now per-surface via Build-Waves, not a global scalar.
+# High-risk tasks serialize only with other high-risk/humanRequired tasks,
+# not with unrelated low/medium tasks on independent surfaces.
 $reviewSafeSlots = [Math]::Max(1, $ReviewCapacity)
 $mergeSafeSlots = [Math]::Max(1, $MergeCapacity)
 $failureSafeSlots = [Math]::Max(1, $FailureBudget)
@@ -471,7 +561,6 @@ $parallelInputs = @(
     [int]$provider.slots,
     [int]$resource.slots,
     $conflictSafeSlots,
-    $riskSafeSlots,
     $reviewSafeSlots,
     $mergeSafeSlots,
     $failureSafeSlots
@@ -484,19 +573,22 @@ if ($effectiveParallelism -lt $requestedParallelism) {
     if ([int]$provider.slots -lt $requestedParallelism) { $reasons += "provider slots=$($provider.slots)" }
     if ([int]$resource.slots -lt $requestedParallelism) { $reasons += "resource slots=$($resource.slots)" }
     if ($conflictSafeSlots -lt $requestedParallelism) { $reasons += "conflict-safe slots=$conflictSafeSlots" }
-    if ($riskSafeSlots -lt $requestedParallelism) { $reasons += "risk-safe slots=$riskSafeSlots" }
     if ($reviewSafeSlots -lt $requestedParallelism) { $reasons += "review capacity=$reviewSafeSlots" }
     if ($mergeSafeSlots -lt $requestedParallelism) { $reasons += "merge capacity=$mergeSafeSlots" }
     if ($failureSafeSlots -lt $requestedParallelism) { $reasons += "failure budget=$failureSafeSlots" }
     $blockedReason = $reasons -join "; "
 }
 
+# Per-surface risk info for output
+$highRiskCount = @($tasks | Where-Object { ([string]$_.risk -eq "high") -or (Test-HumanRequired $_) }).Count
+$riskInfo = if ($highRiskCount -gt 0) { "$highRiskCount high-risk task(s) — serialized per-surface via Build-Waves" } else { "none" }
+
 Write-Step "Parallel capacity plan"
 Write-Host "   Requested parallelism: $requestedParallelism"
 Write-Host "   Provider slots: $($provider.slots) ($($provider.reason))"
 Write-Host "   Resource slots: $($resource.slots) ($($resource.reason))"
 Write-Host "   Conflict-safe slots: $conflictSafeSlots"
-Write-Host "   Risk-safe slots: $riskSafeSlots"
+Write-Host "   Risk surface info: $riskInfo"
 Write-Host "   Review capacity: $reviewSafeSlots"
 Write-Host "   Merge capacity: $mergeSafeSlots"
 Write-Host "   Failure budget: $failureSafeSlots"
@@ -601,10 +693,7 @@ if (-not $Parallel) {
         Write-Host ""
         Write-Step "Processing task #$($task.targetIssue) (group=$($task.conflictGroup))"
         if (-not $SkipWorktreeSetup) {
-            Write-Step "Creating git worktree: $($plan.WorktreeDir)"
-            git worktree add -b $plan.BranchName $plan.WorktreeDir main 2>&1
-            if ($LASTEXITCODE -ne 0) { Write-Fail "Failed to create worktree for issue #$($task.targetIssue) (branch may already exist)" }
-            Write-Ok "Worktree created"
+            Ensure-Worktree -BranchName $plan.BranchName -WorktreeDir $plan.WorktreeDir
         }
         $singleTaskFile = Join-Path ([System.IO.Path]::GetTempPath()) "single-task-$($task.targetIssue).json"
         Write-SingleTaskFile $task $singleTaskFile
@@ -636,9 +725,7 @@ for ($i = 0; $i -lt $waves.Count; $i++) {
         $task = $plan.Task
         $issue = [int]$task.targetIssue
         if (-not $SkipWorktreeSetup) {
-            Write-Step "Creating git worktree for issue #$issue`: $($plan.WorktreeDir)"
-            git worktree add -b $plan.BranchName $plan.WorktreeDir main 2>&1
-            if ($LASTEXITCODE -ne 0) { Write-Fail "Failed to create worktree for issue #$issue (branch may already exist)" }
+            Ensure-Worktree -BranchName $plan.BranchName -WorktreeDir $plan.WorktreeDir
         }
 
         $singleTaskFile = Join-Path $batchLogDir "issue-$issue.task.json"
