@@ -2,7 +2,7 @@
   "stateVersion": 1,
   "cpu": {
     "cores": 32,
-    "usagePercent": 0,
+    "usagePercent": 4.4,
     "loadAverage": {
       "oneMin": 0,
       "fiveMin": 0,
@@ -11,9 +11,9 @@
   },
   "memory": {
     "totalGB": 63.7,
-    "usedGB": 29.65,
-    "availableGB": 34.05,
-    "usagePercent": 47
+    "usedGB": 25.63,
+    "availableGB": 38.07,
+    "usagePercent": 40.24
   },
   "disk": {
     "totalGB": null,
@@ -23,15 +23,15 @@
     "mountPoint": null
   },
   "process": {
-    "runningCount": 0,
+    "runningCount": null,
     "maxAllowed": 30,
-    "headroomPercent": 100
+    "headroomPercent": null
   },
   "global": {
     "resourceState": "healthy",
     "lastUpdatedBy": "sample-local-resource",
-    "capturedAt": "2026-05-13T07:57:06.165Z",
+    "capturedAt": "2026-05-13T08:29:24.338Z",
     "ttlSeconds": 300
   },
-  "notes": "Refreshed with Node.js os module. Disk and process data carried forward from previous snapshot."
+  "notes": "This file is a sanitized state projection. It never contains API keys, tokens, hostnames, usernames, personally identifying paths, or raw system command output. Fallbacks used: Disk metric unavailable. Process metric unavailable."
 }
