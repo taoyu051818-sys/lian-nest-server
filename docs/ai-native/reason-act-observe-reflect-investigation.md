@@ -1,239 +1,226 @@
 # Reason-Act-Observe-Reflect Investigation
 
-Investigation of the Reason-Act-Observe-Reflect cycle from Symphony Dynamic
-Solver against LIAN's self-cycle loop.
+Investigation of the Symphony Dynamic Solver's Reason-Act-Observe-Reflect cycle
+against LIAN's existing self-cycle-loop.ps1 Observe-Decide-Execute pattern.
 Tracks [issue #1435](https://github.com/taoyu051818-sys/lian-nest-server/issues/1435).
 
-> **Source:** Symphony Dynamic Solver rules
-> (`external-agent-research/Symphony/.roo/rules-symphony-dynamic-solver/02-rules.md`)
+> **Source:** Symphony Dynamic Solver `02-rules.md` (external-doc, Tier B)
 > **Source reliability:** high
-> **Captured:** 2026-05-13
+> **Captured:** 2026-05-13T07:42:56.911Z
 
 ---
 
-## Symphony Dynamic Solver Pattern
+## External Pattern: Reason-Act-Observe-Reflect
 
-The Symphony Dynamic Solver implements a formal four-phase reflective loop:
+Symphony Dynamic Solver implements a formal 4-phase reflective loop:
 
-1. **Reason** — Before entering the loop, classify the problem type and
-   select a reasoning method (Self Consistency, Tree of Thoughts, ReAct,
-   Direct Logic). Each method has different tradeoffs for exploration vs.
-   exploitation.
-2. **Act** — Execute the chosen action using the selected reasoning method.
-3. **Observe** — Observe the outcome of the action.
-4. **Reflect** — Evaluate action outcomes, generate a structured reflection,
-   and persist it with timestamps. Reflections feed back into the next
-   Reason phase, enabling the agent to learn from failures and adjust
-   strategy across cycles.
+1. **Reason** -- Before acting, classify the problem type and select a
+   reasoning method (Self Consistency, Tree of Thoughts, ReAct, Direct Logic).
+2. **Act** -- Execute the selected action.
+3. **Observe** -- Collect the outcome (success, failure, partial).
+4. **Reflect** -- Evaluate the outcome against expectations, log the
+   reflection with timestamps, and store it for future reference. The
+   reflection informs the next cycle's reasoning.
 
-The key insight: method selection before acting and reflection after acting
-create a closed learning loop. The agent does not just observe state — it
-evaluates *what happened* and *why*, then uses that knowledge to pick a
-better strategy next time.
+The key addition over a simple observe-decide-execute loop:
+
+- **Method selection** happens before the loop entry, not inside it.
+- **Reflect** is a first-class phase that runs after every cycle, not
+  only on failures. It evaluates whether the action achieved its goal
+  and writes structured reflections to a persistent log.
 
 ---
 
-## Mapping to LIAN
+## LIAN Current State: Observe-Decide-Execute
+
+LIAN's `self-cycle-loop.ps1` implements a 3-phase cycle:
+
+```
+Phase 1: Observe   -- Prune-StaleState + Observe-State
+Phase 2: Decide    -- Decide-Action (priority: merge > close > produce > implement > reconcile > wait)
+Phase 3: Execute   -- Execute-Action (merge, close, produce, implement, or wait)
+```
+
+### What LIAN Already Has
 
 | Symphony Phase | LIAN Equivalent | Status |
-|----------------|-----------------|--------|
-| **Reason** (method selection) | `Decide-Action` in `self-cycle-loop.ps1` — priority-based, no method selection | **Missing** |
-| **Reason** (problem classification) | `classify-self-cycle-failure.js` — post-failure only, not pre-action | **Partial** |
-| **Act** | `Execute-Action` in `self-cycle-loop.ps1` + `batch-launch.ps1` | **Implemented** |
-| **Observe** | `Observe-State` in `self-cycle-loop.ps1` — gathers health, queue, workers | **Implemented** |
-| **Reflect** (outcome evaluation) | `verify-action-success-criteria.js` (from #1415 investigation) | **Proposed, not implemented** |
-| **Reflect** (critique generation) | `generate-failure-reflection.js` — deterministic self-critiques | **Implemented on main** |
-| **Reflect** (persistence) | `write-failure-reflection.js` — NDJSON persistence | **In worktree only, not on main** |
-| **Reflect** (feedback to next cycle) | Gap ledger `meta.reflection` + meta-signals `topPain` | **Partial** |
+|---------------|-----------------|--------|
+| Reason (method selection) | `Decide-Action` priority ordering | **Partial** -- selects action by priority, not by problem classification |
+| Act | `Execute-Action` dispatches workers, merges PRs, closes issues | **Implemented** |
+| Observe | `Observe-State` gathers mergeable PRs, closeable issues, queue size, health | **Implemented** |
+| Reflect | `classify-self-cycle-failure.js` + `generate-failure-reflection.js` | **Partial** -- exists as separate scripts, not wired into main loop |
+
+### What LIAN Lacks
+
+1. **Reflect is not a loop phase.** The reflection scripts exist but are
+   invoked externally (piped from failure classification). The main loop
+   in `self-cycle-loop.ps1` does not call them after each cycle.
+
+2. **Reflection only fires on failure.** The current pipeline
+   (`classify-self-cycle-failure.js` -> `generate-failure-reflection.js`)
+   is triggered when a worker fails. There is no reflection on successful
+   cycles -- no record of *why* an action succeeded or whether it achieved
+   its intended goal.
+
+3. **No pre-loop method selection.** The `Decide-Action` function uses a
+   fixed priority order. There is no problem-type classification that
+   selects a different reasoning strategy based on the current state
+   pattern (e.g., "high entropy + stale worktrees" vs "healthy + empty queue").
+
+4. **Reflections are not fed back into decisions.** The gap ledger stores
+   reflections in `meta.reflection`, but `Decide-Action` does not read
+   past reflections to inform its choice. The `plan-next-batch.ps1`
+   planner demotes `topPain` categories but has no per-failure memory.
 
 ---
 
-## Current LIAN Loop: Observe-Decide-Execute
+## Gap Analysis
 
-`self-cycle-loop.ps1` implements a three-phase loop:
+### Gap 1: Reflect Phase in Main Loop
 
-```
-Observe  →  Decide  →  Execute  →  [pause]  →  Observe  →  ...
-```
+**Current:** Reflection is a separate pipeline triggered by failure
+classification. The main loop runs Observe-Decide-Execute without any
+post-execution evaluation.
 
-- **Observe** — prune stale state, gather health, count issues/PRs/workers
-- **Decide** — priority-based action selection (merge > close > produce >
-  implement > reconcile > wait)
-- **Execute** — dispatch the chosen action
+**Symphony pattern:** Reflect runs after every cycle, not just failures.
+It evaluates whether the action achieved its goal and stores the result.
 
-After Execute, the loop goes directly back to Observe. There is no phase
-that evaluates *what happened* or *why*.
+**Impact:** The loop cannot learn from successful strategies or detect
+that a "successful" action did not actually achieve its intended outcome
+(e.g., workers launched but all failed silently).
 
----
+**Bounded fix:** Add a `Reflect-ActionResult` function to
+`self-cycle-loop.ps1` that runs after `Execute-Action`. It evaluates
+the action result against the decision reason and writes a structured
+reflection to `autonomous-loop-events.ndjson` (existing event ledger).
+On failure, it pipes through the existing
+`classify-self-cycle-failure.js` -> `generate-failure-reflection.js`
+pipeline. On success, it records a lightweight success reflection.
 
-## Identified Gaps
+### Gap 2: Pre-Loop Method Selection
 
-### Gap 1: No Reflect Phase in the Loop
+**Current:** `Decide-Action` uses a fixed priority order
+(merge > close > produce > implement > reconcile > wait).
 
-The loop has no post-execution evaluation step. After `Execute-Action`
-returns, the loop logs the result string and moves on. There is no
-mechanism to:
+**Symphony pattern:** Before entering the loop, the agent classifies the
+problem type and selects a reasoning method.
 
-1. Evaluate whether the action achieved its intended goal.
-2. Generate a structured reflection about the outcome.
-3. Persist the reflection for future reference.
-4. Feed reflection insights back into the next Decide phase.
+**Impact:** Low. LIAN's decision space is narrower than a general-purpose
+solver. The fixed priority order is appropriate for the control plane's
+bounded action set. Adding problem-type classification would increase
+complexity without clear benefit.
 
-**Existing partial solutions:**
-- `generate-failure-reflection.js` (on main) produces deterministic
-  self-critiques from failure classifications, but is only invoked
-  externally — not wired into the loop.
-- `write-failure-reflection.js` (in worktree, not on main) persists
-  reflections to `failure-reflections.ndjson`, but is not deployed.
-- `goal-driven-action-verification.md` (investigation from #1415)
-  proposes success criteria and verification, but is not implemented.
+**Recommendation:** Do not add pre-loop method selection. The current
+priority ordering is a deliberate design choice that matches LIAN's
+bounded action set. If future actions require different reasoning
+strategies, method selection can be added at that time.
 
-### Gap 2: No Method Selection (Reason Phase)
+### Gap 3: Reflection Feeding Back into Decisions
 
-`Decide-Action` uses a fixed priority order. It does not classify the
-*type* of problem before selecting an action strategy. Symphony's method
-selection (Self Consistency, Tree of Thoughts, ReAct, Direct Logic) maps
-to LIAN choosing between different execution strategies based on context:
+**Current:** `Decide-Action` does not read past reflections. The planner
+uses aggregate `topPain` but not per-failure lessons.
 
-| Symphony Method | LIAN Analog | When to Use |
-|----------------|-------------|-------------|
-| Direct Logic | Single-pass execution | Simple, well-understood tasks |
-| ReAct | Observe-Decide-Execute (current loop) | Standard tasks with known failure modes |
-| Self Consistency | Parallel workers on same task | High-stakes tasks where consensus matters |
-| Tree of Thoughts | Branching exploration | Novel problem types with unknown solutions |
+**Symphony pattern:** Reflections inform the next cycle's reasoning.
 
-Currently, all tasks use the same execution strategy regardless of
-complexity or failure history.
+**Impact:** Medium. Repeat failures of the same error class are not
+detected or escalated. The loop may retry the same failing action
+without adjusting strategy.
 
-### Gap 3: Failure Reflections Not Wired to Decisions
-
-`generate-failure-reflection.js` can produce critiques and query past
-reflections from the gap ledger, but `Decide-Action` in the loop does
-not read reflections. The planner (`plan-next-batch.ps1`) demotes tasks
-in the `topPain` category, but has no memory of *what was tried* or
-*what the reflection recommended*.
+**Bounded fix:** Add a `Read-RecentReflections` helper that queries the
+gap ledger for reflections from the last N cycles. If the same error
+class has fired 3+ times with the same recommended action, escalate to
+`wait` with a human-required reason. This is a small addition to
+`Decide-Action` that does not change the priority order.
 
 ---
 
-## Relationship to Existing Investigations
+## Existing Infrastructure Map
 
-| Investigation | Overlap | Differentiation |
-|---------------|---------|-----------------|
-| [Reflexion Self-Reflection](reflexion-self-reflection-investigation.md) (#1407) | Maps Reflexion Actor-Evaluator-SelfReflection to LIAN | Focuses on failure reflections only; this investigation covers the full loop including method selection and success reflections |
-| [Goal-Driven Action Verification](goal-driven-action-verification.md) (#1415) | Proposes success criteria and post-action verification | Focuses on verification mechanics; this investigation adds the reflection persistence and feedback loop |
+The following scripts already exist and support the Reflect phase:
 
-This investigation builds on both: verification provides the *input* to
-reflection, and Reflexion provides the *storage* mechanism. The missing
-piece is the loop integration — wiring verification output into reflection
-generation and feeding reflections back into decision-making.
+| Script | Role in Reflect Phase | Status |
+|--------|----------------------|--------|
+| `classify-self-cycle-failure.js` | Classifies worker failures into 9 error classes | **Implemented** |
+| `generate-failure-reflection.js` | Produces structured self-critique from classification | **Implemented** |
+| `gap-ledger.ndjson` | Stores reflections in `meta.reflection` field | **Schema ready** |
+| `calculate-meta-signals.js` | Aggregates `topPain` from gap ledger | **Implemented** |
+| `autonomous-loop-events.ndjson` | Loop lifecycle events (cycle-complete, loop-end) | **Implemented** |
 
----
-
-## Recommended Experiment
-
-A bounded, incremental experiment to add a Reflect phase to the
-self-cycle loop. Three layers, each independently valuable:
-
-### Layer 1: Post-Action Reflection (Loop Integration)
-
-Wire `generate-failure-reflection.js` into `self-cycle-loop.ps1` after
-`Execute-Action`. On failure (non-zero exit or unexpected result), the
-loop classifies the failure and generates a reflection.
-
-```
-Observe  →  Decide  →  Execute  →  Reflect  →  [pause]  →  Observe  →  ...
-                                       │
-                                       ├─ classify failure
-                                       ├─ generate reflection
-                                       └─ persist to NDJSON
-```
-
-**Scope:** 1 script change (`self-cycle-loop.ps1`), 1 new script
-(`write-loop-reflection.js` to persist to `loop-reflections.ndjson`).
-
-**Validation:** After 10 cycles with simulated failures, verify that
-`loop-reflections.ndjson` contains structured reflections with
-`errorClass`, `critique`, `rootCause`, `nextAction`, and timestamps.
-
-### Layer 2: Reflection-Aware Decisions
-
-Extend `Decide-Action` to read recent reflections from
-`loop-reflections.ndjson` before selecting an action. If the last N
-cycles all failed with the same error class and the recommended action
-was not taken, escalate or adjust strategy.
-
-**Scope:** 1 function change in `self-cycle-loop.ps1`.
-
-**Validation:** After deploying Layer 1, trigger the same failure 3
-times. Verify that the 4th cycle's decision accounts for the reflection
-history (e.g., escalates instead of retrying).
-
-### Layer 3: Method Selection (Optional, Higher Risk)
-
-Add a lightweight method selection step before `Execute-Action` that
-considers task complexity and failure history. For standard tasks, use
-the current single-pass strategy. For tasks with repeated failures,
-switch to a more exploratory strategy.
-
-**Scope:** New function in `self-cycle-loop.ps1` + method selection
-logic.
-
-**Validation:** After Layers 1-2 are stable, introduce a task type that
-benefits from parallel exploration. Verify method selection adapts.
+What is missing is the wiring: calling the reflection pipeline from the
+main loop and feeding reflections back into decisions.
 
 ---
 
-## Hypothesis
+## Proposed Bounded Experiment
 
-> "If LIAN adds a Reflect phase to the self-cycle loop that persists
-> structured reflections and feeds them back into decision-making, then
-> repeat failure rate will decrease because the agent will learn from
-> past failures instead of retrying the same approach."
+### Hypothesis
 
-**Measurable outcome:** Count of consecutive failures for the same
-`errorClass` across cycles. Target: reduction from current baseline
-(measured after Layer 1 deployment) within 2 cycles of Layer 2 deployment.
+"If LIAN adds a Reflect phase that evaluates every cycle's action outcome
+and stores reflections in the loop event ledger, then repeat failure rate
+will decrease because the loop will detect and escalate recurring error
+patterns within 3 cycles instead of retrying indefinitely."
 
----
+### Experiment Scope
 
-## Implementation Boundary
+| Dimension | Bound |
+|-----------|-------|
+| Files changed | `scripts/ai/self-cycle-loop.ps1` (add Reflect phase), `docs/ai-native/reason-act-observe-reflect-investigation.md` (this doc) |
+| New files | None -- uses existing `classify-self-cycle-failure.js` and `generate-failure-reflection.js` |
+| Validation | `npm run check` (TypeScript compilation) |
+| Success metric | Repeat failure count for the same error class decreases within 2 cycles of deployment |
+| Rollback | Remove the `Reflect-ActionResult` function and the `Read-RecentReflections` call from `Decide-Action` |
 
-All changes stay within allowed files:
+### Implementation Plan
 
-| Change | File | Risk |
-|--------|------|------|
-| Add Reflect phase call | `scripts/ai/self-cycle-loop.ps1` | Low — additive, no existing behavior changed |
-| Persist reflections | `scripts/ai/write-loop-reflection.js` (new) | Low — append-only NDJSON write |
-| Reflection-aware decisions | `scripts/ai/self-cycle-loop.ps1` | Low — reads new file, falls back to current behavior if absent |
-| Investigation doc | `docs/ai-native/reason-act-observe-reflect-investigation.md` | None — documentation |
+1. Add `Reflect-ActionResult` function to `self-cycle-loop.ps1`:
+   - On failure: pipe error output through `classify-self-cycle-failure.js`
+     and `generate-failure-reflection.js`, store in gap ledger.
+   - On success: write a lightweight success event to
+     `autonomous-loop-events.ndjson` with action type and result summary.
+   - Always: record cycle-level reflection in the cycle log.
 
-No changes to `src/`, `prisma/`, or `package.json`.
+2. Add `Read-RecentReflections` helper to `self-cycle-loop.ps1`:
+   - Query gap ledger for reflections from the last N cycles.
+   - Return error class counts and recommended actions.
+
+3. Add escalation logic to `Decide-Action`:
+   - If the same error class has fired 3+ times with the same recommended
+     action, override to `wait` with reason "Repeat failure escalation:
+     [errorClass] -- human review required".
+
+### What This Does NOT Change
+
+- The priority order of actions (merge > close > produce > implement > reconcile > wait).
+- The health preflight gate.
+- The human-owned decision boundaries.
+- The worker dispatch mechanism.
+- Any files in `src/`, `prisma/`, or `package.json`.
 
 ---
 
 ## Decision
 
-This investigation finds that LIAN's self-cycle loop is missing a Reflect
-phase that Symphony Dynamic Solver formalizes. The building blocks exist
-(`classify-self-cycle-failure.js`, `generate-failure-reflection.js`,
-goal-driven verification investigation) but are not wired into the loop.
+This investigation finds that LIAN's self-cycle-loop already has most of
+the Reflect infrastructure in place (classification, critique generation,
+gap ledger storage). The gap is wiring: the main loop does not call the
+reflection pipeline after each cycle, and decisions do not consult past
+reflections.
 
-The recommendation is to proceed with Layer 1 (post-action reflection) as
-a bounded experiment. If it shows value, Layer 2 (reflection-aware
-decisions) follows. Layer 3 (method selection) is deferred pending
-evidence from Layers 1-2.
+The recommended action is a bounded experiment that adds Reflect as a
+fourth phase to the main loop. The experiment is low-risk (additive only,
+no changes to existing phases), uses existing scripts, and has a clear
+success metric (repeat failure rate).
 
-If the experiment shows no measurable reduction in repeat failures after
-2 cycles, the Reflect phase should be removed and this issue closed with
-a summary of findings.
+If the experiment shows no measurable improvement after 2 cycles of
+deployment, the Reflect phase should be removed and this issue closed
+with a summary of findings.
 
 ---
 
 ## References
 
-- [#1435](https://github.com/taoyu051818-sys/lian-nest-server/issues/1435) — This investigation
-- [Reflexion Self-Reflection Investigation](reflexion-self-reflection-investigation.md) — Actor-Evaluator-SelfReflection mapping (#1407)
-- [Goal-Driven Action Verification](goal-driven-action-verification.md) — Success criteria pattern (#1415)
-- [Loop Model](loop-model.md) — Self-cycle loop phases
-- [Self-Cycle Runner](self-cycle-runner.md) — Orchestrator documentation
-- [External Research Intake Loop](external-research-intake-loop.md) — Research intake pipeline
+- [Reflexion Self-Reflection Investigation](reflexion-self-reflection-investigation.md) -- Prior investigation of Reflexion pattern against LIAN
+- [Loop Model](loop-model.md) -- Current self-cycle runner phases
+- [External Research Intake Loop](external-research-intake-loop.md) -- How external research enters the system
+- [Goal-Driven Action Verification](goal-driven-action-verification.md) -- Success criteria pattern for self-cycle actions
+- [#1435](https://github.com/taoyu051818-sys/lian-nest-server/issues/1435) -- This investigation
