@@ -1,0 +1,134 @@
+{
+  "issues": [
+    {
+      "number": 1379,
+      "title": "Seed task board from open labeled issues",
+      "body": "## Goal\n\nSeed task board from open labeled issues\n\n## Evidence\n\nFile .github/ai-state/task-board.json does not exist. readFacts returns null for this path.\n\n## Scope\n\nTask type: execution\n\nRationale: task-board.json does not exist. The self-cycle cannot project task state without a task board.\n\nReadiness: No task-board.json found.\n\n## Acceptance\n\n- `npm run check` passes\n\n## Constraints\n\n- Stay within allowed files.\n- Do not edit forbidden files.\n\n## Rollback / Follow-up\n\nIf seeding produces incorrect task entries, delete task-board.json and re-seed from the corrected issue list. Follow up by verifying the task board matches open labeled issues.\n\n---\nCONTROL APPENDIX (launcher generated)\nTask type: execution\nRisk: low\nConflict group: task-board-completeness\nTarget issue: \nTarget PR: \nIssues: \nExpected PR: True\nAllowed files:\n- scripts/ai/**\n- docs/ai-native/**\n- .github/ai-state/*.example.json\nForbidden files:\n- src/**\n- prisma/**\n- package.json\nValidation commands:\n- npm run check\nUse these boundaries as hard constraints. If the requested fix requires files outside allowedFiles, stop and explain the blocker instead of making an unbounded change.\nDo NOT output secrets, tokens, auth output, credentials, .env contents, local transcript contents, or llm_io_logs contents.\n\nRole packet:\nActor role: automation-cycle-worker\nMacro goal: task-board-completeness",
+      "labels": [
+        {
+          "name": "agent:codex-action-needed"
+        }
+      ]
+    },
+    {
+      "number": 1378,
+      "title": "Refresh resource sampler state for local machine",
+      "body": "## Goal\n\nRefresh resource sampler state for local machine\n\n## Evidence\n\nlocal-resource.json capturedAt is 2026-05-13T04:22:44.933Z, which exceeds the 5-minute TTL threshold.\n\n## Scope\n\nTask type: execution\n\nRationale: local-resource.json capturedAt is 2026-05-13T04:22:44.933Z, exceeding 5min TTL.\n\nReadiness: Resource sampler data is stale or empty.\n\n## Acceptance\n\n- `npm run check` passes\n\n## Constraints\n\n- Stay within allowed files.\n- Do not edit forbidden files.\n\n## Rollback / Follow-up\n\nIf the sampler cannot collect data (e.g., missing system permissions), revert to the previous state file and escalate. Follow up by verifying resourceState transitions to \"healthy\".\n\n---\nCONTROL APPENDIX (launcher generated)\nTask type: execution\nRisk: low\nConflict group: resource-sampler\nTarget issue: \nTarget PR: \nIssues: \nExpected PR: True\nAllowed files:\n- scripts/ai/**\n- .github/ai-state/*.example.json\nForbidden files:\n- src/**\n- prisma/**\n- package.json\nValidation commands:\n- npm run check\nUse these boundaries as hard constraints. If the requested fix requires files outside allowedFiles, stop and explain the blocker instead of making an unbounded change.\nDo NOT output secrets, tokens, auth output, credentials, .env contents, local transcript contents, or llm_io_logs contents.\n\nRole packet:\nActor role: automation-cycle-worker\nMacro goal: resource-sampler-freshness",
+      "labels": [
+        {
+          "name": "agent:codex-action-needed"
+        }
+      ]
+    },
+    {
+      "number": 1373,
+      "title": "Experiment: Adding a failure reflection step to classify-self-cycle-failure.js that generates actionable self-critiques reduces repeat failures",
+      "body": "## Goal\nOpportunity signal opp-a1b2c3d4-004: Adding a failure reflection step to classify-self-cycle-failure.js that generates actionable self-critiques reduces repeat failures. Reasoning: Current failure classification produces categories but not actionable lessons. Reflexion-style self-critiques stored in meta-signals would prevent repeating the same mistakes\n## Evidence\nSource facts: Reflexion agents improve by reflecting on failures and storing self-critiques. Expected impact: repeat-failure-rate from unknown to < 10% repeat rate.\n## Rollback / Follow-up\nRevert changes if experiment fails success criteria.\n\n---\nCONTROL APPENDIX (external-intake bridge generated)\nTask type: execution\nRisk: low\nConflict group: opportunity-a1b2c3d4-004\nTarget issue:\nTarget PR:\nIssues:\nExpected PR: True\nAllowed files:\n- scripts/ai/**\n- docs/ai-native/**\n- schemas/**\nForbidden files:\n- src/**\n- prisma/**\n- package.json\n- package-lock.json\n- .github/ai-policy/seed-constitution.md\nValidation commands:\n- npm run check\n\nRole packet:\nActor role: experiment-worker\nMacro goal: opportunity-experiment",
+      "labels": [
+        {
+          "name": "agent:codex-action-needed"
+        }
+      ]
+    },
+    {
+      "number": 1372,
+      "title": "Experiment: Adding Claude Code hooks for forbiddenFiles enforcement provides defense-in-depth against constitution violations",
+      "body": "## Goal\nOpportunity signal opp-a1b2c3d4-003: Adding Claude Code hooks for forbiddenFiles enforcement provides defense-in-depth against constitution violations. Reasoning: Currently seed-constitution rules are enforced only at task-contract level. Hooks would catch violations at the tool-call level\n## Evidence\nSource facts: Claude Code hooks enable pre/post execution guards on tool calls. Expected impact: constitution-violation-rate from 0 (task-contract enforcement) to 0 (defense-in-depth).\n## Rollback / Follow-up\nRevert changes if experiment fails success criteria.\n\n---\nCONTROL APPENDIX (external-intake bridge generated)\nTask type: execution\nRisk: low\nConflict group: opportunity-a1b2c3d4-003\nTarget issue:\nTarget PR:\nIssues:\nExpected PR: True\nAllowed files:\n- scripts/ai/**\n- docs/ai-native/**\n- schemas/**\nForbidden files:\n- src/**\n- prisma/**\n- package.json\n- package-lock.json\n- .github/ai-policy/seed-constitution.md\nValidation commands:\n- npm run check\n\nRole packet:\nActor role: experiment-worker\nMacro goal: opportunity-experiment",
+      "labels": [
+        {
+          "name": "agent:codex-action-needed"
+        }
+      ]
+    },
+    {
+      "number": 1371,
+      "title": "Experiment: Adding a structured memory retrieval layer to meta-signals improves issue production quality",
+      "body": "## Goal\nOpportunity signal opp-a1b2c3d4-002: Adding a structured memory retrieval layer to meta-signals improves issue production quality. Reasoning: Current meta-signals.json is a flat dump. MemGPT-style tiered memory with relevance ranking would help the issue producer focus on the most impactful gaps\n## Evidence\nSource facts: MemGPT tiered memory: working, archival, episodic with active management. Expected impact: issue-production-relevance from generic gap detection to context-aware gap prioritization.\n## Rollback / Follow-up\nRevert changes if experiment fails success criteria.\n\n---\nCONTROL APPENDIX (external-intake bridge generated)\nTask type: execution\nRisk: low\nConflict group: opportunity-a1b2c3d4-002\nTarget issue:\nTarget PR:\nIssues:\nExpected PR: True\nAllowed files:\n- scripts/ai/**\n- docs/ai-native/**\n- schemas/**\nForbidden files:\n- src/**\n- prisma/**\n- package.json\n- package-lock.json\n- .github/ai-policy/seed-constitution.md\nValidation commands:\n- npm run check\n\nRole packet:\nActor role: experiment-worker\nMacro goal: opportunity-experiment",
+      "labels": [
+        {
+          "name": "agent:codex-action-needed"
+        }
+      ]
+    },
+    {
+      "number": 1370,
+      "title": "Experiment: Explicit state machine transitions for worker lifecycle reduce status inconsistency bugs",
+      "body": "## Goal\nOpportunity signal opp-a1b2c3d4-001: Explicit state machine transitions for worker lifecycle reduce status inconsistency bugs. Reasoning: LangGraph DAG model makes transitions explicit and auditable, unlike current free-form status field updates\n## Evidence\nSource facts: LangGraph uses DAG-based state machines for agent workflows. Expected impact: worker-status-consistency from occasional stale status to zero stale status.\n## Rollback / Follow-up\nRevert changes if experiment fails success criteria.\n\n---\nCONTROL APPENDIX (external-intake bridge generated)\nTask type: execution\nRisk: low\nConflict group: opportunity-a1b2c3d4-001\nTarget issue:\nTarget PR:\nIssues:\nExpected PR: True\nAllowed files:\n- scripts/ai/**\n- docs/ai-native/**\n- schemas/**\nForbidden files:\n- src/**\n- prisma/**\n- package.json\n- package-lock.json\n- .github/ai-policy/seed-constitution.md\nValidation commands:\n- npm run check\n\nRole packet:\nActor role: experiment-worker\nMacro goal: opportunity-experiment",
+      "labels": [
+        {
+          "name": "agent:codex-action-needed"
+        }
+      ]
+    },
+    {
+      "number": 1369,
+      "title": "Investigate: structured-memory-retrieval",
+      "body": "## Goal\nExternal research (external-doc): MemGPT implements a tiered memory system for agents: in-context memory (working), archival memory (long-term), and recall memory (episodic). The agent actively manages its own memory, deciding what to store, retrieve, and forget. This enables coherent behavior over extended interactions. Relevance: LIAN meta-signals.json and fact-events.ndjson provide raw memory but no retrieval or prioritization layer. Adding a structured memory system that ranks facts by relevance to the current task could improve decision quality in issue production and worker dispatch.\n## Evidence\nSource reliability: medium. Captured at: 2026-05-13T04:17:06.933Z. Source: https://arxiv.org/abs/2404.11584.\n## Rollback / Follow-up\nIf the investigation finds no actionable improvement, close the issue with a summary of findings.\n\n---\nCONTROL APPENDIX (external-intake bridge generated)\nTask type: research\nRisk: low\nConflict group: external-intake-agent-memory-systems\nTarget issue:\nTarget PR:\nIssues:\nExpected PR: True\nAllowed files:\n- docs/ai-native/**\n- scripts/ai/**\nForbidden files:\n- src/**\n- prisma/**\n- package.json\n- package-lock.json\n- .github/ai-policy/seed-constitution.md\nValidation commands:\n- npm run check\n\nRole packet:\nActor role: research-worker\nMacro goal: external-intake-bridge",
+      "labels": [
+        {
+          "name": "agent:codex-action-needed"
+        }
+      ]
+    },
+    {
+      "number": 1368,
+      "title": "Investigate: function-routing-between-agents",
+      "body": "## Goal\nExternal research (external-doc): Swarm uses function calling to route tasks between specialized agents. Each agent exposes handoff functions that transfer context to another agent. No central orchestrator \u9225\udc94 agents self-route based on the current context and their capabilities. Relevance: LIAN Command Steward acts as a central orchestrator. A hybrid approach where workers can hand off subtasks to other workers (within file-scope bounds) could reduce Command Steward bottleneck while maintaining safety through the existing conflict-group system.\n## Evidence\nSource reliability: medium. Captured at: 2026-05-13T04:17:06.807Z. Source: https://github.com/openai/swarm.\n## Rollback / Follow-up\nIf the investigation finds no actionable improvement, close the issue with a summary of findings.\n\n---\nCONTROL APPENDIX (external-intake bridge generated)\nTask type: research\nRisk: low\nConflict group: external-intake-lightweight-agent-handoff\nTarget issue:\nTarget PR:\nIssues:\nExpected PR: True\nAllowed files:\n- docs/ai-native/**\n- scripts/ai/**\nForbidden files:\n- src/**\n- prisma/**\n- package.json\n- package-lock.json\n- .github/ai-policy/seed-constitution.md\nValidation commands:\n- npm run check\n\nRole packet:\nActor role: research-worker\nMacro goal: external-intake-bridge",
+      "labels": [
+        {
+          "name": "agent:codex-action-needed"
+        }
+      ]
+    },
+    {
+      "number": 1367,
+      "title": "Investigate: delegation-and-oversight",
+      "body": "## Goal\nExternal research (external-doc): CrewAI assigns agents specific roles (researcher, writer, reviewer) with explicit delegation chains. A manager agent can delegate subtasks to specialized agents, each with their own tools and constraints. Supports sequential, parallel, and hierarchical execution modes. Relevance: LIAN workers have role packets but no delegation chain. A worker cannot spawn a sub-worker for a specialized subtask. Adding bounded sub-worker delegation (with the same conflict-group and file-scope constraints) could improve task decomposition quality.\n## Evidence\nSource reliability: high. Captured at: 2026-05-13T04:17:06.687Z. Source: https://github.com/crewAIInc/crewAI.\n## Rollback / Follow-up\nIf the investigation finds no actionable improvement, close the issue with a summary of findings.\n\n---\nCONTROL APPENDIX (external-intake bridge generated)\nTask type: research\nRisk: low\nConflict group: external-intake-role-based-agent-teams\nTarget issue:\nTarget PR:\nIssues:\nExpected PR: True\nAllowed files:\n- docs/ai-native/**\n- scripts/ai/**\nForbidden files:\n- src/**\n- prisma/**\n- package.json\n- package-lock.json\n- .github/ai-policy/seed-constitution.md\nValidation commands:\n- npm run check\n\nRole packet:\nActor role: research-worker\nMacro goal: external-intake-bridge",
+      "labels": [
+        {
+          "name": "agent:codex-action-needed"
+        }
+      ]
+    },
+    {
+      "number": 1366,
+      "title": "Investigate: reflexion-self-reflection",
+      "body": "## Goal\nExternal research (external-doc): Reflexion agents improve by reflecting on failures: they generate self-critiques after task failures, store them in episodic memory, and reference them in subsequent attempts. This creates a feedback loop where the agent learns from its own mistakes without weight updates. Relevance: LIAN classify-self-cycle-failure.js classifies failures but does not generate actionable self-critiques for future cycles. Adding a reflection step that stores failure analysis in meta-signals would enable the system to avoid repeating the same mistakes.\n## Evidence\nSource reliability: medium. Captured at: 2026-05-13T04:17:06.560Z. Source: https://arxiv.org/abs/2308.11432.\n## Rollback / Follow-up\nIf the investigation finds no actionable improvement, close the issue with a summary of findings.\n\n---\nCONTROL APPENDIX (external-intake bridge generated)\nTask type: research\nRisk: low\nConflict group: external-intake-self-improving-agents\nTarget issue:\nTarget PR:\nIssues:\nExpected PR: True\nAllowed files:\n- docs/ai-native/**\n- scripts/ai/**\nForbidden files:\n- src/**\n- prisma/**\n- package.json\n- package-lock.json\n- .github/ai-policy/seed-constitution.md\nValidation commands:\n- npm run check\n\nRole packet:\nActor role: research-worker\nMacro goal: external-intake-bridge",
+      "labels": [
+        {
+          "name": "agent:codex-action-needed"
+        }
+      ]
+    },
+    {
+      "number": 1365,
+      "title": "Investigate: event-driven-guardrails",
+      "body": "## Goal\nExternal research (external-doc): Claude Code hooks allow pre/post execution guards on tool calls. Can enforce file-scope restrictions, validate outputs before commit, and trigger side effects (notifications, audits) on specific events. Relevance: LIAN seed-constitution rules are enforced at the task-contract level but not at the tool-call level. Adding Claude Code hooks for forbiddenFiles enforcement would provide defense-in-depth against constitution violations.\n## Evidence\nSource reliability: authoritative. Captured at: 2026-05-13T04:17:06.451Z. Source: https://docs.anthropic.com/en/docs/claude-code/hooks.\n## Rollback / Follow-up\nIf the investigation finds no actionable improvement, close the issue with a summary of findings.\n\n---\nCONTROL APPENDIX (external-intake bridge generated)\nTask type: research\nRisk: low\nConflict group: external-intake-agent-lifecycle-hooks\nTarget issue:\nTarget PR:\nIssues:\nExpected PR: True\nAllowed files:\n- docs/ai-native/**\n- scripts/ai/**\nForbidden files:\n- src/**\n- prisma/**\n- package.json\n- package-lock.json\n- .github/ai-policy/seed-constitution.md\nValidation commands:\n- npm run check\n\nRole packet:\nActor role: research-worker\nMacro goal: external-intake-bridge",
+      "labels": [
+        {
+          "name": "agent:codex-action-needed"
+        }
+      ]
+    },
+    {
+      "number": 1364,
+      "title": "Investigate: conversational-agent-collaboration",
+      "body": "## Goal\nExternal research (external-doc): AutoGen enables multi-agent collaboration through structured conversations. Agents negotiate task allocation, share context through message history, and can request human feedback at decision points. Supports nested conversations for subtask decomposition. Relevance: LIAN workers currently operate in isolation with no inter-worker communication. Adding a lightweight message bus for conflict resolution and context sharing could reduce duplicate work and improve coordination.\n## Evidence\nSource reliability: high. Captured at: 2026-05-13T04:17:06.322Z. Source: https://github.com/microsoft/autogen.\n## Rollback / Follow-up\nIf the investigation finds no actionable improvement, close the issue with a summary of findings.\n\n---\nCONTROL APPENDIX (external-intake bridge generated)\nTask type: research\nRisk: low\nConflict group: external-intake-multi-agent-conversation\nTarget issue:\nTarget PR:\nIssues:\nExpected PR: True\nAllowed files:\n- docs/ai-native/**\n- scripts/ai/**\nForbidden files:\n- src/**\n- prisma/**\n- package.json\n- package-lock.json\n- .github/ai-policy/seed-constitution.md\nValidation commands:\n- npm run check\n\nRole packet:\nActor role: research-worker\nMacro goal: external-intake-bridge",
+      "labels": [
+        {
+          "name": "agent:codex-action-needed"
+        }
+      ]
+    },
+    {
+      "number": 1363,
+      "title": "Investigate: graph-based-state-machine",
+      "body": "## Goal\nExternal research (external-doc): LangGraph uses directed acyclic graphs to model agent workflows, enabling explicit state transitions, parallel branching, and conditional routing. Each node is a processing step, edges define transitions. Supports checkpointing and human-in-the-loop interrupts. Relevance: LIAN batch-launch wave planning uses a similar DAG concept for conflict-group serialization. Could adopt explicit state machine transitions for worker lifecycle (planned->running->completed/failed) instead of status field patching.\n## Evidence\nSource reliability: high. Captured at: 2026-05-13T04:16:40.745Z. Source: https://github.com/langchain-ai/langgraph.\n## Rollback / Follow-up\nIf the investigation finds no actionable improvement, close the issue with a summary of findings.\n\n---\nCONTROL APPENDIX (external-intake bridge generated)\nTask type: research\nRisk: low\nConflict group: external-intake-agent-orchestration\nTarget issue:\nTarget PR:\nIssues:\nExpected PR: True\nAllowed files:\n- docs/ai-native/**\n- scripts/ai/**\nForbidden files:\n- src/**\n- prisma/**\n- package.json\n- package-lock.json\n- .github/ai-policy/seed-constitution.md\nValidation commands:\n- npm run check\n\nRole packet:\nActor role: research-worker\nMacro goal: external-intake-bridge",
+      "labels": [
+        {
+          "name": "agent:codex-action-needed"
+        }
+      ]
+    }
+  ]
+}
