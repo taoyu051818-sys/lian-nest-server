@@ -1,0 +1,128 @@
+{
+  "$schema": "./worker-lifecycle-transitions.schema.json",
+  "schemaVersion": 1,
+  "states": ["planned", "running", "completed", "failed", "stale", "blocked", "needs-human"],
+  "terminalStates": ["completed", "failed"],
+  "transitions": [
+    {
+      "from": "planned",
+      "to": "running",
+      "trigger": "Worker process starts execution",
+      "guard": "Worker PID assigned and process spawned",
+      "actor": "batch-launcher",
+      "auditRequired": true
+    },
+    {
+      "from": "planned",
+      "to": "blocked",
+      "trigger": "Dependency not satisfied before launch",
+      "guard": "blockedBy issues not resolved or resource unavailable",
+      "actor": "launch-gate",
+      "auditRequired": true
+    },
+    {
+      "from": "planned",
+      "to": "failed",
+      "trigger": "Pre-launch validation fails",
+      "guard": "Launch gate check returns failure",
+      "actor": "launch-gate",
+      "auditRequired": true
+    },
+    {
+      "from": "running",
+      "to": "completed",
+      "trigger": "Worker exits with code 0",
+      "guard": "Process exit code is 0 and result file written",
+      "actor": "wait-parallel-workers",
+      "auditRequired": true
+    },
+    {
+      "from": "running",
+      "to": "failed",
+      "trigger": "Worker exits with non-zero code",
+      "guard": "Process exit code is non-zero",
+      "actor": "wait-parallel-workers",
+      "auditRequired": true
+    },
+    {
+      "from": "running",
+      "to": "stale",
+      "trigger": "Heartbeat timeout exceeds stale threshold",
+      "guard": "No output for >5 minutes and process still alive",
+      "actor": "heartbeat-monitor",
+      "auditRequired": true
+    },
+    {
+      "from": "running",
+      "to": "blocked",
+      "trigger": "Worker reports blocker in result comment",
+      "guard": "Worker comments blocker reason on issue",
+      "actor": "worker",
+      "auditRequired": true
+    },
+    {
+      "from": "running",
+      "to": "needs-human",
+      "trigger": "Worker requires human intervention",
+      "guard": "Worker signals needs-human in output or result",
+      "actor": "worker",
+      "auditRequired": true
+    },
+    {
+      "from": "stale",
+      "to": "running",
+      "trigger": "Worker resumes producing output",
+      "guard": "Heartbeat detects new stdout/stderr activity",
+      "actor": "heartbeat-monitor",
+      "auditRequired": false
+    },
+    {
+      "from": "stale",
+      "to": "failed",
+      "trigger": "Stale worker process exits or is terminated",
+      "guard": "Process exit detected or manual stop invoked",
+      "actor": "recovery-worker",
+      "auditRequired": true
+    },
+    {
+      "from": "stale",
+      "to": "completed",
+      "trigger": "Stale worker exits with code 0",
+      "guard": "Process exit code is 0",
+      "actor": "wait-parallel-workers",
+      "auditRequired": true
+    },
+    {
+      "from": "blocked",
+      "to": "running",
+      "trigger": "Blocker resolved, worker resumes",
+      "guard": "blockedBy issues resolved or human unblocks",
+      "actor": "state-reconciler",
+      "auditRequired": true
+    },
+    {
+      "from": "blocked",
+      "to": "failed",
+      "trigger": "Blocked too long or blocker unresolvable",
+      "guard": "Blocked duration exceeds threshold or human marks failed",
+      "actor": "recovery-worker",
+      "auditRequired": true
+    },
+    {
+      "from": "needs-human",
+      "to": "running",
+      "trigger": "Human resolves the issue and resumes worker",
+      "guard": "Human intervention completed",
+      "actor": "human",
+      "auditRequired": true
+    },
+    {
+      "from": "needs-human",
+      "to": "failed",
+      "trigger": "Human decides to fail the worker",
+      "guard": "Human marks as failed or closes issue",
+      "actor": "human",
+      "auditRequired": true
+    }
+  ]
+}

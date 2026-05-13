@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/worker-lifecycle-transitions.schema.json",
+  "title": "WorkerLifecycleTransitions",
+  "description": "Explicit state machine defining valid worker lifecycle transitions. Inspired by LangGraph DAG model for auditable, deterministic state changes. Referenced by active-workers.schema.json status field.",
+  "type": "object",
+  "required": ["schemaVersion", "states", "transitions", "terminalStates"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version."
+    },
+    "states": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["planned", "running", "completed", "failed", "stale", "blocked", "needs-human"]
+      },
+      "description": "All valid worker lifecycle states. Matches active-workers.schema.json status enum."
+    },
+    "terminalStates": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["completed", "failed"]
+      },
+      "description": "States with no outbound transitions. Once a worker reaches a terminal state, it cannot transition again."
+    },
+    "transitions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Transition"
+      },
+      "description": "All valid state transitions. Any transition not in this list is invalid."
+    }
+  },
+  "definitions": {
+    "Transition": {
+      "type": "object",
+      "required": ["from", "to", "trigger", "guard"],
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string",
+          "enum": ["planned", "running", "completed", "failed", "stale", "blocked", "needs-human"],
+          "description": "Source state."
+        },
+        "to": {
+          "type": "string",
+          "enum": ["planned", "running", "completed", "failed", "stale", "blocked", "needs-human"],
+          "description": "Target state."
+        },
+        "trigger": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Event or condition that causes this transition."
+        },
+        "guard": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Precondition that must be true for the transition to be valid."
+        },
+        "actor": {
+          "type": "string",
+          "description": "Role or system component that performs the transition."
+        },
+        "auditRequired": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this transition must be logged for audit trail."
+        }
+      }
+    }
+  }
+}
