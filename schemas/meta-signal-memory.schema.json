@@ -1,0 +1,373 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/meta-signal-memory.schema.json",
+  "title": "MetaSignalMemory",
+  "description": "Structured memory retrieval layer for meta-signals. Organizes historical meta-signal snapshots into MemGPT-style tiers (working, archival, episodic) with relevance ranking to help the issue producer focus on the most impactful gaps. Written by scripts/ai/calculate-meta-signal-memory.js. See docs/ai-native/meta-signal-memory.md.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "calculatedAt",
+    "inputSources",
+    "working",
+    "archival",
+    "episodic",
+    "relevanceRanking"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Current is 1."
+    },
+    "calculatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when this memory snapshot was built."
+    },
+    "inputSources": {
+      "$ref": "#/definitions/MemoryInputSources",
+      "description": "Metadata about the input meta-signals history used."
+    },
+    "working": {
+      "$ref": "#/definitions/WorkingMemory",
+      "description": "Current-tier signals: the most recent and highest-impact signals for immediate decision-making."
+    },
+    "archival": {
+      "$ref": "#/definitions/ArchivalMemory",
+      "description": "Compressed historical patterns and trends aggregated from past snapshots."
+    },
+    "episodic": {
+      "$ref": "#/definitions/EpisodicMemory",
+      "description": "Notable event sequences — specific incidents and state transitions worth remembering."
+    },
+    "relevanceRanking": {
+      "$ref": "#/definitions/RelevanceRanking",
+      "description": "Ranked list of the most impactful signals across all tiers, for issue production focus."
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "MemoryInputSources": {
+      "type": "object",
+      "required": [
+        "snapshotCount",
+        "snapshotPaths"
+      ],
+      "properties": {
+        "snapshotCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of historical meta-signals snapshots consumed."
+        },
+        "snapshotPaths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Paths to the input snapshot files."
+        }
+      },
+      "additionalProperties": false
+    },
+    "WorkingMemory": {
+      "type": "object",
+      "required": [
+        "signals",
+        "windowSize",
+        "summary"
+      ],
+      "properties": {
+        "signals": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/TieredSignal" },
+          "description": "Most recent signals, ordered by relevance descending."
+        },
+        "windowSize": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of recent snapshots included in working memory."
+        },
+        "summary": {
+          "$ref": "#/definitions/TierSummary",
+          "description": "Aggregate summary of working-tier signals."
+        }
+      },
+      "additionalProperties": false
+    },
+    "ArchivalMemory": {
+      "type": "object",
+      "required": [
+        "patterns",
+        "windowSize",
+        "summary"
+      ],
+      "properties": {
+        "patterns": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ArchivalPattern" },
+          "description": "Aggregated patterns extracted from historical snapshots."
+        },
+        "windowSize": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of historical snapshots compressed into archival memory."
+        },
+        "summary": {
+          "$ref": "#/definitions/TierSummary",
+          "description": "Aggregate summary of archival-tier signals."
+        }
+      },
+      "additionalProperties": false
+    },
+    "EpisodicMemory": {
+      "type": "object",
+      "required": [
+        "episodes"
+      ],
+      "properties": {
+        "episodes": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Episode" },
+          "description": "Notable event sequences detected across the snapshot history."
+        }
+      },
+      "additionalProperties": false
+    },
+    "TieredSignal": {
+      "type": "object",
+      "required": [
+        "signalId",
+        "tier",
+        "relevanceScore",
+        "capturedAt",
+        "signals"
+      ],
+      "properties": {
+        "signalId": {
+          "type": "string",
+          "pattern": "^mem-[a-f0-9-]+$",
+          "description": "Unique memory signal identifier. Format: mem-<short-uuid>."
+        },
+        "tier": {
+          "type": "string",
+          "const": "working",
+          "description": "Memory tier this signal belongs to."
+        },
+        "relevanceScore": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Computed relevance score (0-100). Higher = more impactful for issue production."
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the original snapshot was calculated."
+        },
+        "signals": {
+          "$ref": "meta-signals.schema.json#/definitions/Signals",
+          "description": "The raw signal values from the original snapshot."
+        },
+        "decayFactor": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Time-based decay applied to relevance (1.0 = no decay, 0 = fully stale)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "ArchivalPattern": {
+      "type": "object",
+      "required": [
+        "patternId",
+        "category",
+        "trend",
+        "frequency",
+        "avgSeverity",
+        "firstSeen",
+        "lastSeen"
+      ],
+      "properties": {
+        "patternId": {
+          "type": "string",
+          "pattern": "^pat-[a-f0-9-]+$",
+          "description": "Unique pattern identifier."
+        },
+        "category": {
+          "type": "string",
+          "description": "The failure or friction category this pattern represents."
+        },
+        "trend": {
+          "type": "string",
+          "enum": ["increasing", "stable", "decreasing"],
+          "description": "Whether this pattern's frequency is increasing, stable, or decreasing."
+        },
+        "frequency": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of snapshots where this pattern appeared."
+        },
+        "avgSeverity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Average severity score across appearances."
+        },
+        "firstSeen": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this pattern was first observed."
+        },
+        "lastSeen": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this pattern was most recently observed."
+        }
+      },
+      "additionalProperties": false
+    },
+    "Episode": {
+      "type": "object",
+      "required": [
+        "episodeId",
+        "type",
+        "description",
+        "detectedAt",
+        "signals",
+        "significance"
+      ],
+      "properties": {
+        "episodeId": {
+          "type": "string",
+          "pattern": "^ep-[a-f0-9-]+$",
+          "description": "Unique episode identifier."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["trust-drop", "failure-spike", "friction-surge", "recovery", "anomaly"],
+          "description": "Type of notable event."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of what happened."
+        },
+        "detectedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the episode was detected."
+        },
+        "signals": {
+          "type": "object",
+          "description": "Snapshot of signal values at the time of the episode.",
+          "additionalProperties": true
+        },
+        "significance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "How significant this episode is (0-100)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "TierSummary": {
+      "type": "object",
+      "required": [
+        "avgFailureScore",
+        "avgFrictionScore",
+        "avgTrust",
+        "topPain",
+        "dominantCategory"
+      ],
+      "properties": {
+        "avgFailureScore": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Average failure score across snapshots in this tier."
+        },
+        "avgFrictionScore": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Average friction score across snapshots in this tier."
+        },
+        "avgTrust": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Average trust score across snapshots in this tier."
+        },
+        "topPain": {
+          "type": "string",
+          "description": "Most frequent topPain value in this tier."
+        },
+        "dominantCategory": {
+          "type": "string",
+          "description": "Category with the highest aggregate failure weight in this tier."
+        }
+      },
+      "additionalProperties": false
+    },
+    "RelevanceRanking": {
+      "type": "object",
+      "required": [
+        "topGaps",
+        "totalRanked"
+      ],
+      "properties": {
+        "topGaps": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/RelevanceEntry" },
+          "description": "Top-N most relevant gaps/issues, ordered by relevance descending. Intended for issue production focus."
+        },
+        "totalRanked": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of entries that were ranked."
+        }
+      },
+      "additionalProperties": false
+    },
+    "RelevanceEntry": {
+      "type": "object",
+      "required": [
+        "rank",
+        "relevanceScore",
+        "sourceTier",
+        "category",
+        "description"
+      ],
+      "properties": {
+        "rank": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based rank in the relevance list."
+        },
+        "relevanceScore": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Computed relevance score."
+        },
+        "sourceTier": {
+          "type": "string",
+          "enum": ["working", "archival", "episodic"],
+          "description": "Which memory tier this entry came from."
+        },
+        "category": {
+          "type": "string",
+          "description": "Signal category or pattern name."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of the gap or issue."
+        },
+        "signalRef": {
+          "type": ["string", "null"],
+          "description": "Reference to the source signal or pattern ID."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
