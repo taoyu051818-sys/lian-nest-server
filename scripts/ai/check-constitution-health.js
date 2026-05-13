@@ -16,6 +16,14 @@
  *   4. Seed Constitution Rule 3 — main-red launch stop enforced
  *   5. Seed Constitution Rule 5 — worker scope boundaries respected
  *   6. SOP hard rules — no direct storage access, no silent fallbacks
+ *   7. Runtime: state file staleness (TTL enforcement)
+ *   8. Runtime: meta signals vitality (trust/failure/friction)
+ *   9. Runtime: build health (TypeScript compilation)
+ *  10. Runtime: worker lifecycle (orphaned/stale workers)
+ *  11. Runtime: conflict group contention
+ *  12. Runtime: PR queue health (stale PRs)
+ *  13. Runtime: autonomous loop activity
+ *  14. Runtime: resource pressure (memory/process/provider)
  *
  * Usage:
  *   node scripts/ai/check-constitution-health.js --help
@@ -649,6 +657,227 @@ function checkRepositoryBoundary() {
   return findings;
 }
 
+// ── Runtime Health: State file staleness ─────────────────────────────────────
+
+function checkStateFileStaleness() {
+  const findings = [];
+  const now = Date.now();
+
+  const stateFiles = [
+    { file: 'active-workers.json', maxAgeMs: 60 * 60 * 1000 },
+    { file: 'local-resource.json', maxAgeMs: 10 * 60 * 1000 },
+    { file: 'meta-signals.json', maxAgeMs: 30 * 60 * 1000 },
+    { file: 'provider-pool.json', maxAgeMs: 60 * 60 * 1000 },
+    { file: 'operational-entropy.json', maxAgeMs: 30 * 60 * 1000 },
+    { file: 'risk-signals.json', maxAgeMs: 60 * 60 * 1000 },
+  ];
+
+  for (const { file, maxAgeMs } of stateFiles) {
+    const filePath = path.join(AI_STATE_DIR, file);
+    if (!fs.existsSync(filePath)) {
+      findings.push({ decision: DECISIONS.WARNING, dimension: 'state-staleness', message: `State file missing: ${file}`, file });
+      continue;
+    }
+    const stat = fs.statSync(filePath);
+    const ageMs = now - stat.mtimeMs;
+    if (ageMs > maxAgeMs) {
+      findings.push({ decision: DECISIONS.WARNING, dimension: 'state-staleness', message: `${file} is stale: ${Math.round(ageMs / 60000)}m old (max ${Math.round(maxAgeMs / 60000)}m)`, file });
+    }
+  }
+
+  if (findings.length === 0) findings.push({ decision: DECISIONS.PASS, dimension: 'state-staleness', message: 'All state files within TTL' });
+  return findings;
+}
+
+// ── Runtime Health: Meta signals vitality ────────────────────────────────────
+
+function checkMetaSignalsVitality() {
+  const findings = [];
+  const metaSignals = readJson(path.join(AI_STATE_DIR, 'meta-signals.json'));
+  if (!metaSignals) {
+    findings.push({ decision: DECISIONS.WARNING, dimension: 'meta-signals', message: 'meta-signals.json not found — system flying blind' });
+    return findings;
+  }
+
+  const sig = metaSignals.signals || metaSignals;
+  const allZero = (sig.failureScore || 0) === 0 && (sig.frictionScore || 0) === 0 && (sig.riskScore || 0) === 0 && (sig.trust || 0) === 0;
+
+  if (allZero) {
+    const events = readNdjson(path.join(AI_STATE_DIR, 'worker-telemetry-events.ndjson'));
+    if (events.length > 0) {
+      findings.push({ decision: DECISIONS.WARNING, dimension: 'meta-signals', message: `meta-signals all zeros but ${events.length} telemetry events exist — signals not computed, trust is synthetic` });
+    } else {
+      findings.push({ decision: DECISIONS.PASS, dimension: 'meta-signals', message: 'meta-signals all zeros — consistent with no activity' });
+    }
+  } else {
+    const trust = sig.trust || 0;
+    if (trust < 30) findings.push({ decision: DECISIONS.VIOLATION, dimension: 'meta-signals', message: `Trust critically low: ${trust}/100` });
+    else if (trust < 60) findings.push({ decision: DECISIONS.WARNING, dimension: 'meta-signals', message: `Trust below threshold: ${trust}/100` });
+    else findings.push({ decision: DECISIONS.PASS, dimension: 'meta-signals', message: `Trust healthy: ${trust}/100`, trust });
+
+    if ((sig.failureScore || 0) >= 50) findings.push({ decision: DECISIONS.VIOLATION, dimension: 'meta-signals', message: `Failure score elevated: ${sig.failureScore}/100` });
+    if ((sig.frictionScore || 0) >= 30) findings.push({ decision: DECISIONS.WARNING, dimension: 'meta-signals', message: `Friction elevated: ${sig.frictionScore}/100` });
+  }
+  return findings;
+}
+
+// ── Runtime Health: Build vitality ───────────────────────────────────────────
+
+function checkBuildVitality() {
+  const findings = [];
+  try {
+    const { execSync } = require('child_process');
+    try {
+      execSync('npm run check', { cwd: REPO_ROOT, encoding: 'utf8', timeout: 90000, stdio: 'pipe' });
+      findings.push({ decision: DECISIONS.PASS, dimension: 'build-health', message: 'TypeScript compilation passes' });
+    } catch (e) {
+      const stderr = e.stderr || e.stdout || '';
+      const tsErrors = (stderr.match(/error TS/g) || []).length;
+      if (tsErrors === 0 && stderr.includes('tsc')) {
+        findings.push({ decision: DECISIONS.WARNING, dimension: 'build-health', message: 'TypeScript check exited non-zero but no TS errors found' });
+      } else {
+        findings.push({ decision: DECISIONS.VIOLATION, dimension: 'build-health', message: `TypeScript FAILED: ${tsErrors} errors`, detail: stderr.slice(0, 300) });
+      }
+    }
+  } catch {
+    findings.push({ decision: DECISIONS.WARNING, dimension: 'build-health', message: 'Could not run build check' });
+  }
+  return findings;
+}
+
+// ── Runtime Health: Worker lifecycle ─────────────────────────────────────────
+
+function checkWorkerLifecycleHealth() {
+  const findings = [];
+  const events = readNdjson(path.join(AI_STATE_DIR, 'worker-telemetry-events.ndjson'));
+  if (events.length === 0) {
+    findings.push({ decision: DECISIONS.PASS, dimension: 'worker-lifecycle', message: 'No telemetry events — system idle' });
+    return findings;
+  }
+
+  const starts = events.filter(e => (e.eventType || e.type) === 'start');
+  const completes = events.filter(e => (e.eventType || e.type) === 'complete');
+
+  const startMap = new Map();
+  for (const s of starts) { const k = s.issueNumber || s.workerId || s.taskId; if (k) startMap.set(k, s); }
+  const completeSet = new Set(completes.map(c => c.issueNumber || c.workerId || c.taskId).filter(Boolean));
+
+  const orphaned = [];
+  for (const [key, start] of startMap) {
+    if (!completeSet.has(key)) {
+      const ageMs = Date.now() - new Date(start.capturedAt || start.timestamp).getTime();
+      if (ageMs > 30 * 60 * 1000) orphaned.push({ key, ageMinutes: Math.round(ageMs / 60000) });
+    }
+  }
+
+  if (orphaned.length > 0) {
+    findings.push({ decision: DECISIONS.WARNING, dimension: 'worker-lifecycle', message: `${orphaned.length} workers started but never completed (stale >30m)`, orphaned });
+  } else {
+    findings.push({ decision: DECISIONS.PASS, dimension: 'worker-lifecycle', message: `${starts.length} starts, ${completes.length} completions — no orphans` });
+  }
+
+  const longWorkers = events.filter(e => { const el = e.elapsedMs || e.elapsed; return el && el > 600000; });
+  if (longWorkers.length > 0) {
+    findings.push({ decision: DECISIONS.WARNING, dimension: 'worker-lifecycle', message: `${longWorkers.length} workers exceeded 10min runtime` });
+  }
+  return findings;
+}
+
+// ── Runtime Health: Conflict contention ──────────────────────────────────────
+
+function checkConflictGroupContention() {
+  const findings = [];
+  const activeWorkers = readJson(path.join(AI_STATE_DIR, 'active-workers.json'));
+  if (!activeWorkers || !activeWorkers.workers || activeWorkers.workers.length <= 1) {
+    findings.push({ decision: DECISIONS.PASS, dimension: 'conflict-contention', message: 'No contention possible (0-1 workers)' });
+    return findings;
+  }
+
+  const groups = new Map();
+  for (const w of activeWorkers.workers) { const cg = w.conflictGroup || 'ungrouped'; if (!groups.has(cg)) groups.set(cg, []); groups.get(cg).push(w); }
+
+  for (const [group, workers] of groups) {
+    if (group === 'ungrouped' || workers.length <= 1) continue;
+    findings.push({ decision: DECISIONS.WARNING, dimension: 'conflict-contention', message: `Conflict group "${group}" has ${workers.length} concurrent workers`, group });
+  }
+
+  if (findings.length === 0) findings.push({ decision: DECISIONS.PASS, dimension: 'conflict-contention', message: 'No contention detected' });
+  return findings;
+}
+
+// ── Runtime Health: PR queue ─────────────────────────────────────────────────
+
+function checkPRQueueHealth() {
+  const findings = [];
+  try {
+    const { execSync } = require('child_process');
+    const prs = JSON.parse(execSync('gh pr list --state open --json number,title,createdAt --limit 20', { cwd: REPO_ROOT, encoding: 'utf8', timeout: 15000 }));
+    if (prs.length === 0) {
+      findings.push({ decision: DECISIONS.PASS, dimension: 'pr-queue', message: 'No open PRs' });
+    } else {
+      const now = Date.now();
+      const stale = prs.filter(pr => now - new Date(pr.createdAt).getTime() > 7 * 86400000);
+      if (stale.length > 0) findings.push({ decision: DECISIONS.WARNING, dimension: 'pr-queue', message: `${stale.length} PRs open >7 days` });
+      else findings.push({ decision: DECISIONS.PASS, dimension: 'pr-queue', message: `${prs.length} open PRs, none stale` });
+    }
+  } catch {
+    findings.push({ decision: DECISIONS.WARNING, dimension: 'pr-queue', message: 'Could not check PR queue' });
+  }
+  return findings;
+}
+
+// ── Runtime Health: Autonomous loop ──────────────────────────────────────────
+
+function checkAutonomousLoopHealth() {
+  const findings = [];
+  const events = readNdjson(path.join(AI_STATE_DIR, 'autonomous-loop-events.ndjson'));
+  if (events.length === 0) {
+    findings.push({ decision: DECISIONS.WARNING, dimension: 'autonomous-loop', message: 'No loop events — loop may never have run' });
+    return findings;
+  }
+
+  const last = events[events.length - 1];
+  const ageHours = (Date.now() - new Date(last.capturedAt || last.timestamp).getTime()) / 3600000;
+  const cycles = events.filter(e => (e.eventType || e.type) === 'cycle-complete');
+  const idle = cycles.filter(e => (e.workersLaunched || 0) === 0);
+
+  if (ageHours > 24) {
+    findings.push({ decision: DECISIONS.WARNING, dimension: 'autonomous-loop', message: `Last loop event ${Math.round(ageHours)}h ago — may be stalled` });
+  } else {
+    findings.push({ decision: DECISIONS.PASS, dimension: 'autonomous-loop', message: `${events.length} events, ${cycles.length} cycles (${idle.length} idle), last ${Math.round(ageHours)}h ago` });
+  }
+  return findings;
+}
+
+// ── Runtime Health: Resource pressure ────────────────────────────────────────
+
+function checkResourcePressure() {
+  const findings = [];
+  const lr = readJson(path.join(AI_STATE_DIR, 'local-resource.json'));
+  if (!lr) {
+    findings.push({ decision: DECISIONS.WARNING, dimension: 'resource-pressure', message: 'local-resource.json not found' });
+    return findings;
+  }
+
+  if (lr.memory && lr.memory.usagePercent > 90) findings.push({ decision: DECISIONS.VIOLATION, dimension: 'resource-pressure', message: `Memory critical: ${lr.memory.usagePercent}%` });
+  else if (lr.memory && lr.memory.usagePercent > 75) findings.push({ decision: DECISIONS.WARNING, dimension: 'resource-pressure', message: `Memory elevated: ${lr.memory.usagePercent}%` });
+
+  if (lr.process && lr.process.headroomPercent !== null && lr.process.headroomPercent < 20) {
+    findings.push({ decision: DECISIONS.WARNING, dimension: 'resource-pressure', message: `Process headroom low: ${lr.process.headroomPercent}%` });
+  }
+
+  const pp = readJson(path.join(AI_STATE_DIR, 'provider-pool.json'));
+  if (pp && pp.providers) {
+    for (const p of pp.providers) {
+      const util = p.maxConcurrency > 0 ? Math.round(((p.activeWorkers || 0) / p.maxConcurrency) * 100) : 0;
+      if (util > 80) findings.push({ decision: DECISIONS.WARNING, dimension: 'resource-pressure', message: `Provider "${p.id}" at ${util}% capacity` });
+    }
+  }
+
+  if (findings.length === 0) findings.push({ decision: DECISIONS.PASS, dimension: 'resource-pressure', message: 'Resources healthy' });
+  return findings;
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 function main() {
@@ -672,6 +901,7 @@ function main() {
   // Run all checks
   const allFindings = [];
 
+  // Static compliance
   const law1 = checkRealityBeforeJudgment();
   const law2 = checkSelectionBeforeMemory();
   const law3 = checkGovernedRecursion();
@@ -680,14 +910,19 @@ function main() {
   const rule5 = checkWorkerScopeExpansion();
   const sop = checkRepositoryBoundary();
 
+  // Runtime health
+  const rtStaleness = checkStateFileStaleness();
+  const rtMeta = checkMetaSignalsVitality();
+  const rtBuild = checkBuildVitality();
+  const rtWorker = checkWorkerLifecycleHealth();
+  const rtConflict = checkConflictGroupContention();
+  const rtPR = checkPRQueueHealth();
+  const rtLoop = checkAutonomousLoopHealth();
+  const rtResource = checkResourcePressure();
+
   allFindings.push(
-    ...law1,
-    ...law2,
-    ...law3,
-    ...rule1,
-    ...rule3,
-    ...rule5,
-    ...sop,
+    ...law1, ...law2, ...law3, ...rule1, ...rule3, ...rule5, ...sop,
+    ...rtStaleness, ...rtMeta, ...rtBuild, ...rtWorker, ...rtConflict, ...rtPR, ...rtLoop, ...rtResource,
   );
 
   // Aggregate
@@ -743,6 +978,16 @@ function main() {
         decision: sop.some(f => f.decision === DECISIONS.VIOLATION) ? DECISIONS.VIOLATION : DECISIONS.PASS,
         findings: sop,
       },
+    },
+    runtimeHealth: {
+      stateStaleness: { decision: rtStaleness.some(f => f.decision === DECISIONS.VIOLATION) ? DECISIONS.VIOLATION : rtStaleness.some(f => f.decision === DECISIONS.WARNING) ? DECISIONS.WARNING : DECISIONS.PASS, findings: rtStaleness },
+      metaSignals: { decision: rtMeta.some(f => f.decision === DECISIONS.VIOLATION) ? DECISIONS.VIOLATION : rtMeta.some(f => f.decision === DECISIONS.WARNING) ? DECISIONS.WARNING : DECISIONS.PASS, findings: rtMeta },
+      buildHealth: { decision: rtBuild.some(f => f.decision === DECISIONS.VIOLATION) ? DECISIONS.VIOLATION : DECISIONS.PASS, findings: rtBuild },
+      workerLifecycle: { decision: rtWorker.some(f => f.decision === DECISIONS.VIOLATION) ? DECISIONS.VIOLATION : rtWorker.some(f => f.decision === DECISIONS.WARNING) ? DECISIONS.WARNING : DECISIONS.PASS, findings: rtWorker },
+      conflictContention: { decision: rtConflict.some(f => f.decision === DECISIONS.WARNING) ? DECISIONS.WARNING : DECISIONS.PASS, findings: rtConflict },
+      prQueue: { decision: rtPR.some(f => f.decision === DECISIONS.WARNING) ? DECISIONS.WARNING : DECISIONS.PASS, findings: rtPR },
+      autonomousLoop: { decision: rtLoop.some(f => f.decision === DECISIONS.WARNING) ? DECISIONS.WARNING : DECISIONS.PASS, findings: rtLoop },
+      resourcePressure: { decision: rtResource.some(f => f.decision === DECISIONS.VIOLATION) ? DECISIONS.VIOLATION : rtResource.some(f => f.decision === DECISIONS.WARNING) ? DECISIONS.WARNING : DECISIONS.PASS, findings: rtResource },
     },
     findings: allFindings,
   };
