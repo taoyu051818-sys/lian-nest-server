@@ -8,7 +8,7 @@ import {
   Body,
   Query,
 } from '@nestjs/common';
-import { PostsService } from './posts.service';
+import { PostsUsecase } from './posts.service';
 import type {
   PostDetail,
   PostPaginatedList,
@@ -24,25 +24,25 @@ import type {
 
 @Controller('api/posts')
 export class PostsController {
-  constructor(private readonly postsService: PostsService) {}
+  constructor(private readonly postsUsecase: PostsUsecase) {}
 
   // ---- Read ----------------------------------------------------------------
 
   @Get()
   listPosts(@Query() query: ListPostsQuery): Promise<PostPaginatedList> {
-    return this.postsService.listPosts(query);
+    return this.postsUsecase.listPosts(query);
   }
 
   @Get(':postId')
   getPostDetail(@Param('postId') postId: string): Promise<PostDetail> {
-    return this.postsService.getPostDetail(postId);
+    return this.postsUsecase.getPostDetail(postId);
   }
 
   // ---- Write ---------------------------------------------------------------
 
   @Post()
   createPost(@Body() body: CreatePostBody): PostDetail {
-    return this.postsService.createPost(body);
+    return this.postsUsecase.createPost(body);
   }
 
   @Put(':postId')
@@ -50,12 +50,12 @@ export class PostsController {
     @Param('postId') postId: string,
     @Body() body: UpdatePostBody,
   ): PostDetail {
-    return this.postsService.updatePost(postId, body);
+    return this.postsUsecase.updatePost(postId, body);
   }
 
   @Delete(':postId')
   deletePost(@Param('postId') postId: string): { deleted: true } {
-    return this.postsService.deletePost(postId);
+    return this.postsUsecase.deletePost(postId);
   }
 
   // ---- Reactions -----------------------------------------------------------
@@ -64,7 +64,7 @@ export class PostsController {
   listReactions(
     @Param('postId') postId: string,
   ): Promise<PostReactionSummary[]> {
-    return this.postsService.listReactions(postId);
+    return this.postsUsecase.listReactions(postId);
   }
 
   @Post(':postId/reactions')
@@ -72,7 +72,7 @@ export class PostsController {
     @Param('postId') postId: string,
     @Body() body: CreateReactionBody,
   ): PostReactionSummary {
-    return this.postsService.addReaction(postId, body);
+    return this.postsUsecase.addReaction(postId, body);
   }
 
   @Delete(':postId/reactions/:reactionType')
@@ -80,7 +80,7 @@ export class PostsController {
     @Param('postId') postId: string,
     @Param('reactionType') reactionType: string,
   ): { removed: true } {
-    return this.postsService.removeReaction(postId, reactionType);
+    return this.postsUsecase.removeReaction(postId, reactionType);
   }
 
   // ---- Replies -------------------------------------------------------------
@@ -90,7 +90,7 @@ export class PostsController {
     @Param('postId') postId: string,
     @Query() query: ListRepliesQuery,
   ): Promise<{ items: PostReply[]; totalCount: number; page: number; perPage: number }> {
-    return this.postsService.listReplies(postId, query);
+    return this.postsUsecase.listReplies(postId, query);
   }
 
   @Post(':postId/replies')
@@ -98,7 +98,7 @@ export class PostsController {
     @Param('postId') postId: string,
     @Body() body: CreateReplyBody,
   ): PostReply {
-    return this.postsService.createReply(postId, body);
+    return this.postsUsecase.createReply(postId, body);
   }
 
   @Delete(':postId/replies/:replyId')
@@ -106,6 +106,6 @@ export class PostsController {
     @Param('postId') postId: string,
     @Param('replyId') replyId: string,
   ): { deleted: true } {
-    return this.postsService.deleteReply(postId, replyId);
+    return this.postsUsecase.deleteReply(postId, replyId);
   }
 }

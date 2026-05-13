@@ -30,7 +30,7 @@ import {
  * All other methods remain contract stubs.
  */
 @Injectable()
-export class PostsService {
+export class PostsUsecase {
   constructor(
     private readonly postsProvider: NodebbPostsProvider,
     private readonly topicsProvider: NodebbTopicsProvider,
@@ -121,15 +121,15 @@ export class PostsService {
   // ---- Write ---------------------------------------------------------------
 
   createPost(_body: CreatePostBody): PostDetail {
-    throw new NotImplementedException('PostsService.createPost');
+    throw new NotImplementedException('PostsUsecase.createPost');
   }
 
   updatePost(_postId: string, _body: UpdatePostBody): PostDetail {
-    throw new NotImplementedException('PostsService.updatePost');
+    throw new NotImplementedException('PostsUsecase.updatePost');
   }
 
   deletePost(_postId: string): { deleted: true } {
-    throw new NotImplementedException('PostsService.deletePost');
+    throw new NotImplementedException('PostsUsecase.deletePost');
   }
 
   // ---- Reactions -----------------------------------------------------------
@@ -153,11 +153,11 @@ export class PostsService {
   }
 
   addReaction(_postId: string, _body: CreateReactionBody): PostReactionSummary {
-    throw new NotImplementedException('PostsService.addReaction');
+    throw new NotImplementedException('PostsUsecase.addReaction');
   }
 
   removeReaction(_postId: string, _reactionType: string): { removed: true } {
-    throw new NotImplementedException('PostsService.removeReaction');
+    throw new NotImplementedException('PostsUsecase.removeReaction');
   }
 
   // ---- Replies -------------------------------------------------------------
@@ -210,10 +210,10 @@ export class PostsService {
   }
 
   createReply(_postId: string, _body: CreateReplyBody): PostReply {
-    throw new NotImplementedException('PostsService.createReply');
+    throw new NotImplementedException('PostsUsecase.createReply');
   }
 
   deleteReply(_postId: string, _replyId: string): { deleted: true } {
-    throw new NotImplementedException('PostsService.deleteReply');
+    throw new NotImplementedException('PostsUsecase.deleteReply');
   }
 }
