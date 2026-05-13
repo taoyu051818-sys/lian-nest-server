@@ -665,7 +665,8 @@ test('edge: discussion entry has correct shape', () => {
   const d = discussions[0];
   assert.strictEqual(d.issue, 96);
   assert.strictEqual(d.state, 'discussion/open');
-  assert.strictEqual(d.conflictGroup, null);
+  assert.strictEqual(typeof d.conflictGroup, 'string');
+  assert.ok(d.conflictGroup.length > 0);
   assert.strictEqual(d.worker, null);
   assert.strictEqual(d.blockedReason, null);
   assert.strictEqual(d.linkedPR, null);
