@@ -24,6 +24,12 @@
  *   node scripts/ai/classify-self-cycle-failure.js --text "error here" --step launch-gate
  *   node scripts/ai/classify-self-cycle-failure.js --help
  *
+ * Reflection:
+ *   Each classification includes a reflexion-style self-critique with a
+ *   lesson, actionable guidance, and a repeat-prevention signal. Pass
+ *   --reflectionLog <path.ndjson> to persist reflections for downstream
+ *   consumption by the planning loop.
+ *
  * Exit codes:
  *   0 — classification produced
  *   2 — invalid arguments
@@ -188,6 +194,67 @@ const STEP_HINTS = {
   'reconcile': ['ISSUE_BODY_PARSE_BLEED'],
 };
 
+// ── Reflection templates ────────────────────────────────────────────────────
+// Reflexion-style self-critiques: each error class maps to an actionable
+// lesson, concrete fix guidance, and a repeat-prevention signal.
+
+const REFLECTIONS = {
+  TASK_CONTRACT_INVALID: {
+    lesson: 'Task JSON was produced without required fields or passed schema validation. This means the compile step did not enforce the contract before dispatch.',
+    actionableGuidance: 'Add a schema validation gate after compile-issue-to-task-json.ps1. Reject tasks missing allowedFiles, risk, or rolePacket.actorRole before they reach the launcher.',
+    repeatPreventionSignal: 'check-task-contract-schema',
+    severity: 'high',
+  },
+  ISSUE_BODY_PARSE_BLEED: {
+    lesson: 'Regex extraction picked up content from adjacent markdown sections in the issue body. The CONTROL APPENDIX delimiter is not strict enough to prevent bleed.',
+    actionableGuidance: 'Use a stricter delimiter (e.g., triple-backline fences) around CONTROL APPENDIX. Add a post-extraction sanity check that allowedFiles does not contain markdown prose.',
+    repeatPreventionSignal: 'check-issue-body-delimiter',
+    severity: 'medium',
+  },
+  RUNNER_STRICT_MODE_VARIABLE: {
+    lesson: 'A PowerShell script hit an uninitialized variable under strict mode. An optional task field was accessed without a null guard.',
+    actionableGuidance: 'Audit all optional field accesses in run-claude-print.ps1. Add Has-Prop / Get-OptionalField guards for targetPR, attentionAreas, budgets, and similar optional fields.',
+    repeatPreventionSignal: 'check-ps-strict-mode-null-guard',
+    severity: 'medium',
+  },
+  BATCH_SINGLE_TASK_MISMATCH: {
+    lesson: 'Batch launcher dispatched a multi-task file to a worker expecting a single task, or the branch issue number did not match any task in the batch.',
+    actionableGuidance: 'Ensure batch-launch.ps1 extracts a single-task temp file per worker. Add a post-extraction check that the file contains exactly one task and the issue number matches the branch name.',
+    repeatPreventionSignal: 'check-batch-single-task-extraction',
+    severity: 'high',
+  },
+  PROVIDER_UNAVAILABLE: {
+    lesson: 'All API providers were exhausted, disabled, or at capacity. No worker could be launched despite having valid tasks queued.',
+    actionableGuidance: 'Monitor provider pool utilization. Add a pre-launch capacity check that verifies at least one provider has available slots before queuing tasks. Consider adding provider cooldown alerts.',
+    repeatPreventionSignal: 'check-provider-capacity-before-launch',
+    severity: 'low',
+  },
+  DISK_PRESSURE: {
+    lesson: 'Local disk, memory, or CPU resources were critically low, preventing worker execution.',
+    actionableGuidance: 'Run worktree-janitor.ps1 before each batch. Add a pre-launch disk space check. Reduce concurrent worker count when disk usage exceeds 80%.',
+    repeatPreventionSignal: 'check-disk-pressure-pre-launch',
+    severity: 'low',
+  },
+  WORKTREE_STALE: {
+    lesson: 'A git worktree was stale, locked, or corrupted — likely from a previous worker run that did not clean up.',
+    actionableGuidance: 'Run worktree-janitor.ps1 as a pre-launch gate. Add automatic cleanup of worktrees older than 2 hours. Check for lock files before creating new worktrees.',
+    repeatPreventionSignal: 'check-worktree-freshness',
+    severity: 'medium',
+  },
+  HUMAN_REQUIRED: {
+    lesson: 'A gate or policy check blocked the cycle because a human decision was required. The automated pipeline cannot proceed without human input.',
+    actionableGuidance: 'Review the gate report promptly. For recurring human-required blocks on low-risk tasks, consider relaxing the gate criteria or adding an auto-approve path.',
+    repeatPreventionSignal: 'check-human-decision-pending',
+    severity: 'low',
+  },
+  UNKNOWN_CONTROL_PLANE_FAILURE: {
+    lesson: 'The failure did not match any known pattern. This is either a new failure mode or a combination of signals the classifier does not recognize.',
+    actionableGuidance: 'Review the full error output and add the new pattern to classify-self-cycle-failure.js. Classify the failure text and file a follow-up issue with the error class.',
+    repeatPreventionSignal: 'check-unknown-failure-pattern',
+    severity: 'high',
+  },
+};
+
 // ── Classification logic ─────────────────────────────────────────────────────
 
 function classify(text, step) {
@@ -296,6 +363,25 @@ function enrichWithSuggestions(result) {
   return { ...result, ...suggestions };
 }
 
+// ── Reflection generator ─────────────────────────────────────────────────────
+
+function generateReflection(result, failureText) {
+  const template = REFLECTIONS[result.errorClass] || REFLECTIONS.UNKNOWN_CONTROL_PLANE_FAILURE;
+  const snippet = failureText
+    ? failureText.trim().slice(0, 200).replace(/\s+/g, ' ')
+    : '';
+
+  return {
+    errorClass: result.errorClass,
+    lesson: template.lesson,
+    actionableGuidance: template.actionableGuidance,
+    repeatPreventionSignal: template.repeatPreventionSignal,
+    severity: template.severity,
+    failureSnippet: snippet || null,
+    capturedAt: new Date().toISOString(),
+  };
+}
+
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
 function printHelp() {
@@ -306,11 +392,12 @@ Usage:
   node scripts/ai/classify-self-cycle-failure.js [options]
 
 Options:
-  --step <name>   Pipeline step that failed (compile, batch-launch, run-claude-print,
-                  launch-gate, health-gate, provider-pool-preflight, reconcile)
-  --file <path>   Read failure text from a file
-  --text <string> Classify the given string directly
-  --help          Show this help message
+  --step <name>           Pipeline step that failed (compile, batch-launch, run-claude-print,
+                          launch-gate, health-gate, provider-pool-preflight, reconcile)
+  --file <path>           Read failure text from a file
+  --text <string>         Classify the given string directly
+  --reflectionLog <path>  Append reflection entry to an NDJSON log file
+  --help                  Show this help message
 
 With no --file/--text, reads from stdin.
 
@@ -328,7 +415,7 @@ Error classes:
 Output:
   JSON object with: failedStep, errorClass, humanSummary, likelyCause,
   recommendedAction, safeToRetry, suggestedIssueTitle, suggestedAllowedFiles,
-  matchedPatterns, confidence
+  matchedPatterns, confidence, reflection
 
 Exit codes:
   0  Classification produced
@@ -355,10 +442,16 @@ async function main() {
 
   let text = '';
   let step = null;
+  let reflectionLog = null;
 
   const stepIdx = args.indexOf('--step');
   if (stepIdx !== -1) {
     step = args[stepIdx + 1] || null;
+  }
+
+  const reflectionLogIdx = args.indexOf('--reflectionLog');
+  if (reflectionLogIdx !== -1) {
+    reflectionLog = args[reflectionLogIdx + 1] || null;
   }
 
   const fileIdx = args.indexOf('--file');
@@ -386,6 +479,15 @@ async function main() {
 
   const result = classify(text, step);
   const enriched = enrichWithSuggestions(result);
+  const reflection = generateReflection(result, text);
+  enriched.reflection = reflection;
+
+  if (reflectionLog) {
+    const logDir = require('path').dirname(reflectionLog);
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.appendFileSync(reflectionLog, JSON.stringify(reflection) + '\n', 'utf8');
+  }
+
   console.log(JSON.stringify(enriched, null, 2));
 }
 
