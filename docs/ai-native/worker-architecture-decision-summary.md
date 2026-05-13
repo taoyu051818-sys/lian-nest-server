@@ -170,8 +170,8 @@ These items from the #96 discussion are not yet resolved:
 | 2 | `sourceOfTruthDocs` as explicit task JSON field | Not implemented | Workers read issue body and referenced docs; no formal field |
 | 3 | `handoffOutputs` as explicit task JSON field | Not implemented | PR body serves as implicit handoff |
 | 4 | `stragglerPolicy` in task JSON | Partially implemented | Stale worktree detection exists but is not a task-level field |
-| 5 | Generated Prisma stale guard script | Not implemented | Policy exists but no `scripts/check-generated-prisma.js` |
-| 6 | PR handoff template guard | Not implemented | No `scripts/check-pr-handoff.js` |
+| 5 | Generated Prisma stale guard script | Implemented | `scripts/guards/check-generated-prisma.js` |
+| 6 | PR handoff template guard | Implemented | `scripts/guards/check-pr-handoff.js` |
 | 7 | NodeBB adapter auth mode diagnostic | Not implemented | No dedicated failure classifier |
 
 ---

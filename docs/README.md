@@ -56,6 +56,19 @@ Key documents: this index, authority map, SOP, roles, worker contracts,
 parallel work policy, PR review gate, self-cycle runner, launch gate,
 result publishing, worker heartbeat, codex retirement runbook.
 
+#### Task Board and Gap Management
+
+| Document | Purpose |
+|----------|---------|
+| [Task Board Projection](ai-native/task-board-projection.md) | Machine-readable task lifecycle projection from GitHub issues |
+| [Task-Board Driven Discovery](ai-native/task-board-driven-discovery.md) | Gap discovery layer that emits `empty-ready`, `blocked-lane`, `stale-running` signals |
+| [Gap-to-Issue Reducer](ai-native/gap-to-issue-reducer.md) | Combines gap signals into deduplicated issue proposals |
+| [Gap Ledger](ai-native/gap-ledger.md) | Append-only gap event log |
+| [Meta Signals](ai-native/meta-signals.md) | Failure, friction, and risk scoring |
+| [Self-Cycle Top-Up Controller](ai-native/self-cycle-top-up-controller.md) | Keeps ready issue count near target concurrency |
+| [Issue Producer Lane](ai-native/issue-producer-lane.md) | Autonomous issue production subsystem |
+| [Knowledge-Driven Scaling](ai-native/knowledge-driven-scaling.md) | Macro scaling rules |
+
 ---
 
 ## Quick Reference
@@ -74,3 +87,7 @@ result publishing, worker heartbeat, codex retirement runbook.
 | Publish worker results to GitHub | `ai-native/result-publishing.md` |
 | Monitor worker liveness | `ai-native/worker-heartbeat.md` |
 | Understand Codex retirement criteria | `ai-native/codex-retirement-runbook.md` |
+| Understand the task board lifecycle | `ai-native/task-board-projection.md` |
+| Detect ready-lane or blocked-lane gaps | `ai-native/task-board-driven-discovery.md` |
+| Produce issues from gap signals | `ai-native/gap-to-issue-reducer.md` |
+| Keep the ready queue full | `ai-native/self-cycle-top-up-controller.md` |

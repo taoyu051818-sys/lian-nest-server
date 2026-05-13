@@ -395,5 +395,8 @@ This document does **not**:
 - [Knowledge-Driven Scaling](knowledge-driven-scaling.md) — Macro
   scaling rules
 - [State Reconciler](state-reconciler.md) — Drift detection
+- [Task-Board Driven Discovery](task-board-driven-discovery.md) — Gap
+  discovery layer that emits `empty-ready`, `blocked-lane`, and
+  `stale-running` signals from this projection
 - [#1211](https://github.com/taoyu051818-sys/lian-nest-server/issues/1211)
   — This feature

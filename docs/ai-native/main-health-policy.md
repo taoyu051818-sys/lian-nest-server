@@ -4,8 +4,7 @@ Defines how the health state of the `main` branch controls whether AI worker
 batches may be launched. The orchestrator MUST consult this policy before
 dispatching any worker.
 
-> **Cross-link TODO:** Link to `orchestration.md` once it lands on `main`.
-> See issue #102.
+> See [Orchestration](orchestration.md) for the full dispatch pipeline.
 
 ---
 

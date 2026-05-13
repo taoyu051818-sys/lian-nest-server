@@ -201,7 +201,7 @@ Tests cover:
 |--------|------------|
 | [Gap Ledger](gap-ledger.md) | Primary input — reads NDJSON entries |
 | [Meta Signals](meta-signals.md) | Enriches candidates with failure/friction scores |
-| [Task Board](task-board.md) | Discovers blocked-lane, empty-ready, stale-running gaps |
+| [Task Board Projection](task-board-projection.md) | Discovers blocked-lane, empty-ready, stale-running gaps |
 | [Risk Policy](risk-policy.md) | Gates high-risk candidates to human-required |
 | [Candidate Gap Dedupe Policy](candidate-gap-dedupe-policy.md) | Dedup against existing issues/PRs |
 | [Issue Body Renderer](issue-body-renderer.md) | CONTROL APPENDIX format |

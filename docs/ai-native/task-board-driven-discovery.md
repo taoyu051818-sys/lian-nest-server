@@ -64,6 +64,15 @@ The discovery output feeds into `propose-self-cycle-issues.js` and the planning 
 2. **empty-ready** signals produce batch issue proposals with broad scope to fill the executable queue.
 3. **stale-running** signals produce health-check or escalation issues targeting the stale worker's conflict group.
 
+## Related Docs
+
+- [Task Board Projection](task-board-projection.md) — The projection
+  this discovery layer reads from
+- [Gap-to-Issue Reducer](gap-to-issue-reducer.md) — Consumes discovery
+  signals and produces issue proposals
+- [Self-Cycle Top-Up Controller](self-cycle-top-up-controller.md) —
+  Acts on `empty-ready` signals to replenish the ready queue
+
 ## Testing
 
 ```bash
