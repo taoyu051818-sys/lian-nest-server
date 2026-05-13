@@ -24,7 +24,7 @@
   },
   "process": {
     "runningCount": 0,
-    "maxAllowed": 10,
+    "maxAllowed": 30,
     "headroomPercent": 100
   },
   "global": {

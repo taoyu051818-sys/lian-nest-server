@@ -1,0 +1,1 @@
+{"command": "compile-and-launch", "args": {"label": "agent:codex-action-needed", "repo": "taoyu051818-sys/lian-nest-server", "parallel": 30}}

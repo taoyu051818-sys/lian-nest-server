@@ -1,5 +1,10 @@
 {
-  "markerVersion": 1,
-  "capturedAt": "2026-05-11T12:00:00Z",
+  "markerVersion": 2,
+  "capturedAt": "2026-05-13T05:04:28.8736158Z",
+  "batchId": "worker-batch-20260513T050428Z",
+  "mode": "execute",
+  "requestedParallelism": 30,
+  "effectiveParallelism": 13,
+  "blockedParallelismReason": "conflict-safe slots=13",
   "workers": []
 }

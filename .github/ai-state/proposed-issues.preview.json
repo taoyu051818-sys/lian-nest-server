@@ -1,0 +1,75 @@
+{
+  "planVersion": 1,
+  "capturedAt": "2026-05-13T05:11:48.427Z",
+  "label": "agent:codex-action-needed",
+  "mode": "dry-run",
+  "totalProposed": 1,
+  "totalCapped": 1,
+  "totalSkipped": 3,
+  "candidates": [
+    {
+      "issueNumber": null,
+      "title": "Improve self-cycle issue proposal generator coverage and gap detection",
+      "taskType": "research",
+      "risk": "medium",
+      "conflictGroup": "issue-seeding-meta",
+      "actorRole": "automation-cycle-worker",
+      "allowedFiles": [
+        "scripts/ai/**",
+        "docs/ai-native/**"
+      ],
+      "forbiddenFiles": [
+        "src/**",
+        "prisma/**",
+        "package.json"
+      ],
+      "validationCommands": [
+        "npm run check"
+      ],
+      "readiness": "human-required",
+      "readinessNote": "Meta-issue for issue seeding improvements. Requires human review.",
+      "macroGoal": "issue-seeding-improvement",
+      "rationale": "This meta-issue tracks improvements to the issue proposal generator itself. Always human-reviewed.",
+      "evidence": "This is a meta-issue that recurs when the issue proposal generator itself needs improvement. It is always emitted to ensure continuous improvement.",
+      "rollbackFollowUp": "No rollback needed 鈥?this is a research/tracking issue. Follow up by reviewing proposed improvements and prioritizing them.",
+      "humanRequired": true,
+      "sliceRef": null,
+      "sliceStatus": null,
+      "compositeScore": null
+    }
+  ],
+  "skippedDuplicates": [
+    {
+      "title": "Refresh resource sampler state for local machine",
+      "conflictGroup": "resource-sampler",
+      "reason": "title overlap with existing: \"Refresh resource sampler state for local machine\""
+    },
+    {
+      "title": "Expand provider pool capacity projection",
+      "conflictGroup": "provider-pool-capacity",
+      "reason": "title overlap with existing: \"fix(ai): raise provider pool rehearsal capacity to 30\""
+    },
+    {
+      "title": "Seed task board from open labeled issues",
+      "conflictGroup": "task-board-completeness",
+      "reason": "title overlap with existing: \"Seed task board from open labeled issues\""
+    }
+  ],
+  "policy": {
+    "allowedScopes": [
+      "docs/**",
+      "scripts/ai/**",
+      "schemas/**",
+      "tools/provider-pool-webui/**",
+      ".github/ai-state/*.example.json"
+    ],
+    "forbiddenScopes": [
+      "src/**",
+      "prisma/**",
+      "package.json",
+      "package-lock.json",
+      ".github/ai-policy/seed-constitution.md"
+    ],
+    "maxAutoCreate": 10
+  }
+}

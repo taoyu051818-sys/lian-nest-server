@@ -1,0 +1,27 @@
+[
+  {
+    "taskType": "execution",
+    "risk": "low",
+    "conflictGroup": "opportunity-a1b2c3d4-004",
+    "targetIssue": 1373,
+    "allowedFiles": [
+      "scripts/ai/**",
+      "docs/ai-native/**",
+      "schemas/**"
+    ],
+    "forbiddenFiles": [
+      "src/**",
+      "prisma/**",
+      "package.json",
+      "package-lock.json",
+      ".github/ai-policy/seed-constitution.md"
+    ],
+    "validationCommands": [
+      "npm run check"
+    ],
+    "rolePacket": {
+      "actorRole": "experiment-worker",
+      "description": ""
+    }
+  }
+]

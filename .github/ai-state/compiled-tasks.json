@@ -1,0 +1,328 @@
+[
+  {
+    "targetIssue": 1379,
+    "title": "Seed task board from open labeled issues",
+    "taskType": "execution",
+    "risk": "low",
+    "conflictGroup": "task-board-completeness",
+    "allowedFiles": [
+      "scripts/ai/**",
+      "docs/ai-native/**",
+      ".github/ai-state/*.example.json"
+    ],
+    "forbiddenFiles": [
+      "src/**",
+      "prisma/**",
+      "package.json"
+    ],
+    "validationCommands": [
+      "npm run check"
+    ],
+    "rolePacket": {
+      "actorRole": "automation-cycle-worker",
+      "description": ""
+    }
+  },
+  {
+    "targetIssue": 1378,
+    "title": "Refresh resource sampler state for local machine",
+    "taskType": "execution",
+    "risk": "low",
+    "conflictGroup": "resource-sampler",
+    "allowedFiles": [
+      "scripts/ai/**",
+      ".github/ai-state/*.example.json"
+    ],
+    "forbiddenFiles": [
+      "src/**",
+      "prisma/**",
+      "package.json"
+    ],
+    "validationCommands": [
+      "npm run check"
+    ],
+    "rolePacket": {
+      "actorRole": "automation-cycle-worker",
+      "description": ""
+    }
+  },
+  {
+    "targetIssue": 1373,
+    "title": "Experiment: Adding a failure reflection step to classify-self-cycle-failure.js that generates actionable self-critiques reduces repeat failures",
+    "taskType": "execution",
+    "risk": "low",
+    "conflictGroup": "opportunity-a1b2c3d4-004",
+    "allowedFiles": [
+      "scripts/ai/**",
+      "docs/ai-native/**",
+      "schemas/**"
+    ],
+    "forbiddenFiles": [
+      "src/**",
+      "prisma/**",
+      "package.json",
+      "package-lock.json",
+      ".github/ai-policy/seed-constitution.md"
+    ],
+    "validationCommands": [
+      "npm run check"
+    ],
+    "rolePacket": {
+      "actorRole": "experiment-worker",
+      "description": ""
+    }
+  },
+  {
+    "targetIssue": 1372,
+    "title": "Experiment: Adding Claude Code hooks for forbiddenFiles enforcement provides defense-in-depth against constitution violations",
+    "taskType": "execution",
+    "risk": "low",
+    "conflictGroup": "opportunity-a1b2c3d4-003",
+    "allowedFiles": [
+      "scripts/ai/**",
+      "docs/ai-native/**",
+      "schemas/**"
+    ],
+    "forbiddenFiles": [
+      "src/**",
+      "prisma/**",
+      "package.json",
+      "package-lock.json",
+      ".github/ai-policy/seed-constitution.md"
+    ],
+    "validationCommands": [
+      "npm run check"
+    ],
+    "rolePacket": {
+      "actorRole": "experiment-worker",
+      "description": ""
+    }
+  },
+  {
+    "targetIssue": 1371,
+    "title": "Experiment: Adding a structured memory retrieval layer to meta-signals improves issue production quality",
+    "taskType": "execution",
+    "risk": "low",
+    "conflictGroup": "opportunity-a1b2c3d4-002",
+    "allowedFiles": [
+      "scripts/ai/**",
+      "docs/ai-native/**",
+      "schemas/**"
+    ],
+    "forbiddenFiles": [
+      "src/**",
+      "prisma/**",
+      "package.json",
+      "package-lock.json",
+      ".github/ai-policy/seed-constitution.md"
+    ],
+    "validationCommands": [
+      "npm run check"
+    ],
+    "rolePacket": {
+      "actorRole": "experiment-worker",
+      "description": ""
+    }
+  },
+  {
+    "targetIssue": 1370,
+    "title": "Experiment: Explicit state machine transitions for worker lifecycle reduce status inconsistency bugs",
+    "taskType": "execution",
+    "risk": "low",
+    "conflictGroup": "opportunity-a1b2c3d4-001",
+    "allowedFiles": [
+      "scripts/ai/**",
+      "docs/ai-native/**",
+      "schemas/**"
+    ],
+    "forbiddenFiles": [
+      "src/**",
+      "prisma/**",
+      "package.json",
+      "package-lock.json",
+      ".github/ai-policy/seed-constitution.md"
+    ],
+    "validationCommands": [
+      "npm run check"
+    ],
+    "rolePacket": {
+      "actorRole": "experiment-worker",
+      "description": ""
+    }
+  },
+  {
+    "targetIssue": 1369,
+    "title": "Investigate: structured-memory-retrieval",
+    "taskType": "research",
+    "risk": "low",
+    "conflictGroup": "external-intake-agent-memory-systems",
+    "allowedFiles": [
+      "docs/ai-native/**",
+      "scripts/ai/**"
+    ],
+    "forbiddenFiles": [
+      "src/**",
+      "prisma/**",
+      "package.json",
+      "package-lock.json",
+      ".github/ai-policy/seed-constitution.md"
+    ],
+    "validationCommands": [
+      "npm run check"
+    ],
+    "rolePacket": {
+      "actorRole": "research-worker",
+      "description": ""
+    }
+  },
+  {
+    "targetIssue": 1368,
+    "title": "Investigate: function-routing-between-agents",
+    "taskType": "research",
+    "risk": "low",
+    "conflictGroup": "external-intake-lightweight-agent-handoff",
+    "allowedFiles": [
+      "docs/ai-native/**",
+      "scripts/ai/**"
+    ],
+    "forbiddenFiles": [
+      "src/**",
+      "prisma/**",
+      "package.json",
+      "package-lock.json",
+      ".github/ai-policy/seed-constitution.md"
+    ],
+    "validationCommands": [
+      "npm run check"
+    ],
+    "rolePacket": {
+      "actorRole": "research-worker",
+      "description": ""
+    }
+  },
+  {
+    "targetIssue": 1367,
+    "title": "Investigate: delegation-and-oversight",
+    "taskType": "research",
+    "risk": "low",
+    "conflictGroup": "external-intake-role-based-agent-teams",
+    "allowedFiles": [
+      "docs/ai-native/**",
+      "scripts/ai/**"
+    ],
+    "forbiddenFiles": [
+      "src/**",
+      "prisma/**",
+      "package.json",
+      "package-lock.json",
+      ".github/ai-policy/seed-constitution.md"
+    ],
+    "validationCommands": [
+      "npm run check"
+    ],
+    "rolePacket": {
+      "actorRole": "research-worker",
+      "description": ""
+    }
+  },
+  {
+    "targetIssue": 1366,
+    "title": "Investigate: reflexion-self-reflection",
+    "taskType": "research",
+    "risk": "low",
+    "conflictGroup": "external-intake-self-improving-agents",
+    "allowedFiles": [
+      "docs/ai-native/**",
+      "scripts/ai/**"
+    ],
+    "forbiddenFiles": [
+      "src/**",
+      "prisma/**",
+      "package.json",
+      "package-lock.json",
+      ".github/ai-policy/seed-constitution.md"
+    ],
+    "validationCommands": [
+      "npm run check"
+    ],
+    "rolePacket": {
+      "actorRole": "research-worker",
+      "description": ""
+    }
+  },
+  {
+    "targetIssue": 1365,
+    "title": "Investigate: event-driven-guardrails",
+    "taskType": "research",
+    "risk": "low",
+    "conflictGroup": "external-intake-agent-lifecycle-hooks",
+    "allowedFiles": [
+      "docs/ai-native/**",
+      "scripts/ai/**"
+    ],
+    "forbiddenFiles": [
+      "src/**",
+      "prisma/**",
+      "package.json",
+      "package-lock.json",
+      ".github/ai-policy/seed-constitution.md"
+    ],
+    "validationCommands": [
+      "npm run check"
+    ],
+    "rolePacket": {
+      "actorRole": "research-worker",
+      "description": ""
+    }
+  },
+  {
+    "targetIssue": 1364,
+    "title": "Investigate: conversational-agent-collaboration",
+    "taskType": "research",
+    "risk": "low",
+    "conflictGroup": "external-intake-multi-agent-conversation",
+    "allowedFiles": [
+      "docs/ai-native/**",
+      "scripts/ai/**"
+    ],
+    "forbiddenFiles": [
+      "src/**",
+      "prisma/**",
+      "package.json",
+      "package-lock.json",
+      ".github/ai-policy/seed-constitution.md"
+    ],
+    "validationCommands": [
+      "npm run check"
+    ],
+    "rolePacket": {
+      "actorRole": "research-worker",
+      "description": ""
+    }
+  },
+  {
+    "targetIssue": 1363,
+    "title": "Investigate: graph-based-state-machine",
+    "taskType": "research",
+    "risk": "low",
+    "conflictGroup": "external-intake-agent-orchestration",
+    "allowedFiles": [
+      "docs/ai-native/**",
+      "scripts/ai/**"
+    ],
+    "forbiddenFiles": [
+      "src/**",
+      "prisma/**",
+      "package.json",
+      "package-lock.json",
+      ".github/ai-policy/seed-constitution.md"
+    ],
+    "validationCommands": [
+      "npm run check"
+    ],
+    "rolePacket": {
+      "actorRole": "research-worker",
+      "description": ""
+    }
+  }
+]
