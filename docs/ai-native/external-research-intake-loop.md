@@ -371,6 +371,34 @@ background for research-originated tasks.
 **Applicability:** Analogous — LIAN's workers are already specialized by
 layer; the extension is richer context passing.
 
+### AutoGen — Conversational Agent Collaboration
+
+**Source:** [`microsoft/autogen`](https://github.com/microsoft/autogen)
+
+**External observation:** AutoGen enables multi-agent collaboration
+through structured conversations. Agents negotiate task allocation,
+share context through message history, and can request human feedback
+at decision points. Supports nested conversations for subtask
+decomposition.
+
+**Pattern claim:** LIAN workers currently operate in complete isolation
+with no inter-worker communication. The only actionable gap is the lack
+of runtime observation sharing — a read-only, append-only observation
+log scoped to batches could improve post-batch reconciliation without
+violating the isolation model. The structured conversation and
+self-organization patterns from AutoGen do not apply because LIAN uses
+a central orchestrator for dispatch and maintains strict worktree
+isolation.
+
+**LIAN surface:** Worker task contract, context bundles, state
+reconciler.
+
+**Applicability:** Partial — the observation log concept adapts to
+LIAN's isolation model; the conversation/negotiation patterns conflict
+with it.
+
+**Full analysis:** [conversational-agent-collaboration-analysis.md](conversational-agent-collaboration-analysis.md)
+
 ---
 
 ## Gate Integration
@@ -472,4 +500,5 @@ Research intake feeds the knowledge writeback invariant defined in
 - [Knowledge-Driven Scaling](knowledge-driven-scaling.md) — Knowledge writeback invariant
 - [Command Steward Agent](command-steward-agent.md) — Human-facing control-plane interface
 - [Seed Constitution](seed-constitution.md) — Immutable boundaries
+- [Conversational Agent Collaboration Analysis](conversational-agent-collaboration-analysis.md) — AutoGen multi-agent investigation
 - [#1213](https://github.com/taoyu051818-sys/lian-nest-server/issues/1213) — This feature
