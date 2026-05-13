@@ -1,163 +1,191 @@
 # Worker Lifecycle State Machine
 
-Explicit, auditable state machine for worker lifecycle transitions.
-Inspired by LangGraph's DAG model to eliminate status inconsistency bugs.
+Explicit state machine transitions for the active-workers status field.
+Inspired by LangGraph DAG-based state machines for auditable, deterministic
+lifecycle management.
 
 ## Problem
 
-The worker lifecycle uses a free-form `status` field in `active-workers.json`.
-Without explicit transition rules, scripts can set any status at any time,
-leading to:
-- Stale `running` workers that should be `stale` or `failed`
-- `completed` workers that were never actually verified
-- `blocked` workers that silently become `running` without unblock evidence
-- No audit trail of who changed what and why
+The active-workers projection defines seven status values (`planned`,
+`running`, `completed`, `failed`, `stale`, `blocked`, `needs-human`) but
+has no defined transition table. Any script can set any status at any time.
+The only guard is the JSON Schema `enum` constraint, which prevents invalid
+values but does not enforce valid transitions. This leads to:
+
+- Stale status values that no writer updates
+- Inconsistent state when multiple scripts write the projection
+- No audit trail for how a worker reached its current state
 
 ## State Machine
 
 ```
-                         +---------+
-                         | planned |
-                         +---------+
-                          /   |   \
-                         /    |    \
-                        v     v     v
-                  +-------+  |  +--------+
-                  |blocked|  |  | failed |  (terminal)
-                  +-------+  |  +--------+
-                     ^       v
-                     |  +---------+       +-----------+
-                     +--| running |------>| completed | (terminal)
-                        +---------+       +-----------+
-                         ^  |   ^
-                         |  |   |
-                         |  v   |
-                     +--------+ |
-                     | stale  +-+
-                     +--------+
-                         ^
-                         |
-                     +-----------+
-                     |needs-human|
-                     +-----------+
+                    ┌───────────┐
+                    │   null    │  (initial: status not set)
+                    └─────┬─────┘
+                          │
+                ┌─────────┴─────────┐
+                ▼                   ▼
+          ┌──────────┐        ┌──────────┐
+          │ planned  │        │ running  │
+          └────┬─────┘        └────┬─────┘
+               │                   │
+               │    ┌──────────────┼──────────────┬──────────────┐
+               │    │              │              │              │
+               │    ▼              ▼              ▼              ▼
+               │ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐
+               │ │completed │ │  failed  │ │  stale   │ │  blocked   │
+               │ │(terminal)│ │(terminal)│ │(terminal)│ │(recoverable)│
+               │ └──────────┘ └──────────┘ └──────────┘ └─────┬──────┘
+               │                                               │
+               │                   ┌───────────────────────────┤
+               │                   ▼                           ▼
+               │           ┌──────────────┐           ┌──────────────┐
+               │           │needs-human   │           │   running    │
+               │           │(recoverable) │           │  (resumed)   │
+               │           └──────┬───────┘           └──────────────┘
+               │                  │
+               └──────────────────┘
+                    (planned → failed if launch fails)
 ```
 
-### States
+## State Definitions
 
-| State | Meaning | Terminal |
-|-------|---------|----------|
-| `planned` | Worker is queued but not yet started | No |
-| `running` | Worker process is actively executing | No |
-| `stale` | Worker process alive but no output for >5 min | No |
-| `blocked` | Worker cannot proceed due to unresolved dependency | No |
-| `needs-human` | Worker requires human intervention to continue | No |
-| `completed` | Worker exited with code 0, result verified | **Yes** |
-| `failed` | Worker exited non-zero or was terminated | **Yes** |
+| State | Classification | Description |
+|-------|---------------|-------------|
+| `null` | initial | Status not yet set. Worker entry exists but has not been launched. |
+| `planned` | transient | Worker is scheduled but not yet launched (dry-run output). |
+| `running` | active | Worker process is alive and executing. |
+| `completed` | terminal | Worker finished successfully (exit code 0). |
+| `failed` | terminal | Worker exited with error (non-zero exit code, parse failure, missing result). |
+| `stale` | terminal | Worker process is alive but exceeded the stale time threshold. |
+| `blocked` | recoverable | Worker is blocked from progressing but may resume. |
+| `needs-human` | recoverable | Worker requires human intervention but may resume. |
 
-### Terminal States
+## Transition Table
 
-`completed` and `failed` are terminal states. Once a worker reaches either
-state, no further transitions are allowed. This prevents resurrection of
-finished workers.
-
-## Valid Transitions
-
-| # | From | To | Trigger | Guard | Actor |
-|---|------|----|---------|-------|-------|
-| 1 | `planned` | `running` | Worker process starts | PID assigned, process spawned | batch-launcher |
-| 2 | `planned` | `blocked` | Dependency not satisfied | blockedBy unresolved | launch-gate |
-| 3 | `planned` | `failed` | Pre-launch validation fails | Launch gate check fails | launch-gate |
-| 4 | `running` | `completed` | Process exits code 0 | Exit code 0, result file written | wait-parallel-workers |
-| 5 | `running` | `failed` | Process exits non-zero | Exit code non-zero | wait-parallel-workers |
-| 6 | `running` | `stale` | Heartbeat timeout | No output >5 min, process alive | heartbeat-monitor |
-| 7 | `running` | `blocked` | Worker reports blocker | Blocker comment on issue | worker |
-| 8 | `running` | `needs-human` | Worker needs intervention | Signal in output/result | worker |
-| 9 | `stale` | `running` | Worker resumes output | New stdout/stderr detected | heartbeat-monitor |
-| 10 | `stale` | `failed` | Stale process exits/terminated | Process exit or manual stop | recovery-worker |
-| 11 | `stale` | `completed` | Stale process exits code 0 | Exit code 0 | wait-parallel-workers |
-| 12 | `blocked` | `running` | Blocker resolved | blockedBy resolved | state-reconciler |
-| 13 | `blocked` | `failed` | Blocked too long | Duration exceeds threshold | recovery-worker |
-| 14 | `needs-human` | `running` | Human resolves and resumes | Human intervention complete | human |
-| 15 | `needs-human` | `failed` | Human decides to fail | Human marks failed | human |
+| From | To | Trigger | Source |
+|------|----|---------|--------|
+| `null` | `planned` | `launch` | batch-launch.ps1 dry-run |
+| `null` | `running` | `execute` | batch-launch.ps1 execute |
+| `planned` | `running` | `execute` | batch-launch.ps1 execute |
+| `planned` | `failed` | `exit-failure` | wait-parallel-workers.ps1 (no process found) |
+| `running` | `completed` | `exit-success` | wait-parallel-workers.ps1 (exit code 0) |
+| `running` | `failed` | `exit-failure` | wait-parallel-workers.ps1 (non-zero exit, parse error) |
+| `running` | `stale` | `stale-timeout` | wait-parallel-workers.ps1 (exceeded stale threshold) |
+| `running` | `blocked` | `block` | state-reconciler.ps1 or orchestrator |
+| `running` | `needs-human` | `human-flag` | orchestrator or WebUI |
+| `blocked` | `running` | `relaunch` | human or reconciler unblock |
+| `blocked` | `failed` | `exit-failure` | human or reconciler determine failure |
+| `needs-human` | `running` | `manual-override` | human resolves issue |
+| `needs-human` | `failed` | `exit-failure` | human determines failure |
 
 ## Invalid Transitions
 
-Any transition not listed above is invalid. Common invalid transitions:
+These transitions are explicitly rejected:
 
-| From | To | Why Invalid |
-|------|----|-------------|
-| `completed` | *(any)* | Terminal state |
-| `failed` | *(any)* | Terminal state |
-| `blocked` | `stale` | Stale is heartbeat-specific |
-| `stale` | `blocked` | Use `stale` → `failed` → re-queue |
-| `needs-human` | `stale` | No heartbeat in needs-human state |
-| `planned` | `completed` | Must pass through `running` |
-| `planned` | `stale` | Cannot be stale before running |
+- **Terminal → anything**: `completed`, `failed`, and `stale` are final states. Workers in these states cannot transition to any other status. A relaunch creates a new worker entry, not a status mutation.
+- **Regressions**: `running` cannot return to `planned`. A worker that has been launched cannot be un-launched.
+- **Self-transitions**: No state can transition to itself.
+- **Cross-terminal jumps**: `blocked` and `needs-human` cannot jump directly to `completed` or `stale`. They must go through `running` first.
 
-## Audit Requirements
+## Validator
 
-Transitions with `auditRequired: true` must be logged. The audit record
-includes:
+`scripts/ai/validate-worker-transition.js` validates transitions against this
+state machine. It is a deterministic, local-logic script with no network calls.
 
-- `timestamp`: ISO-8601 when the transition occurred
-- `from`: Source state
-- `to`: Target state
-- `actor`: Who or what performed the transition
-- `trigger`: What event caused it
-- `guard`: What precondition was verified
-- `issueNumber`: Linked GitHub issue
-- `evidence`: Proof the guard was satisfied (exit code, heartbeat, comment URL)
-
-## Integration Points
-
-### batch-launch.ps1
-
-Sets `planned` → `running` when spawning a worker. Must record PID and
-`startedAt` timestamp.
-
-### wait-parallel-workers.ps1
-
-Detects process exit and transitions `running` → `completed` or `running` →
-`failed` based on exit code.
-
-### heartbeat-monitor (wait-claude-batch.ps1)
-
-Transitions `running` → `stale` when no output exceeds threshold. Transitions
-`stale` → `running` when output resumes.
-
-### state-reconciler.ps1
-
-Detects drift between actual state and expected state. Can transition
-`blocked` → `running` when blockers are resolved.
-
-### dispatch-recovery-worker.js
-
-Detects stale workers and proposes `stale` → `failed` transitions for
-recovery.
-
-## Validation
-
-The `validate-worker-transition.js` script checks whether a proposed
-transition is valid:
+### Usage
 
 ```bash
-node scripts/ai/validate-worker-transition.js --from running --to completed
-# Exit 0: valid transition
+# Validate a transition
+node scripts/ai/validate-worker-transition.js --from running --to completed --stdout
 
-node scripts/ai/validate-worker-transition.js --from completed --to running
-# Exit 1: invalid transition (terminal state)
+# Validate with trigger for audit
+node scripts/ai/validate-worker-transition.js --from running --to stale --trigger stale-timeout
+
+# Run self-tests
+node scripts/ai/validate-worker-transition.test.js
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Transition is valid |
+| 1 | Transition is invalid |
+| 2 | Invalid arguments |
+
+### Integration
+
+Scripts that update the active-workers status should validate the transition
+before writing:
+
+```javascript
+const { validateTransition } = require('./validate-worker-transition.js');
+
+const result = validateTransition(currentStatus, newStatus, trigger);
+if (!result.valid) {
+  console.error(`Invalid transition: ${result.reason}`);
+  process.exit(1);
+}
 ```
 
 ## Schema
 
-The transition table is defined in:
-- `schemas/worker-lifecycle-transitions.schema.json` — Schema definition
-- `schemas/worker-lifecycle-transitions.json` — Transition table instance
+The transition table is formalized in
+`schemas/worker-lifecycle-transitions.schema.json`. This schema defines:
+
+- All valid states and their classification (initial, transient, active, terminal, recoverable)
+- The complete transition table with triggers
+- The result shape for validation outcomes
+
+## Design Decisions
+
+### Why explicit transitions?
+
+The previous free-form status updates had no guard rails. An explicit state
+machine:
+
+1. **Makes transitions auditable** — every status change has a defined trigger
+2. **Prevents inconsistency** — invalid transitions are rejected at the boundary
+3. **Enables safe reconciliation** — the state reconciler can validate its own
+   remediation actions before applying them
+
+### Why terminal states?
+
+`completed`, `failed`, and `stale` are terminal because:
+
+- A completed worker's work is done; re-opening it would create ambiguity
+- A failed worker should be relaunched as a new entry, not mutated
+- A stale worker is a signal for reconciliation, not for self-healing
+
+This matches the behavior in `wait-parallel-workers.ps1` (line 77) which
+skips workers in terminal states.
+
+### Why recoverable states?
+
+`blocked` and `needs-human` are recoverable because they represent temporary
+conditions that may resolve. A blocked worker may become unblocked; a
+needs-human worker may receive human guidance. Both can resume to `running`.
+
+### Validator as boundary check
+
+The validator is designed as a boundary check, not a middleware. Scripts call
+it before writing status updates. This keeps the state machine definition
+separate from the scripts that consume it, allowing the transition table to
+evolve independently.
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `schemas/worker-lifecycle-transitions.schema.json` | JSON Schema for the transition table |
+| `scripts/ai/validate-worker-transition.js` | Transition validator script |
+| `scripts/ai/validate-worker-transition.test.js` | Self-tests for the validator |
+| `docs/ai-native/worker-lifecycle-state-machine.md` | This document |
 
 ## See Also
 
-- [Active Workers State](active-workers-state.md) — Projection that stores current status
-- [Worker Heartbeat](worker-heartbeat.md) — Heartbeat state machine for liveness
-- [State Reconciler](state-reconciler.md) — Drift detection
-- [Issue Lifecycle](issue-lifecycle.md) — Issue-level state machine
-- [Recovery Worker](../../scripts/ai/dispatch-recovery-worker.js) — Stale worker detection
+- [Active Workers State](active-workers-state.md) — Projection semantics
+- [Worker Heartbeat](worker-heartbeat.md) — Heartbeat state machine
+- [State Reconciler](state-reconciler-active-workers.md) — Drift detection
+- [Worker Assignment Ledger](worker-assignment-ledger-schema.md) — Assignment lifecycle
