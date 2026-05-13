@@ -7,6 +7,11 @@
  * Reads failure text (stdout+stderr) from stdin, a file, or --text argument,
  * plus an optional --step flag indicating which pipeline step failed.
  *
+ * Each classification includes a selfCritique block (Reflexion-style) with
+ * rootCause, lessonLearned, preventionCheck, and repeatRiskSignal so that
+ * downstream consumers can store actionable reflections and avoid repeating
+ * the same mistakes.
+ *
  * Error classes:
  *   TASK_CONTRACT_INVALID         — Task JSON missing required fields or invalid schema
  *   ISSUE_BODY_PARSE_BLEED        — Regex extraction picked up wrong content from issue body
@@ -26,9 +31,9 @@
  *
  * Reflection:
  *   Each classification includes a reflexion-style self-critique with a
- *   lesson, actionable guidance, and a repeat-prevention signal. Pass
- *   --reflectionLog <path.ndjson> to persist reflections for downstream
- *   consumption by the planning loop.
+ *   rootCause, lesson, actionable guidance, prevention check, repeat-prevention
+ *   signal, and repeat-risk signal. Pass --reflectionLog <path.ndjson> to
+ *   persist reflections for downstream consumption by the planning loop.
  *
  * Exit codes:
  *   0 — classification produced
@@ -200,57 +205,84 @@ const STEP_HINTS = {
 
 const REFLECTIONS = {
   TASK_CONTRACT_INVALID: {
-    lesson: 'Task JSON was produced without required fields or passed schema validation. This means the compile step did not enforce the contract before dispatch.',
+    rootCause: 'The task contract produced by the compiler did not satisfy the schema required by the runner.',
+    lesson: 'Schema validation must happen at compile time, not at dispatch time. The compiler should reject invalid contracts before they reach the launcher.',
     actionableGuidance: 'Add a schema validation gate after compile-issue-to-task-json.ps1. Reject tasks missing allowedFiles, risk, or rolePacket.actorRole before they reach the launcher.',
+    preventionCheck: 'Run schema validation in compile-issue-to-task-json.ps1 before writing the task file. Add a --validate flag that exits non-zero on schema violations.',
     repeatPreventionSignal: 'check-task-contract-schema',
+    repeatRiskSignal: 'elevated',
     severity: 'high',
   },
   ISSUE_BODY_PARSE_BLEED: {
-    lesson: 'Regex extraction picked up content from adjacent markdown sections in the issue body. The CONTROL APPENDIX delimiter is not strict enough to prevent bleed.',
+    rootCause: 'The regex-based parser extracted fields from the wrong markdown section, producing a corrupted control plane input.',
+    lesson: 'Regex parsing of structured markdown is fragile. The parser needs stricter section delimiters or a structured format to avoid cross-section bleed.',
     actionableGuidance: 'Use a stricter delimiter (e.g., triple-backline fences) around CONTROL APPENDIX. Add a post-extraction sanity check that allowedFiles does not contain markdown prose.',
+    preventionCheck: 'Add a post-parse sanity check: verify that extracted allowedFiles paths exist in the repository and that forbiddenFiles does not overlap.',
     repeatPreventionSignal: 'check-issue-body-delimiter',
+    repeatRiskSignal: 'elevated',
     severity: 'medium',
   },
   RUNNER_STRICT_MODE_VARIABLE: {
-    lesson: 'A PowerShell script hit an uninitialized variable under strict mode. An optional task field was accessed without a null guard.',
+    rootCause: 'An optional field was accessed without a null guard, crashing under PowerShell strict mode.',
+    lesson: 'Every optional task field must go through a Has-Prop / Get-OptionalField accessor. Direct property access on optional fields is a latent bug.',
     actionableGuidance: 'Audit all optional field accesses in run-claude-print.ps1. Add Has-Prop / Get-OptionalField guards for targetPR, attentionAreas, budgets, and similar optional fields.',
+    preventionCheck: 'Audit all scripts that read task JSON for direct property access on optional fields (targetPR, attentionAreas, budgets). Replace with guarded accessors.',
     repeatPreventionSignal: 'check-ps-strict-mode-null-guard',
+    repeatRiskSignal: 'elevated',
     severity: 'medium',
   },
   BATCH_SINGLE_TASK_MISMATCH: {
-    lesson: 'Batch launcher dispatched a multi-task file to a worker expecting a single task, or the branch issue number did not match any task in the batch.',
+    rootCause: 'The launcher dispatched a batch file to a worker that expects a single task, or the branch issue number did not match any task in the batch.',
+    lesson: 'Batch and single-task dispatch paths must be clearly separated. The launcher should extract individual tasks before dispatch and verify issue number alignment.',
     actionableGuidance: 'Ensure batch-launch.ps1 extracts a single-task temp file per worker. Add a post-extraction check that the file contains exactly one task and the issue number matches the branch name.',
+    preventionCheck: 'Add a dispatch contract assertion in batch-launch.ps1: verify the temp file contains exactly one task and that its targetIssue matches the branch name.',
     repeatPreventionSignal: 'check-batch-single-task-extraction',
+    repeatRiskSignal: 'normal',
     severity: 'high',
   },
   PROVIDER_UNAVAILABLE: {
-    lesson: 'All API providers were exhausted, disabled, or at capacity. No worker could be launched despite having valid tasks queued.',
+    rootCause: 'All API providers were exhausted, disabled, or at capacity when the worker attempted to launch.',
+    lesson: 'Provider pool health should be checked before task compilation, not after. Launching tasks when no providers are available wastes compilation effort.',
     actionableGuidance: 'Monitor provider pool utilization. Add a pre-launch capacity check that verifies at least one provider has available slots before queuing tasks. Consider adding provider cooldown alerts.',
+    preventionCheck: 'Move provider-pool-preflight gate before task compilation in the pipeline. Fail fast with a clear message instead of compiling tasks that cannot run.',
     repeatPreventionSignal: 'check-provider-capacity-before-launch',
+    repeatRiskSignal: 'normal',
     severity: 'low',
   },
   DISK_PRESSURE: {
-    lesson: 'Local disk, memory, or CPU resources were critically low, preventing worker execution.',
+    rootCause: 'Local resources (disk, memory, or CPU) were critically low, preventing worker execution.',
+    lesson: 'Resource pressure is a systemic issue that affects all workers. The batch launcher should monitor resource thresholds and pause before launching new workers.',
     actionableGuidance: 'Run worktree-janitor.ps1 before each batch. Add a pre-launch disk space check. Reduce concurrent worker count when disk usage exceeds 80%.',
+    preventionCheck: 'Add a pre-launch resource check in batch-launch.ps1: verify free disk > 2GB and available memory > 1GB before dispatching the next worker.',
     repeatPreventionSignal: 'check-disk-pressure-pre-launch',
+    repeatRiskSignal: 'normal',
     severity: 'low',
   },
   WORKTREE_STALE: {
-    lesson: 'A git worktree was stale, locked, or corrupted — likely from a previous worker run that did not clean up.',
+    rootCause: 'A previous worker left behind a stale, locked, or corrupted worktree that blocked the current run.',
+    lesson: 'Worktree cleanup must be automatic, not manual. The janitor should run as a pre-launch gate, not as a remediation step after failures.',
     actionableGuidance: 'Run worktree-janitor.ps1 as a pre-launch gate. Add automatic cleanup of worktrees older than 2 hours. Check for lock files before creating new worktrees.',
+    preventionCheck: 'Run worktree-janitor.ps1 as a mandatory gate before batch-launch. Reject launches if any stale worktrees are detected after cleanup.',
     repeatPreventionSignal: 'check-worktree-freshness',
+    repeatRiskSignal: 'elevated',
     severity: 'medium',
   },
   HUMAN_REQUIRED: {
-    lesson: 'A gate or policy check blocked the cycle because a human decision was required. The automated pipeline cannot proceed without human input.',
+    rootCause: 'A gate or policy check determined that a human decision is required before the cycle can proceed.',
+    lesson: 'Human-required gates are intentional safeguards. The system should surface the decision context clearly and not retry automatically.',
     actionableGuidance: 'Review the gate report promptly. For recurring human-required blocks on low-risk tasks, consider relaxing the gate criteria or adding an auto-approve path.',
+    preventionCheck: 'Ensure human-required gates produce structured decision objects with all context needed for a fast human review. Reduce gate frequency by tightening auto-approve criteria.',
     repeatPreventionSignal: 'check-human-decision-pending',
+    repeatRiskSignal: 'normal',
     severity: 'low',
   },
   UNKNOWN_CONTROL_PLANE_FAILURE: {
-    lesson: 'The failure did not match any known pattern. This is either a new failure mode or a combination of signals the classifier does not recognize.',
+    rootCause: 'The failure did not match any known pattern, indicating a new or unclassified failure mode.',
+    lesson: 'Unknown failures are the highest-priority signal for classifier improvement. Each unknown failure should be triaged and added as a new pattern.',
     actionableGuidance: 'Review the full error output and add the new pattern to classify-self-cycle-failure.js. Classify the failure text and file a follow-up issue with the error class.',
+    preventionCheck: 'After triaging an unknown failure, add its pattern to classify-self-cycle-failure.js and file an issue to track the root cause fix.',
     repeatPreventionSignal: 'check-unknown-failure-pattern',
+    repeatRiskSignal: 'elevated',
     severity: 'high',
   },
 };
@@ -365,7 +397,7 @@ function enrichWithSuggestions(result) {
 
 // ── Reflection generator ─────────────────────────────────────────────────────
 
-function generateReflection(result, failureText) {
+function generateReflection(result, failureText, step) {
   const template = REFLECTIONS[result.errorClass] || REFLECTIONS.UNKNOWN_CONTROL_PLANE_FAILURE;
   const snippet = failureText
     ? failureText.trim().slice(0, 200).replace(/\s+/g, ' ')
@@ -373,9 +405,13 @@ function generateReflection(result, failureText) {
 
   return {
     errorClass: result.errorClass,
+    failedStep: step || 'unknown',
+    rootCause: template.rootCause,
     lesson: template.lesson,
     actionableGuidance: template.actionableGuidance,
+    preventionCheck: template.preventionCheck,
     repeatPreventionSignal: template.repeatPreventionSignal,
+    repeatRiskSignal: template.repeatRiskSignal,
     severity: template.severity,
     failureSnippet: snippet || null,
     capturedAt: new Date().toISOString(),
@@ -415,7 +451,8 @@ Error classes:
 Output:
   JSON object with: failedStep, errorClass, humanSummary, likelyCause,
   recommendedAction, safeToRetry, suggestedIssueTitle, suggestedAllowedFiles,
-  matchedPatterns, confidence, reflection
+  matchedPatterns, confidence, reflection (includes rootCause, lesson,
+  actionableGuidance, preventionCheck, repeatPreventionSignal)
 
 Exit codes:
   0  Classification produced
@@ -479,7 +516,7 @@ async function main() {
 
   const result = classify(text, step);
   const enriched = enrichWithSuggestions(result);
-  const reflection = generateReflection(result, text);
+  const reflection = generateReflection(result, text, step);
   enriched.reflection = reflection;
 
   if (reflectionLog) {
