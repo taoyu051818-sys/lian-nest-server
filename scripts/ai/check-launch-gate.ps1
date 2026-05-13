@@ -226,6 +226,17 @@ if ($RunningTasksFile -ne "") {
         }
 
         foreach ($rt in $runningList) {
+            # Filter stale/completed workers: only treat workers with status
+            # "running" and no endedAt as active conflict group blockers.
+            $workerStatus = [string](Get-Prop $rt "status" "running")
+            $workerEndedAt = Get-Prop $rt "endedAt" $null
+            if ($workerStatus -in @("completed", "failed", "planned")) {
+                continue
+            }
+            if ($workerEndedAt) {
+                continue
+            }
+
             $rg = Get-Prop $rt "conflictGroup"
             if ($rg -and $rg -ne "") {
                 $runningGroups[$rg] = [ordered]@{
