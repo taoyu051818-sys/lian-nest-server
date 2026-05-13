@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Param, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
-import { NotificationsUseCase } from '../use-cases/notifications.use-case';
+import { NotificationsUseCase } from '../usecases/notifications.usecase';
 import { NotificationListResponseDto } from '../dto/notification.dto';
 import { JwtAuthGuard, CurrentUser } from '../../auth';
 

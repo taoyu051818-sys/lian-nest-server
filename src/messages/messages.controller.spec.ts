@@ -1,8 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MessagesController } from './controllers/messages.controller';
 import { NotificationsController } from './controllers/notifications.controller';
-import { MessagesUseCase } from './use-cases/messages.use-case';
-import { NotificationsUseCase } from './use-cases/notifications.use-case';
+import { MessagesUseCase } from './usecases/messages.usecase';
+import { NotificationsUseCase } from './usecases/notifications.usecase';
 import { NodebbNotificationsProvider } from '../nodebb';
 import { BodyStatus } from '../nodebb';
 import { BadRequestException, NotFoundException, NotImplementedException, ExecutionContext } from '@nestjs/common';
