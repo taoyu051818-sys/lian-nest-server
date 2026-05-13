@@ -190,3 +190,68 @@ validation pass even for the default skeleton output.
 - [health-state-schema.md](health-state-schema.md) — Health state JSON schema (source of failure categories).
 - [worker-telemetry-schema.md](worker-telemetry-schema.md) — Worker telemetry schema (source of heartbeat data).
 - [calculate-meta-signals.js](../../scripts/ai/calculate-meta-signals.js) — Calculator script.
+
+---
+
+## Failure Self-Critique (Reflexion-Style Reflection)
+
+`classify-self-cycle-failure.js` now produces a `selfCritique` block alongside
+the existing classification output. This structured reflection captures
+actionable lessons from each failure so that downstream consumers can detect
+repeat failure patterns and prevent the same mistakes.
+
+### selfCritique Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `rootCause` | `string` | Specific root cause analysis (more detailed than `likelyCause`). |
+| `lessonLearned` | `string` | What the system should learn from this failure. |
+| `preventionCheck` | `string` | A specific check or guard that could prevent this failure next time. |
+| `repeatRiskSignal` | `"elevated" \| "normal"` | Whether this failure type tends to repeat. `elevated` signals need proactive prevention. |
+| `errorClass` | `string` | The classified error class (same as top-level `errorClass`). |
+| `failedStep` | `string` | The pipeline step that failed (same as top-level `failedStep`). |
+| `matchedPatternCount` | `integer` | Number of regex patterns that matched. |
+| `reflectedAt` | `string` (ISO-8601) | Timestamp when the reflection was generated. |
+
+### Example Output
+
+```json
+{
+  "failedStep": "batch-launch",
+  "errorClass": "WORKTREE_STALE",
+  "humanSummary": "A git worktree is stale, locked, or has diverged from its expected base branch.",
+  "safeToRetry": true,
+  "confidence": "high",
+  "selfCritique": {
+    "rootCause": "A previous worker left behind a stale, locked, or corrupted worktree that blocked the current run.",
+    "lessonLearned": "Worktree cleanup must be automatic, not manual. The janitor should run as a pre-launch gate, not as a remediation step after failures.",
+    "preventionCheck": "Run worktree-janitor.ps1 as a mandatory gate before batch-launch. Reject launches if any stale worktrees are detected after cleanup.",
+    "repeatRiskSignal": "elevated",
+    "errorClass": "WORKTREE_STALE",
+    "failedStep": "batch-launch",
+    "matchedPatternCount": 3,
+    "reflectedAt": "2026-05-13T12:00:00.000Z"
+  }
+}
+```
+
+### Repeat Risk Signal
+
+The `repeatRiskSignal` field indicates whether a failure type tends to recur:
+
+| Signal | Error Classes | Meaning |
+|--------|---------------|---------|
+| `elevated` | `TASK_CONTRACT_INVALID`, `ISSUE_BODY_PARSE_BLEED`, `RUNNER_STRICT_MODE_VARIABLE`, `WORKTREE_STALE`, `UNKNOWN_CONTROL_PLANE_FAILURE` | These failures have structural causes that persist until a code fix is applied. Proactive prevention checks are recommended. |
+| `normal` | `BATCH_SINGLE_TASK_MISMATCH`, `PROVIDER_UNAVAILABLE`, `DISK_PRESSURE`, `HUMAN_REQUIRED` | These failures are situational or self-resolving. Standard retry logic is sufficient. |
+
+### Downstream Usage
+
+Self-critiques are designed to be stored in meta-signals or planning feedback
+so the planning loop can:
+
+1. **Detect repeat failures** — if the same `errorClass` appears in consecutive
+   runs, escalate priority of the `preventionCheck` fix.
+2. **Weight task ranking** — tasks that address `elevated` repeat-risk signals
+   get a priority boost in the next batch.
+3. **Surface lessons** — the `lessonLearned` text can be included in follow-up
+   issue bodies to give recovery workers full context.

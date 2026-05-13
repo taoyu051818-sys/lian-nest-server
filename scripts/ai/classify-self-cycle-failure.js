@@ -7,6 +7,11 @@
  * Reads failure text (stdout+stderr) from stdin, a file, or --text argument,
  * plus an optional --step flag indicating which pipeline step failed.
  *
+ * Each classification includes a selfCritique block (Reflexion-style) with
+ * rootCause, lessonLearned, preventionCheck, and repeatRiskSignal so that
+ * downstream consumers can store actionable reflections and avoid repeating
+ * the same mistakes.
+ *
  * Error classes:
  *   TASK_CONTRACT_INVALID         — Task JSON missing required fields or invalid schema
  *   ISSUE_BODY_PARSE_BLEED        — Regex extraction picked up wrong content from issue body
@@ -23,6 +28,12 @@
  *   node scripts/ai/classify-self-cycle-failure.js --step run-claude-print --file failure.txt
  *   node scripts/ai/classify-self-cycle-failure.js --text "error here" --step launch-gate
  *   node scripts/ai/classify-self-cycle-failure.js --help
+ *
+ * Reflection:
+ *   Each classification includes a reflexion-style self-critique with a
+ *   rootCause, lesson, actionable guidance, prevention check, repeat-prevention
+ *   signal, and repeat-risk signal. Pass --reflectionLog <path.ndjson> to
+ *   persist reflections for downstream consumption by the planning loop.
  *
  * Exit codes:
  *   0 — classification produced
@@ -188,6 +199,94 @@ const STEP_HINTS = {
   'reconcile': ['ISSUE_BODY_PARSE_BLEED'],
 };
 
+// ── Reflection templates ────────────────────────────────────────────────────
+// Reflexion-style self-critiques: each error class maps to an actionable
+// lesson, concrete fix guidance, and a repeat-prevention signal.
+
+const REFLECTIONS = {
+  TASK_CONTRACT_INVALID: {
+    rootCause: 'The task contract produced by the compiler did not satisfy the schema required by the runner.',
+    lesson: 'Schema validation must happen at compile time, not at dispatch time. The compiler should reject invalid contracts before they reach the launcher.',
+    actionableGuidance: 'Add a schema validation gate after compile-issue-to-task-json.ps1. Reject tasks missing allowedFiles, risk, or rolePacket.actorRole before they reach the launcher.',
+    preventionCheck: 'Run schema validation in compile-issue-to-task-json.ps1 before writing the task file. Add a --validate flag that exits non-zero on schema violations.',
+    repeatPreventionSignal: 'check-task-contract-schema',
+    repeatRiskSignal: 'elevated',
+    severity: 'high',
+  },
+  ISSUE_BODY_PARSE_BLEED: {
+    rootCause: 'The regex-based parser extracted fields from the wrong markdown section, producing a corrupted control plane input.',
+    lesson: 'Regex parsing of structured markdown is fragile. The parser needs stricter section delimiters or a structured format to avoid cross-section bleed.',
+    actionableGuidance: 'Use a stricter delimiter (e.g., triple-backline fences) around CONTROL APPENDIX. Add a post-extraction sanity check that allowedFiles does not contain markdown prose.',
+    preventionCheck: 'Add a post-parse sanity check: verify that extracted allowedFiles paths exist in the repository and that forbiddenFiles does not overlap.',
+    repeatPreventionSignal: 'check-issue-body-delimiter',
+    repeatRiskSignal: 'elevated',
+    severity: 'medium',
+  },
+  RUNNER_STRICT_MODE_VARIABLE: {
+    rootCause: 'An optional field was accessed without a null guard, crashing under PowerShell strict mode.',
+    lesson: 'Every optional task field must go through a Has-Prop / Get-OptionalField accessor. Direct property access on optional fields is a latent bug.',
+    actionableGuidance: 'Audit all optional field accesses in run-claude-print.ps1. Add Has-Prop / Get-OptionalField guards for targetPR, attentionAreas, budgets, and similar optional fields.',
+    preventionCheck: 'Audit all scripts that read task JSON for direct property access on optional fields (targetPR, attentionAreas, budgets). Replace with guarded accessors.',
+    repeatPreventionSignal: 'check-ps-strict-mode-null-guard',
+    repeatRiskSignal: 'elevated',
+    severity: 'medium',
+  },
+  BATCH_SINGLE_TASK_MISMATCH: {
+    rootCause: 'The launcher dispatched a batch file to a worker that expects a single task, or the branch issue number did not match any task in the batch.',
+    lesson: 'Batch and single-task dispatch paths must be clearly separated. The launcher should extract individual tasks before dispatch and verify issue number alignment.',
+    actionableGuidance: 'Ensure batch-launch.ps1 extracts a single-task temp file per worker. Add a post-extraction check that the file contains exactly one task and the issue number matches the branch name.',
+    preventionCheck: 'Add a dispatch contract assertion in batch-launch.ps1: verify the temp file contains exactly one task and that its targetIssue matches the branch name.',
+    repeatPreventionSignal: 'check-batch-single-task-extraction',
+    repeatRiskSignal: 'normal',
+    severity: 'high',
+  },
+  PROVIDER_UNAVAILABLE: {
+    rootCause: 'All API providers were exhausted, disabled, or at capacity when the worker attempted to launch.',
+    lesson: 'Provider pool health should be checked before task compilation, not after. Launching tasks when no providers are available wastes compilation effort.',
+    actionableGuidance: 'Monitor provider pool utilization. Add a pre-launch capacity check that verifies at least one provider has available slots before queuing tasks. Consider adding provider cooldown alerts.',
+    preventionCheck: 'Move provider-pool-preflight gate before task compilation in the pipeline. Fail fast with a clear message instead of compiling tasks that cannot run.',
+    repeatPreventionSignal: 'check-provider-capacity-before-launch',
+    repeatRiskSignal: 'normal',
+    severity: 'low',
+  },
+  DISK_PRESSURE: {
+    rootCause: 'Local resources (disk, memory, or CPU) were critically low, preventing worker execution.',
+    lesson: 'Resource pressure is a systemic issue that affects all workers. The batch launcher should monitor resource thresholds and pause before launching new workers.',
+    actionableGuidance: 'Run worktree-janitor.ps1 before each batch. Add a pre-launch disk space check. Reduce concurrent worker count when disk usage exceeds 80%.',
+    preventionCheck: 'Add a pre-launch resource check in batch-launch.ps1: verify free disk > 2GB and available memory > 1GB before dispatching the next worker.',
+    repeatPreventionSignal: 'check-disk-pressure-pre-launch',
+    repeatRiskSignal: 'normal',
+    severity: 'low',
+  },
+  WORKTREE_STALE: {
+    rootCause: 'A previous worker left behind a stale, locked, or corrupted worktree that blocked the current run.',
+    lesson: 'Worktree cleanup must be automatic, not manual. The janitor should run as a pre-launch gate, not as a remediation step after failures.',
+    actionableGuidance: 'Run worktree-janitor.ps1 as a pre-launch gate. Add automatic cleanup of worktrees older than 2 hours. Check for lock files before creating new worktrees.',
+    preventionCheck: 'Run worktree-janitor.ps1 as a mandatory gate before batch-launch. Reject launches if any stale worktrees are detected after cleanup.',
+    repeatPreventionSignal: 'check-worktree-freshness',
+    repeatRiskSignal: 'elevated',
+    severity: 'medium',
+  },
+  HUMAN_REQUIRED: {
+    rootCause: 'A gate or policy check determined that a human decision is required before the cycle can proceed.',
+    lesson: 'Human-required gates are intentional safeguards. The system should surface the decision context clearly and not retry automatically.',
+    actionableGuidance: 'Review the gate report promptly. For recurring human-required blocks on low-risk tasks, consider relaxing the gate criteria or adding an auto-approve path.',
+    preventionCheck: 'Ensure human-required gates produce structured decision objects with all context needed for a fast human review. Reduce gate frequency by tightening auto-approve criteria.',
+    repeatPreventionSignal: 'check-human-decision-pending',
+    repeatRiskSignal: 'normal',
+    severity: 'low',
+  },
+  UNKNOWN_CONTROL_PLANE_FAILURE: {
+    rootCause: 'The failure did not match any known pattern, indicating a new or unclassified failure mode.',
+    lesson: 'Unknown failures are the highest-priority signal for classifier improvement. Each unknown failure should be triaged and added as a new pattern.',
+    actionableGuidance: 'Review the full error output and add the new pattern to classify-self-cycle-failure.js. Classify the failure text and file a follow-up issue with the error class.',
+    preventionCheck: 'After triaging an unknown failure, add its pattern to classify-self-cycle-failure.js and file an issue to track the root cause fix.',
+    repeatPreventionSignal: 'check-unknown-failure-pattern',
+    repeatRiskSignal: 'elevated',
+    severity: 'high',
+  },
+};
+
 // ── Classification logic ─────────────────────────────────────────────────────
 
 function classify(text, step) {
@@ -296,6 +395,29 @@ function enrichWithSuggestions(result) {
   return { ...result, ...suggestions };
 }
 
+// ── Reflection generator ─────────────────────────────────────────────────────
+
+function generateReflection(result, failureText, step) {
+  const template = REFLECTIONS[result.errorClass] || REFLECTIONS.UNKNOWN_CONTROL_PLANE_FAILURE;
+  const snippet = failureText
+    ? failureText.trim().slice(0, 200).replace(/\s+/g, ' ')
+    : '';
+
+  return {
+    errorClass: result.errorClass,
+    failedStep: step || 'unknown',
+    rootCause: template.rootCause,
+    lesson: template.lesson,
+    actionableGuidance: template.actionableGuidance,
+    preventionCheck: template.preventionCheck,
+    repeatPreventionSignal: template.repeatPreventionSignal,
+    repeatRiskSignal: template.repeatRiskSignal,
+    severity: template.severity,
+    failureSnippet: snippet || null,
+    capturedAt: new Date().toISOString(),
+  };
+}
+
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
 function printHelp() {
@@ -306,11 +428,12 @@ Usage:
   node scripts/ai/classify-self-cycle-failure.js [options]
 
 Options:
-  --step <name>   Pipeline step that failed (compile, batch-launch, run-claude-print,
-                  launch-gate, health-gate, provider-pool-preflight, reconcile)
-  --file <path>   Read failure text from a file
-  --text <string> Classify the given string directly
-  --help          Show this help message
+  --step <name>           Pipeline step that failed (compile, batch-launch, run-claude-print,
+                          launch-gate, health-gate, provider-pool-preflight, reconcile)
+  --file <path>           Read failure text from a file
+  --text <string>         Classify the given string directly
+  --reflectionLog <path>  Append reflection entry to an NDJSON log file
+  --help                  Show this help message
 
 With no --file/--text, reads from stdin.
 
@@ -328,7 +451,8 @@ Error classes:
 Output:
   JSON object with: failedStep, errorClass, humanSummary, likelyCause,
   recommendedAction, safeToRetry, suggestedIssueTitle, suggestedAllowedFiles,
-  matchedPatterns, confidence
+  matchedPatterns, confidence, reflection (includes rootCause, lesson,
+  actionableGuidance, preventionCheck, repeatPreventionSignal)
 
 Exit codes:
   0  Classification produced
@@ -355,10 +479,16 @@ async function main() {
 
   let text = '';
   let step = null;
+  let reflectionLog = null;
 
   const stepIdx = args.indexOf('--step');
   if (stepIdx !== -1) {
     step = args[stepIdx + 1] || null;
+  }
+
+  const reflectionLogIdx = args.indexOf('--reflectionLog');
+  if (reflectionLogIdx !== -1) {
+    reflectionLog = args[reflectionLogIdx + 1] || null;
   }
 
   const fileIdx = args.indexOf('--file');
@@ -386,6 +516,15 @@ async function main() {
 
   const result = classify(text, step);
   const enriched = enrichWithSuggestions(result);
+  const reflection = generateReflection(result, text, step);
+  enriched.reflection = reflection;
+
+  if (reflectionLog) {
+    const logDir = require('path').dirname(reflectionLog);
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.appendFileSync(reflectionLog, JSON.stringify(reflection) + '\n', 'utf8');
+  }
+
   console.log(JSON.stringify(enriched, null, 2));
 }
 
