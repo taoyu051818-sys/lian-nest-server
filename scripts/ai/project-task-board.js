@@ -236,7 +236,7 @@ function projectTasks(issues, openPRs, activeWorkers, launchLocks) {
       discussions.push({
         issue: issue.number,
         state: 'discussion/open',
-        conflictGroup: null,
+        conflictGroup: inferConflictGroup(issue),
         worker: null,
         blockedReason: null,
         linkedPR: null,
@@ -486,6 +486,7 @@ function runSelfTest() {
   assert(discussions.length === 1, `1 discussion, got ${discussions.length}`);
   assert(discussions[0].issue === 96, 'discussion is #96');
   assert(discussions[0].state === 'discussion/open', 'discussion state');
+  assert(typeof discussions[0].conflictGroup === 'string' && discussions[0].conflictGroup.length > 0, 'discussion has conflictGroup');
 
   assert(tasks.length === 8, `8 tasks, got ${tasks.length}`);
 
