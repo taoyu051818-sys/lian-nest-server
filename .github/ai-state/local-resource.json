@@ -1,44 +1,37 @@
 {
   "stateVersion": 1,
-  "description": "Sanitized projection of local machine resource capacity. Contains no secrets — only CPU, memory, disk, and process capacity metrics. Updated by scripts/ai/update-local-resource-state.ps1.",
-
   "cpu": {
-    "cores": null,
-    "usagePercent": null,
+    "cores": 32,
+    "usagePercent": 12.0,
     "loadAverage": {
       "oneMin": null,
       "fiveMin": null,
       "fifteenMin": null
     }
   },
-
   "memory": {
-    "totalGB": null,
-    "usedGB": null,
-    "availableGB": null,
-    "usagePercent": null
+    "totalGB": 63.7,
+    "usedGB": 28.6,
+    "availableGB": 35.09,
+    "usagePercent": 44.91
   },
-
   "disk": {
-    "totalGB": null,
-    "usedGB": null,
-    "availableGB": null,
-    "usagePercent": null,
-    "mountPoint": null
+    "totalGB": 664.06,
+    "usedGB": 541.29,
+    "availableGB": 122.77,
+    "usagePercent": 81.51,
+    "mountPoint": "F:\\"
   },
-
   "process": {
-    "runningCount": null,
-    "maxAllowed": null,
-    "headroomPercent": null
+    "runningCount": 0,
+    "maxAllowed": 30,
+    "headroomPercent": 100.0
   },
-
   "global": {
-    "resourceState": "unknown",
-    "lastUpdatedBy": "initial-seed",
-    "capturedAt": "2026-05-11T00:00:00Z",
+    "resourceState": "constrained",
+    "lastUpdatedBy": "sample-local-resource",
+    "capturedAt": "2026-05-13T05:35:16.4995669Z",
     "ttlSeconds": 300
   },
-
-  "notes": "This file is a sanitized state projection. It never contains API keys, tokens, hostnames, usernames, paths with personally identifiable information, or raw system command output. The launcher and launch gate read this file to determine local machine capacity before dispatching workers."
+  "notes": "This file is a sanitized state projection. It never contains API keys, tokens, hostnames, usernames, personally identifying paths, or raw system command output."
 }
