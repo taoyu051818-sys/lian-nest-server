@@ -1,7 +1,13 @@
 # Issue-to-Task Compiler
 
 Transforms structured issue JSON into worker task JSON contracts.
-The compiler script lives at `scripts/ai/compile-issue-to-task-json.ps1`.
+
+Two implementations exist:
+
+| Script | Language | Mode |
+|--------|----------|------|
+| `scripts/ai/compile-issue-to-task-json.ps1` | PowerShell | Single-issue compilation from file/stdin |
+| `scripts/ai/compile-issues-to-tasks.js` | Node.js | Batch compilation from GitHub issues by label |
 
 ## Overview
 
@@ -263,6 +269,53 @@ When `-IssueLabel` is used, the runner:
 
 This removes the manual step of creating task JSON files from issues while
 preserving the human review gate before any work is launched.
+
+## Node.js Batch Compiler
+
+The Node.js variant (`compile-issues-to-tasks.js`) fetches open issues
+from GitHub by label and compiles their CONTROL APPENDIX metadata into
+task contracts in a single batch. It replaces the manual per-issue
+workflow of the PowerShell script when dispatching multiple issues.
+
+### Usage
+
+```bash
+# Compile all open issues with the default label
+node scripts/ai/compile-issues-to-tasks.js --stdout
+
+# Specify a different label and output path
+node scripts/ai/compile-issues-to-tasks.js \
+  --label "agent:codex-action-needed" \
+  --out .github/ai-state/compiled-tasks.json
+
+# Specify a remote repo
+node scripts/ai/compile-issues-to-tasks.js --repo owner/name --stdout
+```
+
+### Output Format
+
+The output is a JSON envelope containing:
+
+| Field | Description |
+|-------|-------------|
+| `schemaVersion` | Always `1` |
+| `capturedAt` | ISO timestamp |
+| `sourceLabel` | The label used to fetch issues |
+| `totalIssues` | Number of issues fetched from GitHub |
+| `compiledTasks` | Number of issues successfully compiled |
+| `skippedCount` | Issues without a valid CONTROL APPENDIX |
+| `tasks` | Array of compiled task contracts |
+| `skipped` | Array of `{ number, title, reason }` for skipped issues |
+
+### Differences from PowerShell Script
+
+| Aspect | PowerShell (`compile-issue-to-task-json.ps1`) | Node.js (`compile-issues-to-tasks.js`) |
+|--------|----------------------------------------------|---------------------------------------|
+| Input | Single issue JSON file or stdin | GitHub issues by label (`gh issue list`) |
+| Output | Single task JSON | Array of task contracts |
+| Dry-run | Default mode | N/A (always reads, writes only with `--out`) |
+| GitHub API | No | Yes (`gh` CLI) |
+| Use case | Manual single-issue compilation | Batch dispatch in self-cycle runner |
 
 ## See Also
 
