@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lian-nest-server/schemas/worker-lifecycle-state-machine.schema.json",
+  "title": "WorkerLifecycleStateMachine",
+  "description": "Defines valid state transitions for worker lifecycle in the active-workers projection. Prevents status inconsistency by making transitions explicit and auditable. Referenced by active-workers.schema.json and enforced by validate-worker-transition.js.",
+  "type": "object",
+  "required": ["schemaVersion", "states", "transitions"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version pinned to 1."
+    },
+    "states": {
+      "type": "object",
+      "description": "All valid worker lifecycle states with classification.",
+      "properties": {
+        "planned": {
+          "type": "object",
+          "required": ["terminal", "description"],
+          "additionalProperties": false,
+          "properties": {
+            "terminal": { "const": false },
+            "description": { "type": "string", "const": "Worker is scheduled but not yet started." }
+          }
+        },
+        "running": {
+          "type": "object",
+          "required": ["terminal", "description"],
+          "additionalProperties": false,
+          "properties": {
+            "terminal": { "const": false },
+            "description": { "type": "string", "const": "Worker process is active and producing output." }
+          }
+        },
+        "completed": {
+          "type": "object",
+          "required": ["terminal", "description"],
+          "additionalProperties": false,
+          "properties": {
+            "terminal": { "const": true },
+            "description": { "type": "string", "const": "Worker finished successfully (exit code 0)." }
+          }
+        },
+        "failed": {
+          "type": "object",
+          "required": ["terminal", "description"],
+          "additionalProperties": false,
+          "properties": {
+            "terminal": { "const": true },
+            "description": { "type": "string", "const": "Worker exited with non-zero code or encountered an unrecoverable error." }
+          }
+        },
+        "stale": {
+          "type": "object",
+          "required": ["terminal", "description"],
+          "additionalProperties": false,
+          "properties": {
+            "terminal": { "const": false },
+            "description": { "type": "string", "const": "Worker process is alive but has produced no output beyond the stale threshold. Informational — no kill." }
+          }
+        },
+        "blocked": {
+          "type": "object",
+          "required": ["terminal", "description"],
+          "additionalProperties": false,
+          "properties": {
+            "terminal": { "const": false },
+            "description": { "type": "string", "const": "Worker cannot proceed due to an external dependency or decision." }
+          }
+        },
+        "needs-human": {
+          "type": "object",
+          "required": ["terminal", "description"],
+          "additionalProperties": false,
+          "properties": {
+            "terminal": { "const": false },
+            "description": { "type": "string", "const": "Worker requires human intervention to continue." }
+          }
+        }
+      }
+    },
+    "transitions": {
+      "type": "array",
+      "description": "Explicit valid transitions between states. Any status change not listed here is invalid and should be rejected.",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "trigger"],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "enum": ["planned", "running", "completed", "failed", "stale", "blocked", "needs-human"],
+            "description": "Source state."
+          },
+          "to": {
+            "type": "string",
+            "enum": ["planned", "running", "completed", "failed", "stale", "blocked", "needs-human"],
+            "description": "Target state."
+          },
+          "trigger": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable description of what causes this transition."
+          },
+          "requiresReason": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether the transition requires a human-readable reason string."
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "states": {
+    "planned": {
+      "terminal": false,
+      "description": "Worker is scheduled but not yet started."
+    },
+    "running": {
+      "terminal": false,
+      "description": "Worker process is active and producing output."
+    },
+    "completed": {
+      "terminal": true,
+      "description": "Worker finished successfully (exit code 0)."
+    },
+    "failed": {
+      "terminal": true,
+      "description": "Worker exited with non-zero code or encountered an unrecoverable error."
+    },
+    "stale": {
+      "terminal": false,
+      "description": "Worker process is alive but has produced no output beyond the stale threshold. Informational — no kill."
+    },
+    "blocked": {
+      "terminal": false,
+      "description": "Worker cannot proceed due to an external dependency or decision."
+    },
+    "needs-human": {
+      "terminal": false,
+      "description": "Worker requires human intervention to continue."
+    }
+  },
+  "transitions": [
+    {
+      "from": "planned",
+      "to": "running",
+      "trigger": "Worker process launched by batch-launcher."
+    },
+    {
+      "from": "running",
+      "to": "completed",
+      "trigger": "Worker process exited with code 0."
+    },
+    {
+      "from": "running",
+      "to": "failed",
+      "trigger": "Worker process exited with non-zero code or hit unrecoverable error.",
+      "requiresReason": true
+    },
+    {
+      "from": "running",
+      "to": "stale",
+      "trigger": "No output detected beyond stale threshold (default 5 min). Informational — no kill."
+    },
+    {
+      "from": "running",
+      "to": "blocked",
+      "trigger": "External dependency or decision prevents progress.",
+      "requiresReason": true
+    },
+    {
+      "from": "running",
+      "to": "needs-human",
+      "trigger": "Worker requires human intervention to continue.",
+      "requiresReason": true
+    },
+    {
+      "from": "stale",
+      "to": "running",
+      "trigger": "Worker resumed producing output."
+    },
+    {
+      "from": "stale",
+      "to": "failed",
+      "trigger": "Worker process died or was terminated while stale.",
+      "requiresReason": true
+    },
+    {
+      "from": "stale",
+      "to": "blocked",
+      "trigger": "Stale worker identified as blocked on external dependency.",
+      "requiresReason": true
+    },
+    {
+      "from": "blocked",
+      "to": "running",
+      "trigger": "Blocker resolved, worker can resume."
+    },
+    {
+      "from": "blocked",
+      "to": "failed",
+      "trigger": "Blocker cannot be resolved, worker abandoned.",
+      "requiresReason": true
+    },
+    {
+      "from": "needs-human",
+      "to": "running",
+      "trigger": "Human resolved the issue, worker can resume."
+    },
+    {
+      "from": "needs-human",
+      "to": "failed",
+      "trigger": "Human decided to abandon the worker.",
+      "requiresReason": true
+    }
+  ]
+}
