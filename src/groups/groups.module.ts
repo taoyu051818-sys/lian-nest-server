@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigService } from '../config';
 import { NodebbModule } from '../nodebb/nodebb.module';
 import { NodebbGroupsProvider } from '../nodebb/providers/nodebb-groups.provider';
 import { toNodebbAuthMode } from '../nodebb/types';
@@ -7,11 +8,14 @@ import { GroupsUsecase } from './groups.usecase';
 
 @Module({
   imports: [
-    NodebbModule.register({
-      baseUrl: process.env.NODEBB_URL || 'http://localhost:4567',
-      authMode: toNodebbAuthMode(process.env.NODEBB_AUTH_MODE ?? 'none'),
-      apiToken: process.env.NODEBB_API_TOKEN,
-      sessionCookie: process.env.NODEBB_SESSION_COOKIE,
+    NodebbModule.registerAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        baseUrl: config.nodebbConfig.url || 'http://localhost:4567',
+        authMode: toNodebbAuthMode(config.nodebbConfig.authMode || 'none'),
+        apiToken: config.nodebbConfig.apiToken || undefined,
+        sessionCookie: config.nodebbConfig.sessionCookie || undefined,
+      }),
     }),
   ],
   controllers: [GroupsController],
