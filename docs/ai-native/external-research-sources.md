@@ -19,6 +19,7 @@ evidence-backed opportunities — never as direct execution commands.
 | Source ID | Name | URL | Source Class | Default Tier | Research Category | Intake Cadence |
 |-----------|------|-----|:------------:|:------------:|-------------------|----------------|
 | `ai-papers-weekly` | dair-ai/AI-Papers-of-the-Week | [GitHub](https://github.com/dair-ai/AI-Papers-of-the-Week) | `external-doc` | B | `ai-papers-digest` | Weekly (per digest commit) |
+| `symphony-dynamic-solver` | Symphony Dynamic Solver | Local rules file | `external-doc` | B | `agent-loop-patterns` | One-time research intake |
 
 ---
 
@@ -99,6 +100,87 @@ no pattern claim and no opportunity signal.
 > "If LIAN adopts **[specific technique]** from **[paper title]**
 > (via dair-ai/AI-Papers-of-the-Week), then **[measurable outcome]**
 > will improve because **[mechanism]**."
+
+---
+
+## Source: symphony-dynamic-solver
+
+### Identity
+
+- **Source:** Symphony Dynamic Solver rules
+  (`external-agent-research/Symphony/.roo/rules-symphony-dynamic-solver/02-rules.md`)
+- **Source class:** `external-doc` — structured rules file but not
+  version-pinned to LIAN
+- **Default reliability tier:** B
+- **Research category:** `agent-loop-patterns`
+
+### Scope
+
+This source provides a formal Reason-Act-Observe-Reflect cycle for agent
+loops. Key areas: problem type classification before entering the loop,
+reasoning method selection (Self Consistency, Tree of Thoughts, ReAct,
+Direct Logic), structured reflection after each action, and reflection
+persistence for cross-cycle learning. Each phase (Reason, Act, Observe,
+Reflect) is the intake unit.
+
+### Intake Boundary
+
+This source is evidence input only. Pattern observations follow the full
+intake loop defined in
+[external-research-intake-loop.md](external-research-intake-loop.md):
+
+1. Source Capture → fact event (`evidence.intake`)
+2. Evidence Score → Tier B with 90-day staleness window
+3. Pattern Extract → LIAN-specific pattern claims
+4. Opportunity Signal → falsifiable hypothesis with experiment spec
+5. Bounded Experiment → scoped, gated
+6. Gate → agent idea review + human gate
+7. Result Writer → knowledge entry
+
+No Symphony pattern may directly create an execution task.
+
+### Staleness
+
+The Symphony Dynamic Solver rules are a static local file. A 90-day
+staleness window applies. If the source is updated, a new fact event
+should be captured.
+
+### Fact Event Shape
+
+```bash
+node scripts/ai/write-fact-event.js \
+  --type evidence.intake \
+  --subject "Symphony Dynamic Solver — Reason-Act-Observe-Reflect cycle" \
+  --actor "research-intake" \
+  --live \
+  --facts '{
+    "sourceClass":"external-doc",
+    "sourceUrl":"file://external-agent-research/Symphony/.roo/rules-symphony-dynamic-solver/02-rules.md",
+    "reliabilityTier":"B",
+    "rawHash":"<sha256-of-rules-file>",
+    "researchCategory":"agent-loop-patterns"
+  }'
+```
+
+### Pattern Extraction Scope
+
+Only patterns that map to a LIAN surface produce pattern claims:
+
+| LIAN Surface | Symphony Pattern |
+|--------------|------------------|
+| Self-cycle loop | Reason-Act-Observe-Reflect four-phase loop |
+| Decision logic | Problem type classification and method selection |
+| Failure handling | Structured reflection with persistence |
+| Episodic memory | Reflection storage and retrieval for cross-cycle learning |
+
+Patterns outside these surfaces are recorded as observations but produce
+no pattern claim and no opportunity signal.
+
+### Hypothesis Template
+
+> "If LIAN adopts **[specific pattern]** from **[Symphony Dynamic Solver]**
+> (via symphony-dynamic-solver), then **[measurable outcome]** will improve
+> because **[mechanism]**."
 
 ---
 

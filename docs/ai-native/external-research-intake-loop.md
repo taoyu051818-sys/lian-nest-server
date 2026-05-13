@@ -371,6 +371,78 @@ background for research-originated tasks.
 **Applicability:** Analogous — LIAN's workers are already specialized by
 layer; the extension is richer context passing.
 
+### Symphony Dynamic Solver — Reason-Act-Observe-Reflect
+
+**Source:** Symphony Dynamic Solver rules
+(`external-agent-research/Symphony/.roo/rules-symphony-dynamic-solver/02-rules.md`)
+
+**External observation:** The Symphony Dynamic Solver implements a formal
+four-phase reflective loop. Before entering the loop, the agent classifies
+the problem type and selects a reasoning method (Self Consistency, Tree of
+Thoughts, ReAct, Direct Logic). Each cycle logs reasoning, action,
+observation, and reflection with timestamps. Reflections persist and feed
+back into subsequent cycles, enabling the agent to learn from failures and
+adjust strategy.
+
+**Evidence classification:** This source is classified as
+[external-research-sources.md](external-research-sources.md) entry
+`symphony-dynamic-solver`. The rules file is a Tier B `external-doc` —
+structured but not version-pinned to LIAN, 90-day staleness window.
+
+**Pattern extraction → opportunity signal flow:**
+
+1. **Source Capture (Stage 1):** The Symphony Dynamic Solver rules file
+   produces a fact event of type `evidence.intake` with
+   `sourceClass: "external-doc"` and
+   `researchCategory: "agent-loop-patterns"`.
+
+2. **Evidence Score (Stage 2):** Default reliability tier B. Static local
+   rules file, 90-day staleness window.
+
+3. **Pattern Extract (Stage 3):** Four patterns extracted, each mapping
+   to a LIAN surface:
+
+   | Pattern | LIAN Surface | Applicability |
+   |---------|--------------|---------------|
+   | Four-phase reflective loop (Reason-Act-Observe-Reflect) | Self-cycle loop (`self-cycle-loop.ps1`) | Direct |
+   | Problem type classification and method selection | Decision logic (`Decide-Action`) | Partial |
+   | Structured reflection with persistence | Failure handling (`generate-failure-reflection.js`) | Partial |
+   | Reflection retrieval for cross-cycle learning | Episodic memory (gap ledger, meta-signals) | Partial |
+
+   Full extraction output documented in
+   [reason-act-observe-reflect-investigation.md](reason-act-observe-reflect-investigation.md).
+
+4. **Opportunity Signal (Stage 4):** One signal with `applicability` of
+   `direct` produces a bounded experiment proposal:
+   - Post-action reflection in the self-cycle loop (NDJSON write path,
+     low risk)
+
+   Three additional patterns (method selection, structured reflection
+   persistence, reflection retrieval) are `partial` — they extend
+   existing LIAN components.
+
+5. **Gate (Stages 5-7):** Signals pass through the standard agent idea
+   review gate and human gate before any task creation.
+
+**Hard boundary:** Symphony Dynamic Solver patterns are evidence input
+only. No pattern may directly create an execution task. All downstream
+processing requires the full intake loop: fact event → evidence score →
+pattern extraction → opportunity signal → bounded experiment → gate →
+task.
+
+**Hypothesis examples:**
+
+> "If LIAN adds a Reflect phase to the self-cycle loop that persists
+> structured reflections to `loop-reflections.ndjson` (inspired by
+> Symphony Dynamic Solver's reflective loop), then repeat failure rate
+> will decrease because the agent will learn from past failures instead
+> of retrying the same approach."
+
+> "If LIAN adds problem type classification before the Decide phase
+> (inspired by Symphony Dynamic Solver's method selection), then action
+> quality will improve because the agent will match strategy to task
+> complexity."
+
 ---
 
 ## Gate Integration
