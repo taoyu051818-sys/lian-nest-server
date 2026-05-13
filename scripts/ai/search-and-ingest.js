@@ -21,8 +21,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const { REPO_ROOT } = require('./lib');
 const SCRIPT_DIR = __dirname;
 const WEB_SEARCH = path.join(SCRIPT_DIR, 'web-search.js');
 const WRITE_FACT = path.join(SCRIPT_DIR, 'write-external-fact.js');

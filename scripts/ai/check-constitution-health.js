@@ -39,10 +39,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { REPO_ROOT, readJson, readNdjson } = require('./lib');
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const AI_POLICY_DIR = path.join(REPO_ROOT, '.github', 'ai-policy');
 const AI_STATE_DIR = path.join(REPO_ROOT, '.github', 'ai-state');
 const SRC_DIR = path.join(REPO_ROOT, 'src');
@@ -122,31 +121,6 @@ EXIT CODES
     2 — invalid arguments
 `;
   process.stdout.write(help);
-}
-
-function readJson(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-function readNdjson(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  const content = fs.readFileSync(filePath, 'utf8');
-  const entries = [];
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      entries.push(JSON.parse(trimmed));
-    } catch {
-      // skip malformed lines
-    }
-  }
-  return entries;
 }
 
 function collectTsFiles(dir, results) {

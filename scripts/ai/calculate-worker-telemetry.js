@@ -32,10 +32,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { REPO_ROOT, readJson, readNdjson, clamp } = require('./lib');
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_OUT = path.join(REPO_ROOT, '.github', 'ai-state', 'worker-telemetry.json');
 const SCHEMA_VERSION = 1;
 
@@ -78,35 +77,6 @@ EXIT CODES
     2   Invalid arguments
 `.trimStart();
   process.stdout.write(help);
-}
-
-function readJson(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-function readNdjson(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  const content = fs.readFileSync(filePath, 'utf8');
-  const entries = [];
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      entries.push(JSON.parse(trimmed));
-    } catch {
-      // skip malformed lines silently — non-destructive
-    }
-  }
-  return entries;
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
 }
 
 // ── Token / cost estimation ──────────────────────────────────────────────────

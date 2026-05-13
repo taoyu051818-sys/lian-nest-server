@@ -23,10 +23,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { REPO_ROOT, readJson } = require('./lib');
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const STATE_DIR = path.join(REPO_ROOT, '.github', 'ai-state');
 const DEFAULT_OUT = path.join(STATE_DIR, 'self-cycle-plan.json');
 
@@ -36,16 +35,6 @@ const RISK_RANK = { low: 0, medium: 1, high: 2, critical: 3 };
 const PRIORITY_RANK = { info: 0, low: 1, medium: 2, high: 3, critical: 4 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function readJsonFile(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return null;
-  try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(content);
-  } catch {
-    return null;
-  }
-}
 
 function printHelp() {
   const help = `
@@ -464,7 +453,7 @@ function main() {
     process.exit(2);
   }
 
-  const raw = readJsonFile(inputPath);
+  const raw = readJson(inputPath);
   if (!raw || typeof raw !== 'object') {
     console.error('Error: input is not valid JSON.');
     process.exit(2);

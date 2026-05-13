@@ -19,16 +19,10 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const { REPO_ROOT, readJson } = require('./lib');
 const DEFAULT_STATE_DIR = path.join(REPO_ROOT, '.github', 'ai-state');
 const DEFAULT_OUT = path.join(DEFAULT_STATE_DIR, 'health-gate-trigger.json');
 const TRIGGER_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
-
-function readJsonFile(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return null;
-  try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch { return null; }
-}
 
 function parseArgs(argv) {
   const args = { stateDir: DEFAULT_STATE_DIR, out: DEFAULT_OUT, stdout: false, help: false };
@@ -54,7 +48,7 @@ function main() {
     process.exit(0);
   }
 
-  const health = readJsonFile(path.join(args.stateDir, 'main-health.json'));
+  const health = readJson(path.join(args.stateDir, 'main-health.json'));
   if (!health) {
     console.log('No main-health.json found. Skipping health gate trigger.');
     process.exit(0);
@@ -64,7 +58,7 @@ function main() {
   const needsTrigger = ['yellow', 'red', 'black'].includes(healthState);
 
   // Check cooldown
-  const existing = readJsonFile(args.out);
+  const existing = readJson(args.out);
   if (existing && existing.lastTriggerAt) {
     const elapsed = Date.now() - new Date(existing.lastTriggerAt).getTime();
     if (elapsed < TRIGGER_COOLDOWN_MS) {

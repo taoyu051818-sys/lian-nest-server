@@ -25,10 +25,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { REPO_ROOT } = require('./lib');
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_LEDGER = path.join(REPO_ROOT, '.github', 'ai-state', 'gap-ledger.ndjson');
 const ENTRY_VERSION = 1;
 

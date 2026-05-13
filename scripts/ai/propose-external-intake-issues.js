@@ -20,10 +20,10 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { execSync } = require('child_process');
+const { REPO_ROOT } = require('./lib');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_STATE_DIR = path.join(REPO_ROOT, '.github', 'ai-state');
 const DEFAULT_OUT = path.join(DEFAULT_STATE_DIR, 'external-intake-proposals.json');
 const AUDIT_FILE = 'external-intake-events.ndjson';

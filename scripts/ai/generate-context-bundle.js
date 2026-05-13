@@ -16,6 +16,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { REPO_ROOT } = require("./lib");
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -105,7 +106,6 @@ function parseArgs(argv) {
 
 // ── Doc scanning ─────────────────────────────────────────────────────────────
 
-const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const DOCS_DIR = path.join(REPO_ROOT, "docs", "ai-native");
 const SCHEMAS_DIR = path.join(REPO_ROOT, "schemas");
 const SCRIPTS_DIR = path.join(REPO_ROOT, "scripts", "ai");

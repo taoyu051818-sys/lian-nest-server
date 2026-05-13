@@ -33,7 +33,7 @@ const crypto = require('crypto');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const { REPO_ROOT, clamp } = require('./lib');
 const DEFAULT_STATE_DIR = path.join(REPO_ROOT, '.github', 'ai-state');
 const DEFAULT_OUT = path.join(DEFAULT_STATE_DIR, 'proposed-issues.json');
 const AUDIT_FILE = 'issue-seeding-events.ndjson';
@@ -87,10 +87,6 @@ function readNdjsonFile(filePath) {
   } catch {
     return [];
   }
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
 }
 
 function extractKeywords(title) {

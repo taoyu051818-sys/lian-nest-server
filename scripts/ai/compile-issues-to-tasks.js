@@ -16,7 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const { REPO_ROOT } = require('./lib');
 const DEFAULT_OUT = path.join(REPO_ROOT, '.github', 'ai-state', 'compiled-tasks.json');
 
 function parseArgs(argv) {

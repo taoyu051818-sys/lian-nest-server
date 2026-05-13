@@ -29,10 +29,9 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { REPO_ROOT } = require('./lib');
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_OUT = path.join(REPO_ROOT, '.github', 'ai-state', 'contribution-ledger.ndjson');
 const SCHEMA_VERSION = 1;
 

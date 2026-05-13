@@ -20,10 +20,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { REPO_ROOT, readJson, readNdjson } = require('./lib');
 
 // ── Constants ────────────────────────────────────────────────────────────────
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const STATE_DIR = process.env.COMMAND_STEWARD_STATE_DIR || path.join(REPO_ROOT, '.github', 'ai-state');
 const DEFAULT_OUT = path.join(STATE_DIR, 'command-steward-brief.json');
 
@@ -45,36 +44,6 @@ const INPUT_FILES = {
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function readJsonFile(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return null;
-  try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(content);
-  } catch {
-    return null;
-  }
-}
-
-function readNdjsonFile(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return null;
-  try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    const records = [];
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        records.push(JSON.parse(trimmed));
-      } catch {
-        // skip malformed lines
-      }
-    }
-    return records;
-  } catch {
-    return null;
-  }
-}
 
 function printHelp() {
   const help = `
@@ -1304,7 +1273,7 @@ function main() {
   const inputs = {};
   for (const [key, filename] of Object.entries(INPUT_FILES)) {
     const filePath = path.join(STATE_DIR, filename);
-    inputs[key] = filename.endsWith('.ndjson') ? readNdjsonFile(filePath) : readJsonFile(filePath);
+    inputs[key] = filename.endsWith('.ndjson') ? readNdjson(filePath) : readJson(filePath);
   }
 
   const brief = buildBrief(inputs);
