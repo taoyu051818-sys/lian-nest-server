@@ -21,11 +21,14 @@ const REPOSITORIES_DIR = path.resolve(__dirname);
 // docs/ai-native/backend-worker-layers.md § Feature Slices.
 const FEATURE_SLICES = [
   'auth',
+  'categories',
   'feed',
   'messages',
   'posts',
   'profile',
   'tags',
+  'topics',
+  'users',
 ];
 
 // Narrow infrastructure allowlist: specific packages permitted in specific directories.
