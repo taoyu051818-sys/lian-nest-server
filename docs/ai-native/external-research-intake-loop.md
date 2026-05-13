@@ -371,6 +371,31 @@ background for research-originated tasks.
 **Applicability:** Analogous — LIAN's workers are already specialized by
 layer; the extension is richer context passing.
 
+### CrewAI — Role-Based Delegation Chains
+
+**External observation:** CrewAI assigns agents specific roles
+(researcher, writer, reviewer) with explicit delegation chains. A
+manager agent can delegate subtasks to specialized agents, each with
+their own tools and constraints. Supports sequential, parallel, and
+hierarchical execution modes.
+
+**Pattern claim:** LIAN's workers have role packets but no delegation
+chain. A worker cannot spawn a sub-worker for a specialized subtask
+at runtime. Adding bounded sub-worker delegation (with the same
+conflict-group and file-scope constraints) could improve task
+decomposition quality.
+
+**LIAN surface:** Worker dispatch, task decomposition, orchestrator.
+
+**Applicability:** Analogous — LIAN solves the same problem (task
+decomposition) through pre-launch decomposition with conflict groups,
+write sets, and DAG dependencies instead of runtime delegation. The
+two approaches are architecturally incompatible: runtime delegation
+bypasses the launch gate safety model. Investigation concluded the
+pattern should not be adopted. See
+[delegation-and-oversight-investigation.md](delegation-and-oversight-investigation.md)
+for the full analysis.
+
 ---
 
 ## Gate Integration
