@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotificationsController } from './controllers/notifications.controller';
-import { NotificationsUseCase } from './use-cases/notifications.use-case';
+import { NotificationsUseCase } from './usecases/notifications.usecase';
 import { NodebbNotificationsProvider, BodyStatus } from '../nodebb';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth';

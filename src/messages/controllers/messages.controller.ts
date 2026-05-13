@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Body, Param, Query, UseGuards, BadRequestException } from '@nestjs/common';
-import { MessagesUseCase } from '../use-cases/messages.use-case';
+import { MessagesUseCase } from '../usecases/messages.usecase';
 import { CreateMessageDto, MessageResponseDto, MessageListResponseDto } from '../dto/message.dto';
 import { JwtAuthGuard, CurrentUser } from '../../auth';
 
