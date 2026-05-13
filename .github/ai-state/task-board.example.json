@@ -1,0 +1,110 @@
+{
+  "markerVersion": 1,
+  "capturedAt": "2026-05-13T04:57:10.253Z",
+  "tasks": [
+    {
+      "issue": 1379,
+      "state": "open",
+      "conflictGroup": "task-board-completeness",
+      "worker": null,
+      "blockedReason": null,
+      "linkedPR": null
+    },
+    {
+      "issue": 1378,
+      "state": "open",
+      "conflictGroup": "resource-sampler",
+      "worker": null,
+      "blockedReason": null,
+      "linkedPR": null
+    },
+    {
+      "issue": 1373,
+      "state": "open",
+      "conflictGroup": "opportunity-a1b2c3d4-004",
+      "worker": null,
+      "blockedReason": null,
+      "linkedPR": null
+    },
+    {
+      "issue": 1372,
+      "state": "open",
+      "conflictGroup": "opportunity-a1b2c3d4-003",
+      "worker": null,
+      "blockedReason": null,
+      "linkedPR": null
+    },
+    {
+      "issue": 1370,
+      "state": "open",
+      "conflictGroup": "opportunity-a1b2c3d4-001",
+      "worker": null,
+      "blockedReason": null,
+      "linkedPR": null
+    },
+    {
+      "issue": 1369,
+      "state": "open",
+      "conflictGroup": "external-intake-agent-memory-systems",
+      "worker": null,
+      "blockedReason": null,
+      "linkedPR": null
+    },
+    {
+      "issue": 1368,
+      "state": "open",
+      "conflictGroup": "external-intake-lightweight-agent-handoff",
+      "worker": null,
+      "blockedReason": null,
+      "linkedPR": null
+    },
+    {
+      "issue": 1367,
+      "state": "open",
+      "conflictGroup": "external-intake-role-based-agent-teams",
+      "worker": null,
+      "blockedReason": null,
+      "linkedPR": null
+    },
+    {
+      "issue": 1366,
+      "state": "open",
+      "conflictGroup": "external-intake-self-improving-agents",
+      "worker": null,
+      "blockedReason": null,
+      "linkedPR": null
+    },
+    {
+      "issue": 1365,
+      "state": "open",
+      "conflictGroup": "external-intake-agent-lifecycle-hooks",
+      "worker": null,
+      "blockedReason": null,
+      "linkedPR": null
+    },
+    {
+      "issue": 1364,
+      "state": "open",
+      "conflictGroup": "external-intake-multi-agent-conversation",
+      "worker": null,
+      "blockedReason": null,
+      "linkedPR": null
+    },
+    {
+      "issue": 1363,
+      "state": "open",
+      "conflictGroup": "external-intake-agent-orchestration",
+      "worker": null,
+      "blockedReason": null,
+      "linkedPR": null
+    },
+    {
+      "issue": 1371,
+      "state": "discussion/open",
+      "conflictGroup": null,
+      "worker": null,
+      "blockedReason": null,
+      "linkedPR": null
+    }
+  ]
+}
