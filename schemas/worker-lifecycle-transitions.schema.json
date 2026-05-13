@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/taoyu051818-sys/lian-nest-server/schemas/worker-lifecycle-transitions.schema.json",
+  "title": "WorkerLifecycleTransitions",
+  "description": "Defines the valid state machine transitions for the active-workers status field. Inspired by LangGraph DAG-based state machines for explicit, auditable transitions. Referenced by scripts/ai/validate-worker-transition.js.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "states", "transitions"],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version pinned to 1."
+    },
+    "states": {
+      "type": "object",
+      "description": "All valid worker lifecycle states with their classification.",
+      "additionalProperties": false,
+      "properties": {
+        "null": { "type": "string", "const": "initial", "description": "Status not yet set." },
+        "planned": { "type": "string", "const": "transient", "description": "Worker scheduled but not launched." },
+        "running": { "type": "string", "const": "active", "description": "Worker process is alive and executing." },
+        "completed": { "type": "string", "const": "terminal", "description": "Worker finished successfully." },
+        "failed": { "type": "string", "const": "terminal", "description": "Worker exited with error." },
+        "stale": { "type": "string", "const": "terminal", "description": "Worker alive but exceeded stale threshold." },
+        "blocked": { "type": "string", "const": "recoverable", "description": "Worker blocked from progressing." },
+        "needs-human": { "type": "string", "const": "recoverable", "description": "Worker requires human intervention." }
+      }
+    },
+    "transitions": {
+      "type": "array",
+      "description": "Valid state transitions. Each entry defines a from-state and its allowed to-states.",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "trigger"],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "enum": ["null", "planned", "running", "completed", "failed", "stale", "blocked", "needs-human"],
+            "description": "Source status."
+          },
+          "to": {
+            "type": "string",
+            "enum": ["planned", "running", "completed", "failed", "stale", "blocked", "needs-human"],
+            "description": "Target status."
+          },
+          "trigger": {
+            "type": "string",
+            "enum": ["launch", "execute", "exit-success", "exit-failure", "stale-timeout", "block", "human-flag", "reconcile", "manual-override", "relaunch"],
+            "description": "What causes this transition."
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable explanation of when this transition occurs."
+          }
+        }
+      }
+    }
+  }
+}
