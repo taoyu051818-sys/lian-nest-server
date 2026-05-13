@@ -19,6 +19,7 @@ evidence-backed opportunities — never as direct execution commands.
 | Source ID | Name | URL | Source Class | Default Tier | Research Category | Intake Cadence |
 |-----------|------|-----|:------------:|:------------:|-------------------|----------------|
 | `ai-papers-weekly` | dair-ai/AI-Papers-of-the-Week | [GitHub](https://github.com/dair-ai/AI-Papers-of-the-Week) | `external-doc` | B | `ai-papers-digest` | Weekly (per digest commit) |
+| `crewai` | CrewAI | [GitHub](https://github.com/crewAIInc/crewAI) | `external-doc` | B | `agent-pattern` | Per-investigation (ad-hoc) |
 
 ---
 
@@ -99,6 +100,45 @@ no pattern claim and no opportunity signal.
 > "If LIAN adopts **[specific technique]** from **[paper title]**
 > (via dair-ai/AI-Papers-of-the-Week), then **[measurable outcome]**
 > will improve because **[mechanism]**."
+
+---
+
+## Source: crewai
+
+### Identity
+
+- **Repository:** [crewAIInc/crewAI](https://github.com/crewAIInc/crewAI)
+- **Source class:** `external-doc` — structured and maintained but not
+  version-pinned to LIAN
+- **Default reliability tier:** B
+- **Research category:** `agent-pattern`
+
+### Scope
+
+CrewAI is a multi-agent orchestration framework that assigns agents
+specific roles (researcher, writer, reviewer) with explicit delegation
+chains. A manager agent can delegate subtasks to specialized agents,
+each with their own tools and constraints. Supports sequential,
+parallel, and hierarchical execution modes.
+
+### Intake Boundary
+
+This source is evidence input only. CrewAI patterns follow the full
+intake loop. See
+[delegation-and-oversight-investigation.md](delegation-and-oversight-investigation.md)
+for the initial investigation result.
+
+### Pattern Extraction Scope
+
+Only CrewAI patterns that map to a LIAN surface produce pattern claims:
+
+| LIAN Surface | CrewAI Pattern |
+|--------------|---------------|
+| Worker dispatch | Role-based agent assignment |
+| Task decomposition | Manager delegation chains |
+| Parallel execution | Sequential/parallel/hierarchical process modes |
+| Tool scoping | Per-agent tool restrictions |
+| Orchestrator | Crew lifecycle management |
 
 ---
 
