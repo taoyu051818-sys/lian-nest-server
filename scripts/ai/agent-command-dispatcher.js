@@ -55,26 +55,7 @@ const HANDLERS = {
     try { fs.rmSync(logDir, { recursive: true, force: true }); } catch {}
     fs.mkdirSync(logDir, { recursive: true });
 
-    // Clean stale worktrees for issues that would be launched
-    try {
-      const wtList = execSync('git worktree list --porcelain', { encoding: 'utf-8', timeout: 5000 });
-      const worktrees = wtList.split('\n').filter(l => l.startsWith('worktree ')).map(l => l.replace('worktree ', ''));
-      for (const wt of worktrees) {
-        if (wt.includes('.claude/worktrees/claude/issue-') && !wt.includes('long-bootstrap-agent-first/.claude')) {
-          try { execSync(`git worktree remove "${wt}" --force`, { timeout: 5000 }); } catch {}
-        }
-      }
-    } catch {}
-
-    // Clean stale branches
-    try {
-      const branches = execSync('git branch -l "claude/issue-*"', { encoding: 'utf-8', timeout: 5000 });
-      for (const branch of branches.split('\n').map(b => b.replace(/^[+*]\s+/, '').trim()).filter(b => b)) {
-        try { execSync(`git branch -D "${branch}"`, { timeout: 5000 }); } catch {}
-      }
-    } catch {}
-
-    // Compile
+    // Compile tasks first so we know which issues are queued
     const compileScript = path.join(SCRIPT_DIR, 'compile-issues-to-tasks.js');
     const compileOut = path.join(stateDir, 'compiled-tasks.json');
     const compileResult = execSync(
@@ -84,6 +65,33 @@ const HANDLERS = {
     const compileData = JSON.parse(compileResult);
     const tasks = compileData.tasks || [];
     fs.writeFileSync(compileOut, JSON.stringify(tasks, null, 2));
+
+    // Build set of issue numbers that are about to be launched — preserve
+    // their worktrees so Ensure-Worktree can reuse them on retry.
+    const queuedIssues = new Set(tasks.map(t => String(t.targetIssue)));
+
+    // Selectively clean worktrees for issues NOT in the queued set
+    try {
+      const wtList = execSync('git worktree list --porcelain', { encoding: 'utf-8', timeout: 5000 });
+      const worktrees = wtList.split('\n').filter(l => l.startsWith('worktree ')).map(l => l.replace('worktree ', ''));
+      for (const wt of worktrees) {
+        if (wt.includes('.claude/worktrees/claude/issue-') && !wt.includes('long-bootstrap-agent-first/.claude')) {
+          const match = wt.match(/issue-(\d+)/);
+          if (match && queuedIssues.has(match[1])) continue;
+          try { execSync(`git worktree remove "${wt}" --force`, { timeout: 5000 }); } catch {}
+        }
+      }
+    } catch {}
+
+    // Clean branches for issues NOT in the queued set
+    try {
+      const branches = execSync('git branch -l "claude/issue-*"', { encoding: 'utf-8', timeout: 5000 });
+      for (const branch of branches.split('\n').map(b => b.replace(/^[+*]\s+/, '').trim()).filter(b => b)) {
+        const match = branch.match(/issue-(\d+)/);
+        if (match && queuedIssues.has(match[1])) continue;
+        try { execSync(`git branch -D "${branch}"`, { timeout: 5000 }); } catch {}
+      }
+    } catch {}
 
     if (tasks.length === 0) {
       return 'No tasks to launch';

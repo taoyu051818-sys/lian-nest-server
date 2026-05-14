@@ -313,6 +313,38 @@ Workers cannot:
 
 Each worker runs in its own git worktree under `.claude/worktrees/`. This prevents workers from interfering with each other or the main working directory.
 
+## Workspace Persistence
+
+Worktrees persist across runs for the same issue. When a worker fails and the
+issue is re-queued, the next `compile-and-launch` cycle preserves the existing
+worktree so `Ensure-Worktree` can reuse it. The worker resumes with previous
+context (including any partial commits) instead of starting from scratch.
+
+### Selective Cleanup
+
+The `compile-and-launch` command compiles the task list **before** cleaning
+worktrees. It builds a set of queued issue numbers and only removes worktrees
+for issues that are **not** in the new task list:
+
+- **Queued issues** — worktree preserved for reuse by `Ensure-Worktree`
+- **Non-queued issues** — worktree and branch removed (issue closed or label removed)
+
+This replaces the previous "scorched earth" approach that destroyed all
+worktrees before every launch cycle.
+
+### Stale Worktree Cleanup
+
+The worktree janitor (`worktree-janitor.ps1`) remains the tool for cleaning
+worktrees that accumulate over time (abandoned workers, closed issues).
+Run it before batch waves or after merging PRs:
+
+```powershell
+./scripts/ai/worktree-janitor.ps1 -RemoveMerged
+```
+
+See [workspace-persistence.md](workspace-persistence.md) for the full design
+analysis comparing LIAN's behavior with Symphony's workspace persistence model.
+
 ## Relationship to Existing Tooling
 
 | Tool | Status | Notes |
