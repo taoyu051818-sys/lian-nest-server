@@ -39,7 +39,7 @@ const path = require('path');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const { REPO_ROOT } = require('./lib');
+const { REPO_ROOT, controlPlane } = require('./lib');
 const STATE_DIR = path.join(REPO_ROOT, '.github', 'ai-state');
 const DEFAULT_OUT = path.join(STATE_DIR, 'codex-exit-readiness.json');
 
@@ -340,9 +340,29 @@ function evaluateGate7(inputs) {
   return { id: 'gate-7', name: 'Observability', pass, checks, blockers };
 }
 
+// ── Governance ───────────────────────────────────────────────────────────────
+
+function buildGovernance(verdict) {
+  const facts = [];
+  const recommendations = [];
+  const humanRequired = [];
+
+  for (const gate of verdict.gates) {
+    facts.push({ source: gate.id, label: gate.name, value: gate.pass ? 'pass' : 'fail' });
+    if (gate.blocking && !gate.pass) {
+      for (const blocker of gate.blockers) {
+        recommendations.push({ source: gate.id, message: blocker, severity: 'high' });
+      }
+      humanRequired.push({ type: 'gate', id: gate.id, message: gate.name });
+    }
+  }
+
+  return { facts, recommendations, humanRequired };
+}
+
 // ── Build verdict ────────────────────────────────────────────────────────────
 
-function buildVerdict(inputs) {
+function buildVerdict(inputs, snapshotInputSources) {
   const gates = [
     evaluateGate1(inputs),
     evaluateGate2(inputs),
@@ -378,28 +398,34 @@ function buildVerdict(inputs) {
     }
   }
 
-  const inputSources = {};
-  for (const [key, filename] of Object.entries(INPUT_FILES)) {
-    inputSources[`${key}Loaded`] = inputs[key] !== null;
+  const inputSources = snapshotInputSources ? { ...snapshotInputSources } : {};
+  if (!snapshotInputSources) {
+    for (const [key, filename] of Object.entries(INPUT_FILES)) {
+      inputSources[`${key}Loaded`] = inputs[key] !== null;
+    }
   }
 
-  return {
+  const gatesOut = gates.map(g => ({
+    id: g.id,
+    name: g.name,
+    pass: g.pass,
+    blocking: (GATES.find(d => d.id === g.id) || {}).blocking || false,
+    checks: g.checks,
+    blockers: g.blockers,
+  }));
+
+  const result = {
     schemaVersion: SCHEMA_VERSION,
     capturedAt: new Date().toISOString(),
     verdict,
     passedBlocking,
     totalBlocking,
-    gates: gates.map(g => ({
-      id: g.id,
-      name: g.name,
-      pass: g.pass,
-      blocking: (GATES.find(d => d.id === g.id) || {}).blocking || false,
-      checks: g.checks,
-      blockers: g.blockers,
-    })),
+    gates: gatesOut,
     blockers: allBlockers,
     inputSources,
   };
+  result.governance = buildGovernance(result);
+  return result;
 }
 
 // ── Self-test ────────────────────────────────────────────────────────────────
@@ -491,6 +517,15 @@ function runSelfTest() {
   assert(typeof check1.name === 'string', 'check.name is string');
   assert(typeof check1.pass === 'boolean', 'check.pass is boolean');
 
+  // Test: governance section shape
+  assert(typeof full.governance === 'object', 'governance is object');
+  assert(Array.isArray(full.governance.facts), 'governance.facts is array');
+  assert(Array.isArray(full.governance.recommendations), 'governance.recommendations is array');
+  assert(Array.isArray(full.governance.humanRequired), 'governance.humanRequired is array');
+  assert(full.governance.facts.length === 7, 'governance has 7 gate facts');
+  assert(full.governance.humanRequired.length === 0, 'ready state has no humanRequired');
+  assert(empty.governance.humanRequired.length > 0, 'partial state has humanRequired');
+
   // Report
   console.log(`\n  emit-codex-exit-readiness self-test`);
   console.log(`  ${passed}/${passed + failed} passed`);
@@ -518,13 +553,13 @@ function main() {
     return;
   }
 
-  // Read all input files
-  const inputs = {};
-  for (const [key, filename] of Object.entries(INPUT_FILES)) {
-    inputs[key] = readJsonFile(path.join(STATE_DIR, filename));
-  }
+  // Load shared control-plane snapshot
+  const { inputs, inputSources: snapshotInputSources } = controlPlane.loadControlPlaneInputs({ stateDir: STATE_DIR });
+  // Supplement with inputs not in the shared snapshot
+  inputs.queue = readJsonFile(path.join(STATE_DIR, 'queue-state.json'));
+  snapshotInputSources.queueLoaded = inputs.queue !== null;
 
-  const verdict = buildVerdict(inputs);
+  const verdict = buildVerdict(inputs, snapshotInputSources);
   const json = JSON.stringify(verdict, null, 2) + '\n';
 
   if (args.stdout) {

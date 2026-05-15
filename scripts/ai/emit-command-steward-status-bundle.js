@@ -21,7 +21,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { REPO_ROOT } = require('./lib');
+const { REPO_ROOT, controlPlane } = require('./lib');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -302,9 +302,39 @@ function collectBlockers(health, activeWorkers, prSummary, issueSummary, telemet
   return blockers;
 }
 
+// ── Governance ───────────────────────────────────────────────────────────────
+
+function buildGovernance(bundle) {
+  const facts = [];
+  const recommendations = [];
+  const humanRequired = [];
+
+  if (bundle.health.loaded) {
+    facts.push({ source: 'health', label: 'Main branch health', value: bundle.health.state });
+  }
+  if (bundle.activeWorkers.loaded) {
+    facts.push({ source: 'workers', label: 'Active workers', value: bundle.activeWorkers.count });
+  }
+  if (bundle.recentTelemetry.loaded && bundle.recentTelemetry.metaSignals) {
+    facts.push({ source: 'telemetry', label: 'Trust score', value: bundle.recentTelemetry.metaSignals.trust });
+  }
+
+  for (const blocker of bundle.blockers) {
+    if (blocker.severity === 'critical' || blocker.severity === 'high') {
+      recommendations.push({ source: blocker.source, message: blocker.message, severity: blocker.severity });
+    }
+  }
+
+  if (bundle.openPullRequests.loaded && bundle.openPullRequests.count > 0) {
+    humanRequired.push({ type: 'merge', message: `${bundle.openPullRequests.count} open PR(s) require human merge decision`, count: bundle.openPullRequests.count });
+  }
+
+  return { facts, recommendations, humanRequired };
+}
+
 // ── Build bundle ─────────────────────────────────────────────────────────────
 
-function buildBundle(inputs, ghPrs, ghIssues) {
+function buildBundle(inputs, ghPrs, ghIssues, snapshotInputSources) {
   const health = buildHealth(inputs.health);
   const openPullRequests = buildOpenPullRequests(ghPrs);
   const openIssues = buildOpenIssues(ghIssues);
@@ -313,12 +343,16 @@ function buildBundle(inputs, ghPrs, ghIssues) {
 
   const blockers = collectBlockers(health, activeWorkers, openPullRequests, openIssues, recentTelemetry);
 
-  const inputSources = {};
-  for (const key of Object.keys(INPUT_FILES)) {
-    inputSources[`${key}Loaded`] = inputs[key] !== null;
+  const inputSources = snapshotInputSources ? { ...snapshotInputSources } : {};
+  if (!snapshotInputSources) {
+    for (const key of Object.keys(INPUT_FILES)) {
+      inputSources[`${key}Loaded`] = inputs[key] !== null;
+    }
   }
   inputSources.prDataLoaded = ghPrs !== null;
   inputSources.issueDataLoaded = ghIssues !== null;
+
+  const governance = buildGovernance({ health, openPullRequests, openIssues, activeWorkers, recentTelemetry, blockers });
 
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -330,6 +364,7 @@ function buildBundle(inputs, ghPrs, ghIssues) {
     recentTelemetry,
     blockers,
     inputSources,
+    governance,
   };
 }
 
@@ -415,8 +450,20 @@ function runSelfTest() {
 
   // Test: expected top-level keys
   const expectedKeys = ['schemaVersion', 'capturedAt', 'health', 'openPullRequests',
-    'openIssues', 'activeWorkers', 'recentTelemetry', 'blockers', 'inputSources'];
+    'openIssues', 'activeWorkers', 'recentTelemetry', 'blockers', 'inputSources', 'governance'];
   for (const key of expectedKeys) { assert(key in full, `key ${key} present`); }
+
+  // Test: governance section shape
+  assert(typeof full.governance === 'object', 'governance is object');
+  assert(Array.isArray(full.governance.facts), 'governance.facts is array');
+  assert(Array.isArray(full.governance.recommendations), 'governance.recommendations is array');
+  assert(Array.isArray(full.governance.humanRequired), 'governance.humanRequired is array');
+  assert(full.governance.facts.length > 0, 'governance has facts');
+  assert(full.governance.humanRequired.length > 0, 'governance has humanRequired for open PRs');
+
+  // Test: empty inputs governance
+  assert(typeof empty.governance === 'object', 'empty governance is object');
+  assert(empty.governance.humanRequired.length === 0, 'empty has no humanRequired');
 
   // Report
   console.log(`\n  emit-command-steward-status-bundle self-test`);
@@ -445,17 +492,15 @@ function main() {
     return;
   }
 
-  // Read local state files
-  const inputs = {};
-  for (const [key, filename] of Object.entries(INPUT_FILES)) {
-    inputs[key] = readJsonFile(path.join(STATE_DIR, filename));
-  }
+  // Load state from shared control-plane snapshot
+  const stateDir = process.env.COMMAND_STEWARD_STATE_DIR || path.join(REPO_ROOT, '.github', 'ai-state');
+  const { inputs, inputSources: snapshotInputSources } = controlPlane.loadControlPlaneInputs({ stateDir });
 
   // Fetch GitHub data via gh CLI
   const ghPrs = safeGh(['pr', 'list', '--limit', '50', '--json', 'number,title,author,headRefName']);
   const ghIssues = safeGh(['issue', 'list', '--limit', '50', '--json', 'number,title,state,labels']);
 
-  const bundle = buildBundle(inputs, ghPrs, ghIssues);
+  const bundle = buildBundle(inputs, ghPrs, ghIssues, snapshotInputSources);
   const json = JSON.stringify(bundle, null, 2) + '\n';
 
   if (args.stdout) {
