@@ -20,7 +20,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { REPO_ROOT, readJson, readNdjson } = require('./lib');
+const { REPO_ROOT } = require('./lib');
+const {
+  CONTROL_PLANE_INPUT_FILES,
+  loadControlPlaneSnapshot,
+} = require('./lib/control-plane/snapshot');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const STATE_DIR = process.env.COMMAND_STEWARD_STATE_DIR || path.join(REPO_ROOT, '.github', 'ai-state');
@@ -28,20 +32,7 @@ const DEFAULT_OUT = path.join(STATE_DIR, 'command-steward-brief.json');
 
 const SCHEMA_VERSION = 1;
 
-const INPUT_FILES = {
-  health:            'main-health.json',
-  providerPool:      'provider-pool.json',
-  localResource:     'local-resource.json',
-  activeWorkers:     'active-workers.json',
-  workerTrust:       'worker-trust.json',
-  metaSignals:       'meta-signals.json',
-  riskSignals:       'risk-signals.json',
-  opportunitySignals: 'opportunity-signals.json',
-  launchLocks:       'launch-locks.json',
-  workerTelemetry:   'worker-telemetry-events.ndjson',
-  lastCycle:         'self-cycle-run.json',
-  launchCandidates:  'launch-candidates.json',
-};
+const INPUT_FILES = CONTROL_PLANE_INPUT_FILES;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1009,6 +1000,7 @@ function buildOperatorBrief(inputs, systemStatus, blockers, actions, humanRequir
 // ── Build brief ──────────────────────────────────────────────────────────────
 
 function buildBrief(inputs) {
+  const controlPlaneSnapshot = inputs.controlPlaneSnapshot || null;
   const systemStatus = buildSystemStatus(inputs);
   const providerSummary = buildProviderSummary(inputs);
   const workerSummary = buildWorkerSummary(inputs);
@@ -1047,6 +1039,7 @@ function buildBrief(inputs) {
     budgetSummary,
     parallelSummary,
     issueProductionSummary,
+    controlPlaneSnapshot,
     blockers,
     recommendedNextActions,
     humanRequiredItems,
@@ -1269,12 +1262,8 @@ function main() {
     return;
   }
 
-  // Read all input files
-  const inputs = {};
-  for (const [key, filename] of Object.entries(INPUT_FILES)) {
-    const filePath = path.join(STATE_DIR, filename);
-    inputs[key] = filename.endsWith('.ndjson') ? readNdjson(filePath) : readJson(filePath);
-  }
+  const loaded = loadControlPlaneSnapshot({ stateDir: STATE_DIR, inputFiles: INPUT_FILES });
+  const inputs = { ...loaded.inputs, controlPlaneSnapshot: loaded.snapshot };
 
   const brief = buildBrief(inputs);
   const json = JSON.stringify(brief, null, 2) + '\n';
