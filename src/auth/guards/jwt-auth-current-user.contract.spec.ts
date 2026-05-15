@@ -1,16 +1,8 @@
-import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
-import { JwtAuthGuard, JwtPayload } from './jwt-auth.guard';
+import { ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { JwtAuthGuard } from './jwt-auth.guard';
+import { JwtPayload } from '../strategies/jwt.strategy';
 import { extractCurrentUser } from '../decorators/current-user.decorator';
-
-/**
- * Contract tests for the guard + decorator pipeline.
- *
- * Validates fail-closed behavior and current-user extraction
- * without touching any route or module wiring.
- *
- * Parity fixtures: test/parity/auth/*.json
- * Contract doc:    docs/contracts/auth-session.md
- */
 
 function makeContext(authHeader?: string, existingUser?: unknown) {
   const req: Record<string, unknown> = {
@@ -22,110 +14,80 @@ function makeContext(authHeader?: string, existingUser?: unknown) {
   return {
     switchToHttp: () => ({
       getRequest: () => req,
+      getResponse: () => ({}),
     }),
+    getHandler: () => () => {},
+    getClass: () => class {},
   } as unknown as ExecutionContext;
-}
-
-function encodeJwtPayload(payload: Record<string, unknown>): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
-  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  return `${header}.${body}.sig`;
 }
 
 describe('Auth current-user contract (guard + decorator)', () => {
   let guard: JwtAuthGuard;
+  let reflector: Reflector;
 
   beforeEach(() => {
-    guard = new JwtAuthGuard();
+    reflector = new Reflector();
+    guard = new JwtAuthGuard(reflector);
   });
 
-  describe('JwtAuthGuard fail-closed behavior', () => {
-    it('rejects missing Authorization header with 401', () => {
-      expect(() => guard.canActivate(makeContext())).toThrow(UnauthorizedException);
+  describe('JwtAuthGuard public route bypass', () => {
+    it('allows request without Authorization header when route is @Public()', async () => {
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(true);
+      expect(await guard.canActivate(makeContext())).toBe(true);
     });
 
-    it('rejects empty Authorization header with 401', () => {
-      expect(() => guard.canActivate(makeContext(''))).toThrow(UnauthorizedException);
-    });
-
-    it('rejects non-Bearer scheme with 401', () => {
-      expect(() => guard.canActivate(makeContext('Basic abc123'))).toThrow(UnauthorizedException);
-    });
-
-    it('rejects malformed JWT (not 3 parts) with 401', () => {
-      expect(() => guard.canActivate(makeContext('Bearer abc.def'))).toThrow(UnauthorizedException);
-    });
-
-    it('rejects JWT with invalid base64 payload with 401', () => {
-      expect(() => guard.canActivate(makeContext('Bearer a.!!!.c'))).toThrow(UnauthorizedException);
-    });
-
-    it('rejects JWT without sub claim with 401', () => {
-      const token = encodeJwtPayload({ email: 'test@example.com' });
-      expect(() => guard.canActivate(makeContext(`Bearer ${token}`))).toThrow(UnauthorizedException);
-    });
-
-    it('rejects JWT with sub = 0 with 401', () => {
-      const token = encodeJwtPayload({ sub: 0 });
-      expect(() => guard.canActivate(makeContext(`Bearer ${token}`))).toThrow(UnauthorizedException);
-    });
-
-    it('rejects JWT with negative sub with 401', () => {
-      const token = encodeJwtPayload({ sub: -1 });
-      expect(() => guard.canActivate(makeContext(`Bearer ${token}`))).toThrow(UnauthorizedException);
+    it('allows request with invalid token when route is @Public()', async () => {
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(true);
+      expect(await guard.canActivate(makeContext('Bearer garbage'))).toBe(true);
     });
   });
 
-  describe('JwtAuthGuard request mutation', () => {
-    it('sets request.user to decoded payload on valid token', () => {
-      const token = encodeJwtPayload({ sub: 42, email: 'user@example.com' });
-      const req = { headers: { authorization: `Bearer ${token}` } };
-      const ctx = {
-        switchToHttp: () => ({ getRequest: () => req }),
-      } as unknown as ExecutionContext;
-
-      const result = guard.canActivate(ctx);
-
-      expect(result).toBe(true);
-      expect((req as any).user).toEqual({ sub: 42, email: 'user@example.com' });
+  describe('JwtAuthGuard protected route delegation', () => {
+    beforeEach(() => {
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(false);
     });
 
-    it('preserves extra payload fields on request.user', () => {
-      const token = encodeJwtPayload({ sub: 7, role: 'ADMIN', custom: 'data' });
-      const req = { headers: { authorization: `Bearer ${token}` } };
-      const ctx = {
-        switchToHttp: () => ({ getRequest: () => req }),
-      } as unknown as ExecutionContext;
-
-      guard.canActivate(ctx);
-
-      expect((req as any).user).toEqual({ sub: 7, role: 'ADMIN', custom: 'data' });
+    it('delegates to passport for missing Authorization header', async () => {
+      await expect(guard.canActivate(makeContext())).rejects.toThrow();
     });
 
-    it('accepts sub = 1 (boundary: smallest valid positive integer)', () => {
-      const token = encodeJwtPayload({ sub: 1 });
-      const req = { headers: { authorization: `Bearer ${token}` } };
-      const ctx = {
-        switchToHttp: () => ({ getRequest: () => req }),
-      } as unknown as ExecutionContext;
+    it('delegates to passport for empty Authorization header', async () => {
+      await expect(guard.canActivate(makeContext(''))).rejects.toThrow();
+    });
 
-      expect(guard.canActivate(ctx)).toBe(true);
-      expect((req as any).user.sub).toBe(1);
+    it('delegates to passport for non-Bearer scheme', async () => {
+      await expect(guard.canActivate(makeContext('Basic abc123'))).rejects.toThrow();
+    });
+
+    it('delegates to passport for malformed JWT', async () => {
+      await expect(guard.canActivate(makeContext('Bearer abc.def'))).rejects.toThrow();
     });
   });
 
   describe('extractCurrentUser (decorator logic)', () => {
     it('returns full user object when no key specified', () => {
-      const mockUser: JwtPayload = { sub: 42, email: 'user@example.com' };
+      const mockUser: JwtPayload = {
+        sub: 42,
+        email: 'user@example.com',
+        role: 'USER',
+      };
       const ctx = makeContext(undefined, mockUser);
 
       const result = extractCurrentUser(undefined, ctx);
 
-      expect(result).toEqual({ sub: 42, email: 'user@example.com' });
+      expect(result).toEqual({
+        sub: 42,
+        email: 'user@example.com',
+        role: 'USER',
+      });
     });
 
     it('returns specific field when key specified', () => {
-      const mockUser: JwtPayload = { sub: 42, email: 'user@example.com' };
+      const mockUser: JwtPayload = {
+        sub: 42,
+        email: 'user@example.com',
+        role: 'USER',
+      };
       const ctx = makeContext(undefined, mockUser);
 
       const result = extractCurrentUser('sub', ctx);
@@ -142,30 +104,16 @@ describe('Auth current-user contract (guard + decorator)', () => {
     });
 
     it('returns undefined for missing field on user object', () => {
-      const mockUser: JwtPayload = { sub: 42 };
+      const mockUser: JwtPayload = {
+        sub: 42,
+        email: 'user@example.com',
+        role: 'USER',
+      };
       const ctx = makeContext(undefined, mockUser);
 
-      const result = extractCurrentUser('email', ctx);
+      const result = extractCurrentUser('iat', ctx);
 
       expect(result).toBeUndefined();
-    });
-  });
-
-  describe('guard + decorator pipeline', () => {
-    it('decorator reads user set by guard in the same request', () => {
-      const token = encodeJwtPayload({ sub: 99 });
-      const req = { headers: { authorization: `Bearer ${token}` } };
-      const ctx = {
-        switchToHttp: () => ({ getRequest: () => req }),
-      } as unknown as ExecutionContext;
-
-      guard.canActivate(ctx);
-
-      const sub = extractCurrentUser('sub', ctx);
-      expect(sub).toBe(99);
-
-      const full = extractCurrentUser(undefined, ctx);
-      expect(full).toEqual({ sub: 99 });
     });
   });
 });

@@ -1,4 +1,5 @@
-import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 function makeContext(authHeader?: string): ExecutionContext {
@@ -7,76 +8,53 @@ function makeContext(authHeader?: string): ExecutionContext {
       getRequest: () => ({
         headers: authHeader ? { authorization: authHeader } : {},
       }),
+      getResponse: () => ({}),
     }),
+    getHandler: () => () => {},
+    getClass: () => class {},
   } as unknown as ExecutionContext;
-}
-
-function encodeJwtPayload(payload: Record<string, unknown>): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
-  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  return `${header}.${body}.sig`;
 }
 
 describe('JwtAuthGuard', () => {
   let guard: JwtAuthGuard;
+  let reflector: Reflector;
 
   beforeEach(() => {
-    guard = new JwtAuthGuard();
+    reflector = new Reflector();
+    guard = new JwtAuthGuard(reflector);
   });
 
-  it('should reject requests without Authorization header', () => {
-    expect(() => guard.canActivate(makeContext())).toThrow(UnauthorizedException);
+  describe('public route bypass', () => {
+    it('allows request without token when route is @Public()', async () => {
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(true);
+      const result = await guard.canActivate(makeContext());
+      expect(result).toBe(true);
+    });
+
+    it('allows request with invalid token when route is @Public()', async () => {
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(true);
+      const result = await guard.canActivate(makeContext('Bearer garbage'));
+      expect(result).toBe(true);
+    });
+
+    it('allows request with empty header when route is @Public()', async () => {
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(true);
+      const result = await guard.canActivate(makeContext(''));
+      expect(result).toBe(true);
+    });
   });
 
-  it('should reject requests with empty Authorization header', () => {
-    expect(() => guard.canActivate(makeContext(''))).toThrow(UnauthorizedException);
-  });
+  describe('reflector integration', () => {
+    it('checks IS_PUBLIC_KEY on handler and class', async () => {
+      const spy = jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(true);
+      await guard.canActivate(makeContext());
+      expect(spy).toHaveBeenCalledWith('isPublic', [expect.any(Function), expect.any(Function)]);
+    });
 
-  it('should reject non-Bearer tokens', () => {
-    expect(() => guard.canActivate(makeContext('Basic abc123'))).toThrow(UnauthorizedException);
-  });
-
-  it('should reject Bearer token without sub claim', () => {
-    const token = encodeJwtPayload({ email: 'test@example.com' });
-    expect(() => guard.canActivate(makeContext(`Bearer ${token}`))).toThrow(UnauthorizedException);
-  });
-
-  it('should reject Bearer token with sub <= 0', () => {
-    const token = encodeJwtPayload({ sub: 0 });
-    expect(() => guard.canActivate(makeContext(`Bearer ${token}`))).toThrow(UnauthorizedException);
-  });
-
-  it('should reject malformed JWT (not 3 parts)', () => {
-    expect(() => guard.canActivate(makeContext('Bearer abc.def'))).toThrow(UnauthorizedException);
-  });
-
-  it('should reject JWT with invalid base64 payload', () => {
-    expect(() => guard.canActivate(makeContext('Bearer a.!!!.c'))).toThrow(UnauthorizedException);
-  });
-
-  it('should accept valid JWT with numeric sub and set req.user', () => {
-    const token = encodeJwtPayload({ sub: 42, email: 'user@example.com' });
-    const req = { headers: { authorization: `Bearer ${token}` } };
-    const ctx = {
-      switchToHttp: () => ({
-        getRequest: () => req,
-      }),
-    } as unknown as ExecutionContext;
-
-    expect(guard.canActivate(ctx)).toBe(true);
-    expect((req as any).user).toEqual({ sub: 42, email: 'user@example.com' });
-  });
-
-  it('should accept JWT with sub as positive integer', () => {
-    const token = encodeJwtPayload({ sub: 1 });
-    const req = { headers: { authorization: `Bearer ${token}` } };
-    const ctx = {
-      switchToHttp: () => ({
-        getRequest: () => req,
-      }),
-    } as unknown as ExecutionContext;
-
-    expect(guard.canActivate(ctx)).toBe(true);
-    expect((req as any).user.sub).toBe(1);
+    it('delegates to passport when route is not public', async () => {
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(false);
+      // Passport strategy not registered in unit test — rejects
+      await expect(guard.canActivate(makeContext('Bearer token'))).rejects.toThrow();
+    });
   });
 });

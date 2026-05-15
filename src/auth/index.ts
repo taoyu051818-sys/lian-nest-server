@@ -1,11 +1,15 @@
 export { AuthModule } from './auth.module';
 export { AuthController } from './auth.controller';
+export { JwtStrategy } from './strategies/jwt.strategy';
 export { LoginUsecase } from './usecases/login.usecase';
 export { RegisterUsecase } from './usecases/register.usecase';
 export { LogoutUsecase } from './usecases/logout.usecase';
 export { CurrentUserUsecase } from './usecases/current-user.usecase';
 export { ChangePasswordUsecase } from './usecases/change-password.usecase';
 export { JwtAuthGuard } from './guards/jwt-auth.guard';
-export type { JwtPayload } from './guards/jwt-auth.guard';
+export { RolesGuard } from './guards/roles.guard';
+export type { JwtPayload } from './strategies/jwt.strategy';
+export { Public } from './decorators/public.decorator';
+export { Roles } from './decorators/roles.decorator';
 export { CurrentUser, extractCurrentUser } from './decorators/current-user.decorator';
 export * from './dto';
