@@ -62,7 +62,7 @@ describe('ProfileController', () => {
       const spy = jest
         .spyOn(usecase, 'getSaved')
         .mockResolvedValue(mockResponse);
-      const result = await controller.getSaved('1', {});
+      const result = await controller.getSaved('1', {}, 1);
       expect(spy).toHaveBeenCalledWith('1', {});
       expect(result).toEqual(mockResponse);
     });
@@ -78,7 +78,7 @@ describe('ProfileController', () => {
       const spy = jest
         .spyOn(usecase, 'getSaved')
         .mockResolvedValue(mockResponse);
-      const result = await controller.getSaved('1', { page: 2, pageSize: 5 });
+      const result = await controller.getSaved('1', { page: 2, pageSize: 5 }, 1);
       expect(spy).toHaveBeenCalledWith('1', { page: 2, pageSize: 5 });
       expect(result).toEqual(mockResponse);
     });
@@ -94,7 +94,7 @@ describe('ProfileController', () => {
       const spy = jest
         .spyOn(usecase, 'getSaved')
         .mockResolvedValue(mockResponse);
-      const result = await controller.getSaved('1', { page: '2', pageSize: '5' });
+      const result = await controller.getSaved('1', { page: '2', pageSize: '5' }, 1);
       expect(spy).toHaveBeenCalledWith('1', { page: '2', pageSize: '5' });
       expect(result).toEqual(mockResponse);
     });
@@ -112,7 +112,7 @@ describe('ProfileController', () => {
       const spy = jest
         .spyOn(usecase, 'getLiked')
         .mockResolvedValue(mockResponse);
-      const result = await controller.getLiked('1', {});
+      const result = await controller.getLiked('1', {}, 1);
       expect(spy).toHaveBeenCalledWith('1', {});
       expect(result).toEqual(mockResponse);
     });
@@ -128,7 +128,7 @@ describe('ProfileController', () => {
       const spy = jest
         .spyOn(usecase, 'getLiked')
         .mockResolvedValue(mockResponse);
-      const result = await controller.getLiked('1', { page: 2, pageSize: 5 });
+      const result = await controller.getLiked('1', { page: 2, pageSize: 5 }, 1);
       expect(spy).toHaveBeenCalledWith('1', { page: 2, pageSize: 5 });
       expect(result).toEqual(mockResponse);
     });
@@ -144,7 +144,7 @@ describe('ProfileController', () => {
       const spy = jest
         .spyOn(usecase, 'getLiked')
         .mockResolvedValue(mockResponse);
-      const result = await controller.getLiked('1', { page: '2', pageSize: '5' });
+      const result = await controller.getLiked('1', { page: '2', pageSize: '5' }, 1);
       expect(spy).toHaveBeenCalledWith('1', { page: '2', pageSize: '5' });
       expect(result).toEqual(mockResponse);
     });
@@ -162,7 +162,7 @@ describe('ProfileController', () => {
       const spy = jest
         .spyOn(usecase, 'getHistory')
         .mockResolvedValue(mockResponse);
-      const result = await controller.getHistory('1', {});
+      const result = await controller.getHistory('1', {}, 1);
       expect(spy).toHaveBeenCalledWith('1', {});
       expect(result).toEqual(mockResponse);
     });
@@ -178,7 +178,7 @@ describe('ProfileController', () => {
       const spy = jest
         .spyOn(usecase, 'getHistory')
         .mockResolvedValue(mockResponse);
-      const result = await controller.getHistory('1', { page: 2, pageSize: 5 });
+      const result = await controller.getHistory('1', { page: 2, pageSize: 5 }, 1);
       expect(spy).toHaveBeenCalledWith('1', { page: 2, pageSize: 5 });
       expect(result).toEqual(mockResponse);
     });
@@ -194,7 +194,7 @@ describe('ProfileController', () => {
       const spy = jest
         .spyOn(usecase, 'getHistory')
         .mockResolvedValue(mockResponse);
-      const result = await controller.getHistory('1', { page: '2', pageSize: '5' });
+      const result = await controller.getHistory('1', { page: '2', pageSize: '5' }, 1);
       expect(spy).toHaveBeenCalledWith('1', { page: '2', pageSize: '5' });
       expect(result).toEqual(mockResponse);
     });

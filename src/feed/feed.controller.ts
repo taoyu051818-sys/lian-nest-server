@@ -1,8 +1,10 @@
-import { Controller, Get, Param, Query, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
+import { JwtAuthGuard, CurrentUser } from '../auth';
 import { FeedQueryDto, FeedItemDto, FeedResponseDto } from './dto';
 import { GetFeedUsecase, GetFeedItemUsecase } from './usecases';
 
 @Controller('api/feed')
+@UseGuards(JwtAuthGuard)
 export class FeedController {
   constructor(
     private readonly getFeedUsecase: GetFeedUsecase,
@@ -11,16 +13,12 @@ export class FeedController {
 
   @Get()
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
-  async getFeed(@Query() query: FeedQueryDto): Promise<FeedResponseDto> {
-    // TODO(#33): Extract userId from authenticated request (JwtAuthGuard).
-    const userId = 0;
+  async getFeed(@Query() query: FeedQueryDto, @CurrentUser('sub') userId: number): Promise<FeedResponseDto> {
     return this.getFeedUsecase.execute({ ...query, userId });
   }
 
   @Get(':feedItemId')
-  async getFeedItem(@Param('feedItemId') feedItemId: string): Promise<FeedItemDto> {
-    // TODO(#33): Extract userId from authenticated request (JwtAuthGuard).
-    const userId = 0;
+  async getFeedItem(@Param('feedItemId') feedItemId: string, @CurrentUser('sub') userId: number): Promise<FeedItemDto> {
     return this.getFeedItemUsecase.execute({ feedItemId, userId });
   }
 }

@@ -7,7 +7,9 @@ import {
   Param,
   Body,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { JwtAuthGuard, CurrentUser } from '../auth';
 import { PostsUsecase } from './posts.service';
 import type {
   PostDetail,
@@ -23,6 +25,7 @@ import type {
 } from './types';
 
 @Controller('api/posts')
+@UseGuards(JwtAuthGuard)
 export class PostsController {
   constructor(private readonly postsUsecase: PostsUsecase) {}
 
@@ -41,7 +44,10 @@ export class PostsController {
   // ---- Write ---------------------------------------------------------------
 
   @Post()
-  createPost(@Body() body: CreatePostBody): PostDetail {
+  createPost(
+    @Body() body: CreatePostBody,
+    @CurrentUser('sub') userId: number,
+  ): PostDetail {
     return this.postsUsecase.createPost(body);
   }
 
@@ -49,12 +55,16 @@ export class PostsController {
   updatePost(
     @Param('postId') postId: string,
     @Body() body: UpdatePostBody,
+    @CurrentUser('sub') userId: number,
   ): PostDetail {
     return this.postsUsecase.updatePost(postId, body);
   }
 
   @Delete(':postId')
-  deletePost(@Param('postId') postId: string): { deleted: true } {
+  deletePost(
+    @Param('postId') postId: string,
+    @CurrentUser('sub') userId: number,
+  ): { deleted: true } {
     return this.postsUsecase.deletePost(postId);
   }
 
@@ -71,6 +81,7 @@ export class PostsController {
   addReaction(
     @Param('postId') postId: string,
     @Body() body: CreateReactionBody,
+    @CurrentUser('sub') userId: number,
   ): PostReactionSummary {
     return this.postsUsecase.addReaction(postId, body);
   }
@@ -79,6 +90,7 @@ export class PostsController {
   removeReaction(
     @Param('postId') postId: string,
     @Param('reactionType') reactionType: string,
+    @CurrentUser('sub') userId: number,
   ): { removed: true } {
     return this.postsUsecase.removeReaction(postId, reactionType);
   }
@@ -97,6 +109,7 @@ export class PostsController {
   createReply(
     @Param('postId') postId: string,
     @Body() body: CreateReplyBody,
+    @CurrentUser('sub') userId: number,
   ): PostReply {
     return this.postsUsecase.createReply(postId, body);
   }
@@ -105,6 +118,7 @@ export class PostsController {
   deleteReply(
     @Param('postId') postId: string,
     @Param('replyId') replyId: string,
+    @CurrentUser('sub') userId: number,
   ): { deleted: true } {
     return this.postsUsecase.deleteReply(postId, replyId);
   }

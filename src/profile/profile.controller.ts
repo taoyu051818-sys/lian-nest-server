@@ -1,4 +1,5 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard, Public, CurrentUser } from '../auth';
 import { ProfileUsecase } from './profile.usecase';
 import {
   PublicProfile,
@@ -10,9 +11,11 @@ import {
 } from './types';
 
 @Controller('api/profile')
+@UseGuards(JwtAuthGuard)
 export class ProfileController {
   constructor(private readonly profileUsecase: ProfileUsecase) {}
 
+  @Public()
   @Get(':uid')
   async getPublicProfile(@Param('uid') uid: string): Promise<PublicProfile> {
     return this.profileUsecase.getPublicProfile(uid);
@@ -22,6 +25,7 @@ export class ProfileController {
   async getSaved(
     @Param('uid') uid: string,
     @Query() query: CollectionQuery,
+    @CurrentUser('sub') currentUserId: number,
   ): Promise<ProfileCollection<SavedItem>> {
     return this.profileUsecase.getSaved(uid, query);
   }
@@ -30,6 +34,7 @@ export class ProfileController {
   async getLiked(
     @Param('uid') uid: string,
     @Query() query: CollectionQuery,
+    @CurrentUser('sub') currentUserId: number,
   ): Promise<ProfileCollection<LikedItem>> {
     return this.profileUsecase.getLiked(uid, query);
   }
@@ -38,6 +43,7 @@ export class ProfileController {
   async getHistory(
     @Param('uid') uid: string,
     @Query() query: CollectionQuery,
+    @CurrentUser('sub') currentUserId: number,
   ): Promise<ProfileCollection<HistoryItem>> {
     return this.profileUsecase.getHistory(uid, query);
   }

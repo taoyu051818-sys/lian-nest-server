@@ -68,7 +68,7 @@ describe('PostsController', () => {
         throw new NotImplementedException('PostsUsecase.createPost');
       });
 
-      expect(() => controller.createPost({ content: 'hello' })).toThrow(
+      expect(() => controller.createPost({ content: 'hello' }, 1)).toThrow(
         NotImplementedException,
       );
       expect(mockPostsUsecase.createPost).toHaveBeenCalledWith({ content: 'hello' });
@@ -81,7 +81,7 @@ describe('PostsController', () => {
         throw new NotImplementedException('PostsUsecase.updatePost');
       });
 
-      expect(() => controller.updatePost('1', { content: 'updated' })).toThrow(
+      expect(() => controller.updatePost('1', { content: 'updated' }, 1)).toThrow(
         NotImplementedException,
       );
       expect(mockPostsUsecase.updatePost).toHaveBeenCalledWith('1', { content: 'updated' });
@@ -94,7 +94,7 @@ describe('PostsController', () => {
         throw new NotImplementedException('PostsUsecase.deletePost');
       });
 
-      expect(() => controller.deletePost('1')).toThrow(NotImplementedException);
+      expect(() => controller.deletePost('1', 1)).toThrow(NotImplementedException);
       expect(mockPostsUsecase.deletePost).toHaveBeenCalledWith('1');
     });
   });
@@ -121,7 +121,7 @@ describe('PostsController', () => {
         throw new NotImplementedException('PostsUsecase.addReaction');
       });
 
-      expect(() => controller.addReaction('1', { type: 'like' as any })).toThrow(
+      expect(() => controller.addReaction('1', { type: 'like' as any }, 1)).toThrow(
         NotImplementedException,
       );
       expect(mockPostsUsecase.addReaction).toHaveBeenCalledWith('1', { type: 'like' });
@@ -134,7 +134,7 @@ describe('PostsController', () => {
         throw new NotImplementedException('PostsUsecase.removeReaction');
       });
 
-      expect(() => controller.removeReaction('1', 'like')).toThrow(
+      expect(() => controller.removeReaction('1', 'like', 1)).toThrow(
         NotImplementedException,
       );
       expect(mockPostsUsecase.removeReaction).toHaveBeenCalledWith('1', 'like');
@@ -161,7 +161,7 @@ describe('PostsController', () => {
         throw new NotImplementedException('PostsUsecase.createReply');
       });
 
-      expect(() => controller.createReply('1', { content: 'reply' })).toThrow(
+      expect(() => controller.createReply('1', { content: 'reply' }, 1)).toThrow(
         NotImplementedException,
       );
       expect(mockPostsUsecase.createReply).toHaveBeenCalledWith('1', { content: 'reply' });
@@ -174,7 +174,7 @@ describe('PostsController', () => {
         throw new NotImplementedException('PostsUsecase.deleteReply');
       });
 
-      expect(() => controller.deleteReply('1', 'r1')).toThrow(NotImplementedException);
+      expect(() => controller.deleteReply('1', 'r1', 1)).toThrow(NotImplementedException);
       expect(mockPostsUsecase.deleteReply).toHaveBeenCalledWith('1', 'r1');
     });
   });

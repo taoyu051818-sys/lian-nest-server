@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { PostsUsecase } from './posts.service';
-import { NodebbPostsProvider, NodebbTopicsProvider, BodyStatus } from '../nodebb';
+import { NodebbPostsProvider, NodebbTopicsProvider, NodebbUsersProvider, BodyStatus } from '../nodebb';
 import { PostReactionType } from './types';
 
 const mockPostsProvider = {
@@ -13,6 +13,10 @@ const mockTopicsProvider = {
   list: jest.fn(),
 };
 
+const mockUsersProvider = {
+  getByUid: jest.fn(),
+};
+
 describe('PostsUsecase.listReactions – edge cases', () => {
   let service: PostsUsecase;
 
@@ -22,6 +26,7 @@ describe('PostsUsecase.listReactions – edge cases', () => {
         PostsUsecase,
         { provide: NodebbPostsProvider, useValue: mockPostsProvider },
         { provide: NodebbTopicsProvider, useValue: mockTopicsProvider },
+        { provide: NodebbUsersProvider, useValue: mockUsersProvider },
       ],
     }).compile();
 

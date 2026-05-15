@@ -6,6 +6,7 @@ import {
 import {
   NodebbPostsProvider,
   NodebbTopicsProvider,
+  NodebbUsersProvider,
   BodyStatus,
 } from '../nodebb';
 import {
@@ -34,6 +35,7 @@ export class PostsUsecase {
   constructor(
     private readonly postsProvider: NodebbPostsProvider,
     private readonly topicsProvider: NodebbTopicsProvider,
+    private readonly usersProvider: NodebbUsersProvider,
   ) {}
 
   // ---- Read ----------------------------------------------------------------
@@ -50,13 +52,37 @@ export class PostsUsecase {
 
     const topics = res.data.topics ?? [];
 
-    const items: PostListItem[] = topics.map((t) => ({
-      id: String(t.mainPid),
-      author: { uid: t.uid, username: '', avatar: null, reputation: 0 },
-      content: t.title,
-      createdAt: new Date(t.timestamp * 1000).toISOString(),
-      replyCount: Math.max(0, (t.postcount ?? 1) - 1),
-    }));
+    // Collect unique UIDs and batch-fetch user data
+    const uniqueUids = [...new Set(topics.map((t) => t.uid))];
+    const userMap = new Map<number, { username: string; reputation: number }>();
+
+    await Promise.all(
+      uniqueUids.map(async (uid) => {
+        const userRes = await this.usersProvider.getByUid(uid);
+        if (userRes.status === BodyStatus.OK && userRes.data) {
+          userMap.set(uid, {
+            username: userRes.data.username,
+            reputation: userRes.data.reputation,
+          });
+        }
+      }),
+    );
+
+    const items: PostListItem[] = topics.map((t) => {
+      const user = userMap.get(t.uid);
+      return {
+        id: String(t.mainPid),
+        author: {
+          uid: t.uid,
+          username: user?.username ?? '',
+          avatar: null,
+          reputation: user?.reputation ?? 0,
+        },
+        content: t.title,
+        createdAt: new Date(t.timestamp * 1000).toISOString(),
+        replyCount: Math.max(0, (t.postcount ?? 1) - 1),
+      };
+    });
 
     return { items, totalCount: items.length, page, perPage };
   }

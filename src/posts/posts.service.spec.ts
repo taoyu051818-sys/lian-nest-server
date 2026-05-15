@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotImplementedException, NotFoundException } from '@nestjs/common';
 import { PostsUsecase } from './posts.service';
-import { NodebbPostsProvider, NodebbTopicsProvider, BodyStatus } from '../nodebb';
+import { NodebbPostsProvider, NodebbTopicsProvider, NodebbUsersProvider, BodyStatus } from '../nodebb';
 import { PostReactionType } from './types';
 
 const mockPostsProvider = {
@@ -14,6 +14,10 @@ const mockTopicsProvider = {
   list: jest.fn(),
 };
 
+const mockUsersProvider = {
+  getByUid: jest.fn(),
+};
+
 describe('PostsUsecase', () => {
   let service: PostsUsecase;
 
@@ -23,6 +27,7 @@ describe('PostsUsecase', () => {
         PostsUsecase,
         { provide: NodebbPostsProvider, useValue: mockPostsProvider },
         { provide: NodebbTopicsProvider, useValue: mockTopicsProvider },
+        { provide: NodebbUsersProvider, useValue: mockUsersProvider },
       ],
     }).compile();
 
@@ -185,6 +190,16 @@ describe('PostsUsecase', () => {
         data: { topics: mockTopics },
         error: null,
       });
+      mockUsersProvider.getByUid.mockImplementation(async (uid: number) => {
+        const users: Record<number, { username: string; reputation: number }> = {
+          5: { username: 'user5', reputation: 100 },
+          6: { username: 'user6', reputation: 50 },
+        };
+        const user = users[uid];
+        return user
+          ? { status: BodyStatus.OK, statusCode: 200, data: user, error: null }
+          : { status: BodyStatus.NOT_FOUND, statusCode: 404, data: null, error: 'not found' };
+      });
 
       const result = await service.listPosts({ page: 1, perPage: 20 });
 
@@ -192,8 +207,10 @@ describe('PostsUsecase', () => {
       expect(result.items[0].id).toBe('10');
       expect(result.items[0].content).toBe('Topic A');
       expect(result.items[0].author.uid).toBe(5);
+      expect(result.items[0].author.username).toBe('user5');
       expect(result.items[0].replyCount).toBe(2);
       expect(result.items[1].id).toBe('20');
+      expect(result.items[1].author.username).toBe('user6');
       expect(result.items[1].replyCount).toBe(0);
       expect(result.totalCount).toBe(2);
       expect(result.page).toBe(1);
@@ -404,6 +421,12 @@ describe('PostsUsecase', () => {
         status: BodyStatus.OK,
         statusCode: 200,
         data: { topics: [mockTopics[0]] },
+        error: null,
+      });
+      mockUsersProvider.getByUid.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { username: 'user5', reputation: 100 },
         error: null,
       });
 

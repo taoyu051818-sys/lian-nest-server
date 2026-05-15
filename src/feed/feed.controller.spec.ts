@@ -54,11 +54,11 @@ describe('FeedController', () => {
 
   describe('getFeed', () => {
     it('should delegate to GetFeedUsecase', async () => {
-      const result = await controller.getFeed({ page: 1, perPage: 20 });
+      const result = await controller.getFeed({ page: 1, perPage: 20 }, 1);
       expect(getFeedUsecase.execute).toHaveBeenCalledWith({
         page: 1,
         perPage: 20,
-        userId: 0,
+        userId: 1,
       });
       expect(result).toEqual(mockFeedResponse);
     });
@@ -66,10 +66,10 @@ describe('FeedController', () => {
 
   describe('getFeedItem', () => {
     it('should delegate to GetFeedItemUsecase', async () => {
-      const result = await controller.getFeedItem('item-1');
+      const result = await controller.getFeedItem('item-1', 1);
       expect(getFeedItemUsecase.execute).toHaveBeenCalledWith({
         feedItemId: 'item-1',
-        userId: 0,
+        userId: 1,
       });
       expect(result).toEqual(mockFeedItem);
     });

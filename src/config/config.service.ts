@@ -67,4 +67,20 @@ export class ConfigService {
       sessionCookie: this.env.NODEBB_SESSION_COOKIE,
     };
   }
+
+  get jwtSecret(): string {
+    return this.env.JWT_SECRET;
+  }
+
+  get jwtExpiresIn(): string {
+    return this.env.JWT_EXPIRES_IN;
+  }
+
+  get refreshTokenTtl(): string {
+    return this.env.REFRESH_TOKEN_TTL;
+  }
+
+  get bcryptRounds(): number {
+    return this.env.BCRYPT_ROUNDS;
+  }
 }

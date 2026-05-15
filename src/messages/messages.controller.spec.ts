@@ -3,9 +3,9 @@ import { MessagesController } from './controllers/messages.controller';
 import { NotificationsController } from './controllers/notifications.controller';
 import { MessagesUseCase } from './usecases/messages.usecase';
 import { NotificationsUseCase } from './usecases/notifications.usecase';
-import { NodebbNotificationsProvider } from '../nodebb';
+import { NodebbNotificationsProvider, NodebbChatsProvider } from '../nodebb';
 import { BodyStatus } from '../nodebb';
-import { BadRequestException, NotFoundException, NotImplementedException, ExecutionContext } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth';
 
 describe('MessagesModule', () => {
@@ -21,9 +21,21 @@ describe('MessagesModule', () => {
     markRead: jest.fn(),
   };
 
+  const chatsProviderMock = {
+    listRooms: jest.fn(),
+    getMessages: jest.fn(),
+    send: jest.fn(),
+    createRoom: jest.fn(),
+    markRead: jest.fn(),
+  };
+
   beforeEach(async () => {
     providerMock.list.mockReset();
     providerMock.markRead.mockReset();
+    chatsProviderMock.listRooms.mockReset();
+    chatsProviderMock.send.mockReset();
+    chatsProviderMock.createRoom.mockReset();
+    chatsProviderMock.markRead.mockReset();
 
     module = await Test.createTestingModule({
       controllers: [MessagesController, NotificationsController],
@@ -31,6 +43,7 @@ describe('MessagesModule', () => {
         MessagesUseCase,
         NotificationsUseCase,
         { provide: NodebbNotificationsProvider, useValue: providerMock },
+        { provide: NodebbChatsProvider, useValue: chatsProviderMock },
       ],
     })
       .overrideGuard(JwtAuthGuard)
@@ -59,13 +72,82 @@ describe('MessagesModule', () => {
   });
 
   describe('MessagesController', () => {
-    it('should throw NotImplementedException for sendMessage', async () => {
-      await expect(
-        messagesController.sendMessage({ toUid: 1, content: 'test' }, 1),
-      ).rejects.toThrow(NotImplementedException);
+    it('should send message via provider and return MessageResponseDto', async () => {
+      chatsProviderMock.createRoom.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { roomId: 100, uids: [1, 2], owner: 1 },
+        error: null,
+      });
+
+      const result = await messagesController.sendMessage({ toUid: 2, content: 'test' }, 1);
+
+      expect(result.fromUid).toBe(1);
+      expect(result.toUid).toBe(2);
+      expect(result.content).toBe('test');
+      expect(result.messageId).toBe('100');
+      expect(result.read).toBe(false);
     });
 
-    it('should return empty paginated list for listMessages with defaults', async () => {
+    it('should create room when no roomId provided', async () => {
+      chatsProviderMock.createRoom.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { roomId: 10, uids: [1, 2], owner: 1 },
+        error: null,
+      });
+
+      const result = await messagesController.sendMessage({ toUid: 2, content: 'hello' }, 1);
+
+      expect(result.fromUid).toBe(1);
+      expect(result.toUid).toBe(2);
+      expect(result.content).toBe('hello');
+      expect(chatsProviderMock.createRoom).toHaveBeenCalled();
+    });
+
+    it('should return mapped messages from chat rooms', async () => {
+      chatsProviderMock.listRooms.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [
+          { roomId: 1, uids: [1, 2], owner: 1, lastMessage: { content: 'hi', timestamp: 1700000000, fromUid: 2 }, unread: 1 },
+        ],
+        error: null,
+      });
+
+      const result = await messagesController.listMessages(1);
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].content).toBe('hi');
+      expect(result.messages[0].read).toBe(false);
+      expect(result.totalCount).toBe(1);
+    });
+
+    it('should return empty list when provider returns empty rooms', async () => {
+      chatsProviderMock.listRooms.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
+      const result = await messagesController.listMessages(1);
+      expect(result).toEqual({
+        messages: [],
+        totalCount: 0,
+        page: 1,
+        perPage: 20,
+      });
+    });
+
+    it('should return empty list when provider returns error', async () => {
+      chatsProviderMock.listRooms.mockResolvedValue({
+        status: BodyStatus.ERROR,
+        statusCode: 500,
+        data: null,
+        error: 'NodeBB unreachable',
+      });
+
       const result = await messagesController.listMessages(1);
       expect(result).toEqual({
         messages: [],
@@ -76,6 +158,13 @@ describe('MessagesModule', () => {
     });
 
     it('should parse and forward pagination params', async () => {
+      chatsProviderMock.listRooms.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
       const result = await messagesController.listMessages(1, '2', '10');
       expect(result).toEqual({
         messages: [],
@@ -85,10 +174,16 @@ describe('MessagesModule', () => {
       });
     });
 
-    it('should throw NotImplementedException for markRead', async () => {
-      await expect(messagesController.markRead(1, '1')).rejects.toThrow(
-        NotImplementedException,
-      );
+    it('should delegate markRead to provider', async () => {
+      chatsProviderMock.markRead.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: null,
+        error: null,
+      });
+
+      await expect(messagesController.markRead(1, '5')).resolves.toBeUndefined();
+      expect(chatsProviderMock.markRead).toHaveBeenCalledWith(5);
     });
 
     it('should throw BadRequestException for non-numeric messageId', async () => {
@@ -122,6 +217,13 @@ describe('MessagesModule', () => {
     });
 
     it('should return empty list matching message-list-empty parity contract', async () => {
+      chatsProviderMock.listRooms.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
       const result = await messagesController.listMessages(1);
       // Regression: parity fixture message-list-empty.json
       expect(Object.keys(result).sort()).toEqual(['messages', 'page', 'perPage', 'totalCount']);
@@ -132,6 +234,13 @@ describe('MessagesModule', () => {
     });
 
     it('should return stable pagination defaults across calls', async () => {
+      chatsProviderMock.listRooms.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
       const first = await messagesController.listMessages(1);
       const second = await messagesController.listMessages(999);
       expect(first.page).toBe(second.page);
@@ -139,6 +248,13 @@ describe('MessagesModule', () => {
     });
 
     it('should parse page and perPage as integers from string query params', async () => {
+      chatsProviderMock.listRooms.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
       const result = await messagesController.listMessages(1, '3', '15');
       expect(typeof result.page).toBe('number');
       expect(typeof result.perPage).toBe('number');
@@ -284,13 +400,60 @@ describe('MessagesModule', () => {
   });
 
   describe('MessagesUseCase', () => {
-    it('should throw NotImplementedException for sendMessage', async () => {
-      await expect(
-        messagesUseCase.sendMessage(1, { toUid: 2, content: 'test' }),
-      ).rejects.toThrow(NotImplementedException);
+    it('should send message via provider', async () => {
+      chatsProviderMock.send.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { messageId: 50, roomId: 5, fromUid: 1, content: 'test', timestamp: 1700000000 },
+        error: null,
+      });
+
+      const result = await messagesUseCase.sendMessage(1, { toUid: 2, content: 'test', roomId: 5 });
+      expect(result.fromUid).toBe(1);
+      expect(result.toUid).toBe(2);
+      expect(result.content).toBe('test');
+      expect(result.read).toBe(false);
     });
 
-    it('should return empty list with default pagination', async () => {
+    it('should create room when no roomId provided', async () => {
+      chatsProviderMock.createRoom.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { roomId: 20, uids: [1, 2], owner: 1 },
+        error: null,
+      });
+
+      const result = await messagesUseCase.sendMessage(1, { toUid: 2, content: 'hello' });
+      expect(result.fromUid).toBe(1);
+      expect(result.toUid).toBe(2);
+      expect(chatsProviderMock.createRoom).toHaveBeenCalled();
+    });
+
+    it('should return mapped messages from chat rooms', async () => {
+      chatsProviderMock.listRooms.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [
+          { roomId: 1, uids: [1, 2], owner: 1, lastMessage: { content: 'hi', timestamp: 1700000000, fromUid: 2 }, unread: 0 },
+        ],
+        error: null,
+      });
+
+      const result = await messagesUseCase.listMessages(1);
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].content).toBe('hi');
+      expect(result.messages[0].read).toBe(true);
+      expect(result.totalCount).toBe(1);
+    });
+
+    it('should return empty list when provider returns empty rooms', async () => {
+      chatsProviderMock.listRooms.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
       const result = await messagesUseCase.listMessages(1);
       expect(result).toEqual({
         messages: [],
@@ -301,6 +464,13 @@ describe('MessagesModule', () => {
     });
 
     it('should forward custom pagination values', async () => {
+      chatsProviderMock.listRooms.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
       const result = await messagesUseCase.listMessages(1, 3, 15);
       expect(result).toEqual({
         messages: [],
@@ -311,8 +481,14 @@ describe('MessagesModule', () => {
     });
 
     it('should return response matching parity schema shape', async () => {
+      chatsProviderMock.listRooms.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
       const result = await messagesUseCase.listMessages(1);
-      // Parity contract: required keys present, correct types
       expect(Array.isArray(result.messages)).toBe(true);
       expect(typeof result.totalCount).toBe('number');
       expect(typeof result.page).toBe('number');
@@ -323,19 +499,38 @@ describe('MessagesModule', () => {
       expect(result.perPage).toBeLessThanOrEqual(50);
     });
 
-    it('should throw NotImplementedException for markRead', async () => {
-      await expect(messagesUseCase.markRead(1, 1)).rejects.toThrow(
-        NotImplementedException,
-      );
+    it('should delegate markRead to provider', async () => {
+      chatsProviderMock.markRead.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: null,
+        error: null,
+      });
+
+      await expect(messagesUseCase.markRead(1, 5)).resolves.toBeUndefined();
+      expect(chatsProviderMock.markRead).toHaveBeenCalledWith(5);
     });
 
     it('should return response with exactly four keys matching parity contract', async () => {
+      chatsProviderMock.listRooms.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
       const result = await messagesUseCase.listMessages(1);
-      // Regression: parity fixture message-list-empty.json key set
       expect(Object.keys(result).sort()).toEqual(['messages', 'page', 'perPage', 'totalCount']);
     });
 
     it('should return stable pagination defaults on repeated calls', async () => {
+      chatsProviderMock.listRooms.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
       const first = await messagesUseCase.listMessages(1);
       const second = await messagesUseCase.listMessages(2);
       expect(first.page).toBe(second.page);
@@ -345,6 +540,13 @@ describe('MessagesModule', () => {
     });
 
     it('should return non-negative totalCount and positive page/perPage for defaults', async () => {
+      chatsProviderMock.listRooms.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: [],
+        error: null,
+      });
+
       const result = await messagesUseCase.listMessages(1);
       expect(result.totalCount).toBeGreaterThanOrEqual(0);
       expect(result.page).toBeGreaterThanOrEqual(1);
@@ -352,20 +554,29 @@ describe('MessagesModule', () => {
       expect(result.perPage).toBeLessThanOrEqual(50);
     });
 
-    it('should throw stable NotImplementedException for sendMessage across calls (message-send parity)', async () => {
-      // Regression: parity fixture message-send.json — stub must be deterministic
+    it('should send message via provider across calls (message-send parity)', async () => {
+      chatsProviderMock.send.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: { messageId: 1, roomId: 1, fromUid: 1, content: 'a', timestamp: 1700000000 },
+        error: null,
+      });
+
       await expect(
-        messagesUseCase.sendMessage(1, { toUid: 2, content: 'a' }),
-      ).rejects.toThrow(NotImplementedException);
-      await expect(
-        messagesUseCase.sendMessage(99, { toUid: 1, content: 'b' }),
-      ).rejects.toThrow(NotImplementedException);
+        messagesUseCase.sendMessage(1, { toUid: 2, content: 'a', roomId: 1 }),
+      ).resolves.toBeDefined();
     });
 
-    it('should throw stable NotImplementedException for markRead across calls (message-mark-read parity)', async () => {
-      // Regression: parity fixture message-mark-read.json — stub must be deterministic
-      await expect(messagesUseCase.markRead(1, 1)).rejects.toThrow(NotImplementedException);
-      await expect(messagesUseCase.markRead(99, 999)).rejects.toThrow(NotImplementedException);
+    it('should delegate markRead to provider across calls (message-mark-read parity)', async () => {
+      chatsProviderMock.markRead.mockResolvedValue({
+        status: BodyStatus.OK,
+        statusCode: 200,
+        data: null,
+        error: null,
+      });
+
+      await expect(messagesUseCase.markRead(1, 1)).resolves.toBeUndefined();
+      await expect(messagesUseCase.markRead(99, 999)).resolves.toBeUndefined();
     });
   });
 

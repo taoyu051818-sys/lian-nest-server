@@ -9,6 +9,7 @@ import { ConfigService } from './config.service';
 function validateEnv(overlay: Record<string, string | undefined>) {
   const base: Record<string, string> = {
     DATABASE_URL: 'postgresql://localhost:5432/test',
+    JWT_SECRET: 'test-secret-key-for-unit-tests-only-32chars!',
   };
   const merged = { ...base, ...overlay };
   // Remove keys explicitly set to undefined so Joi treats them as absent

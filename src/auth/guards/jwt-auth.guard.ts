@@ -4,47 +4,39 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import type { Request } from 'express';
-
-export interface JwtPayload {
-  sub: number;
-  [key: string]: unknown;
-}
+import { AuthGuard } from '@nestjs/passport';
+import { Reflector } from '@nestjs/core';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import type { JwtPayload } from '../strategies/jwt.strategy';
 
 @Injectable()
-export class JwtAuthGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean {
-    const request = context.switchToHttp().getRequest<Request>();
-    const authHeader = request.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Missing or invalid Authorization header');
-    }
-
-    const token = authHeader.slice(7);
-    const payload = this.decodePayload(token);
-
-    if (!payload || typeof payload.sub !== 'number' || payload.sub <= 0) {
-      throw new UnauthorizedException('Invalid token payload');
-    }
-
-    (request as Request & { user: JwtPayload }).user = payload;
-    return true;
+export class JwtAuthGuard extends AuthGuard('jwt') implements CanActivate {
+  constructor(private readonly reflector: Reflector) {
+    super();
   }
 
-  private decodePayload(token: string): JwtPayload | null {
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      return null;
+  canActivate(context: ExecutionContext) {
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    if (isPublic) {
+      return true;
     }
 
-    try {
-      const decoded = JSON.parse(
-        Buffer.from(parts[1], 'base64url').toString('utf-8'),
-      );
-      return decoded as JwtPayload;
-    } catch {
-      return null;
+    return super.canActivate(context);
+  }
+
+  handleRequest<TUser = JwtPayload>(
+    err: Error | null,
+    user: TUser | null,
+  ): TUser {
+    if (err || !user) {
+      throw err || new UnauthorizedException('Authentication required');
     }
+    return user;
   }
 }
+
+export type { JwtPayload };
