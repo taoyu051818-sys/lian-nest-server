@@ -15,6 +15,14 @@ specs, builds CONTROL APPENDIX bodies, and scores each proposal on
 completeness. The action never creates GitHub issues — use
 `create-issues` for that.
 
+**Agent-first principle:** The first decision surface must be an
+agent-facing state projection, not a tool handler. This action is an
+adapter behind the agent-facing issue producer scripts
+(`propose-self-cycle-issues.js`, `propose-external-intake-issues.js`,
+`reduce-gaps-to-issues.js`) which share common pipeline logic via
+`scripts/ai/lib/issue-production-utils.js`. WebUI/tool execution
+remains an adapter behind agent-facing issue proposals.
+
 ```
   Command Steward
        │
