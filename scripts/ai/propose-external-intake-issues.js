@@ -19,8 +19,15 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { execSync } = require('child_process');
 const { REPO_ROOT } = require('./lib');
+const {
+  readJsonFile,
+  readNdjsonFile,
+  titleOverlap,
+  fetchOpenIssues,
+  fetchOpenPRs,
+  createGitHubIssue,
+} = require('./lib/issue-production-utils');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -43,23 +50,6 @@ const FORBIDDEN_SCOPES = [
   'package-lock.json',
   '.github/ai-policy/seed-constitution.md',
 ];
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function readJsonFile(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return null;
-  try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch { return null; }
-}
-
-function readNdjsonFile(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  try {
-    return fs.readFileSync(filePath, 'utf8').split('\n').filter(l => l.trim())
-      .map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-  } catch { return []; }
-}
-
-function generateEventId() { return crypto.randomUUID(); }
 
 function printHelp() {
   const help = `
@@ -113,48 +103,7 @@ function parseArgs(argv) {
   return args;
 }
 
-// ── GitHub CLI ───────────────────────────────────────────────────────────────
-
-function fetchOpenIssues(repo) {
-  const repoFlag = repo ? `--repo ${repo}` : '';
-  const cmd = `gh issue list --state open --limit 200 ${repoFlag} --json number,title,body,labels`;
-  try { return JSON.parse(execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] })); }
-  catch { return []; }
-}
-
-function fetchOpenPRs(repo) {
-  const repoFlag = repo ? `--repo ${repo}` : '';
-  const cmd = `gh pr list --state open --limit 200 ${repoFlag} --json number,title,body`;
-  try { return JSON.parse(execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] })); }
-  catch { return []; }
-}
-
-function createGitHubIssue(repo, title, body, label) {
-  const repoFlag = repo ? `--repo ${repo}` : '';
-  const cmd = `gh issue create ${repoFlag} --title "${title.replace(/"/g, '\\"')}" --label "${label}" --body-file -`;
-  try {
-    const result = execSync(cmd, { encoding: 'utf-8', input: body, stdio: ['pipe', 'pipe', 'pipe'] });
-    return { url: result.trim(), error: null };
-  } catch (err) { return { url: null, error: err.message }; }
-}
-
 // ── Deduplication ────────────────────────────────────────────────────────────
-
-const STOP_WORDS = new Set(['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'is', 'it', 'that', 'this', 'be', 'do', 'add', 'improve', 'update', 'fix', 'create', 'seed', 'implement']);
-
-function extractKeywords(title) {
-  return title.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
-    .filter(w => w.length > 2 && !STOP_WORDS.has(w));
-}
-
-function titleOverlap(a, b) {
-  const kwA = new Set(extractKeywords(a));
-  const kwB = new Set(extractKeywords(b));
-  if (kwA.size === 0 || kwB.size === 0) return 0;
-  let overlap = 0;
-  for (const w of kwA) { if (kwB.has(w)) overlap++; }
-  return overlap / Math.max(kwA.size, kwB.size);
-}
 
 function isDuplicate(title, existingIssues, existingPRs) {
   for (const issue of existingIssues) {
@@ -260,7 +209,7 @@ function writeAuditEvent(stateDir, eventType, detail) {
   const event = {
     eventVersion: 1,
     eventType,
-    eventId: generateEventId(),
+    eventId: crypto.randomUUID(),
     capturedAt: new Date().toISOString(),
     ...detail,
   };
