@@ -16,7 +16,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { REPO_ROOT } = require('./lib');
+const { REPO_ROOT, controlPlane } = require('./lib');
 
 const STATE_DIR = process.env.COMMAND_STEWARD_STATE_DIR || path.join(REPO_ROOT, '.github', 'ai-state');
 const DEFAULT_OUT = path.join(STATE_DIR, 'command-steward-autonomy-readiness.json');
@@ -203,9 +203,35 @@ function collectBlockers(duties, health, taskBoard, skills) {
   return blockers;
 }
 
+// ── Governance ───────────────────────────────────────────────────────────────
+
+function buildGovernance(report) {
+  const facts = [];
+  const recommendations = [];
+  const humanRequired = [];
+
+  if (report.health.loaded) {
+    facts.push({ source: 'health', label: 'Main branch health', value: report.health.state });
+  }
+  for (const duty of report.codexDuties.duties) {
+    facts.push({ source: 'codex-duty', label: `[${duty.id}] ${duty.name}`, value: duty.status });
+    if (duty.blocking && duty.status !== 'met') {
+      humanRequired.push({ type: 'duty', id: duty.id, message: duty.name, evidence: duty.evidence });
+    }
+  }
+
+  for (const blocker of report.blockers) {
+    if (blocker.severity === 'critical' || blocker.severity === 'high') {
+      recommendations.push({ source: blocker.source, message: blocker.message, severity: blocker.severity });
+    }
+  }
+
+  return { facts, recommendations, humanRequired };
+}
+
 // ── Build report ─────────────────────────────────────────────────────────────
 
-function buildReport(inputs) {
+function buildReport(inputs, snapshotInputSources) {
   const health = buildHealthSection(inputs.health);
   const codexDuties = evaluateCodexDuties(inputs);
   const taskBoard = buildTaskBoardSection(inputs);
@@ -218,12 +244,17 @@ function buildReport(inputs) {
   const verdict = metBlocking === blockingDuties.length && highBlockers === 0 ? 'ready'
     : metBlocking > 0 ? 'partial' : 'not_ready';
 
-  const inputSources = {};
-  for (const key of Object.keys(INPUT_FILES)) inputSources[`${key}Loaded`] = inputs[key] !== null;
+  const inputSources = snapshotInputSources ? { ...snapshotInputSources } : {};
+  if (!snapshotInputSources) {
+    for (const key of Object.keys(INPUT_FILES)) inputSources[`${key}Loaded`] = inputs[key] !== null;
+  }
 
-  return { schemaVersion: SCHEMA_VERSION, capturedAt: new Date().toISOString(), verdict,
+  const report = { schemaVersion: SCHEMA_VERSION, capturedAt: new Date().toISOString(), verdict,
     codexDuties: { totalBlocking: blockingDuties.length, metBlocking, duties: codexDuties },
-    health, taskBoard, controlSkills, blockers, inputSources };
+    health, taskBoard, controlSkills, blockers, inputSources,
+    governance: { facts: [], recommendations: [], humanRequired: [] } };
+  report.governance = buildGovernance(report);
+  return report;
 }
 
 // ── Self-test ────────────────────────────────────────────────────────────────
@@ -273,8 +304,16 @@ function runSelfTest() {
   const red = buildReport(redInputs);
   assert(red.blockers.some(b => b.source === 'health' && b.severity === 'high'), 'red health blocker');
 
-  const expectedKeys = ['schemaVersion', 'capturedAt', 'verdict', 'codexDuties', 'health', 'taskBoard', 'controlSkills', 'blockers', 'inputSources'];
+  const expectedKeys = ['schemaVersion', 'capturedAt', 'verdict', 'codexDuties', 'health', 'taskBoard', 'controlSkills', 'blockers', 'inputSources', 'governance'];
   for (const k of expectedKeys) assert(k in full, `key ${k} present`);
+
+  // Test: governance section shape
+  assert(typeof full.governance === 'object', 'governance is object');
+  assert(Array.isArray(full.governance.facts), 'governance.facts is array');
+  assert(Array.isArray(full.governance.recommendations), 'governance.recommendations is array');
+  assert(Array.isArray(full.governance.humanRequired), 'governance.humanRequired is array');
+  assert(full.governance.facts.length > 0, 'governance has facts');
+  assert(full.governance.humanRequired.some(h => h.type === 'duty'), 'governance has duty humanRequired');
 
   console.log(`\n  emit-command-steward-autonomy-readiness self-test`);
   console.log(`  ${passed}/${passed + failed} passed`);
@@ -289,9 +328,16 @@ function main() {
   if (args.help) { printHelp(); process.exit(0); }
   if (args.selfTest) { runSelfTest(); return; }
 
-  const inputs = {};
-  for (const [k, f] of Object.entries(INPUT_FILES)) inputs[k] = readJsonFile(path.join(STATE_DIR, f));
-  const report = buildReport(inputs);
+  // Load shared control-plane snapshot
+  const stateDir = process.env.COMMAND_STEWARD_STATE_DIR || path.join(REPO_ROOT, '.github', 'ai-state');
+  const { inputs, inputSources: snapshotInputSources } = controlPlane.loadControlPlaneInputs({ stateDir });
+  // Supplement with inputs not in the shared snapshot
+  inputs.queue = readJsonFile(path.join(stateDir, 'queue-state.json'));
+  inputs.legacyRetirement = readJsonFile(path.join(stateDir, 'legacy-orchestration-retirement.json'));
+  snapshotInputSources.queueLoaded = inputs.queue !== null;
+  snapshotInputSources.legacyRetirementLoaded = inputs.legacyRetirement !== null;
+
+  const report = buildReport(inputs, snapshotInputSources);
   const json = JSON.stringify(report, null, 2) + '\n';
 
   if (args.stdout) { process.stdout.write(json); return; }

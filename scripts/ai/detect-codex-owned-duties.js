@@ -43,7 +43,7 @@ const { execFileSync } = require('child_process');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const { REPO_ROOT } = require('./lib');
+const { REPO_ROOT, controlPlane } = require('./lib');
 const STATE_DIR = path.join(REPO_ROOT, '.github', 'ai-state');
 const DEFAULT_OUT = path.join(STATE_DIR, 'codex-owned-duties.json');
 const SCHEMA_VERSION = 1;
@@ -376,14 +376,42 @@ function detectRecoveryDispatchManual() {
   };
 }
 
+// ── Governance ───────────────────────────────────────────────────────────────
+
+function buildGovernance(output) {
+  const facts = [];
+  const recommendations = [];
+  const humanRequired = [];
+
+  for (const duty of output.duties) {
+    facts.push({ source: 'duty', label: duty.type, value: duty.type === 'health-gate-manual' || duty.type === 'recovery-dispatch-manual' ? (duty.wired === false ? 'manual' : 'auto') : 'pending' });
+    if (duty.type === 'merge-pending' || duty.type === 'launch-pending' || duty.type === 'issue-close-pending') {
+      humanRequired.push({ type: duty.type, number: duty.number || duty.issueNumber, title: duty.title });
+    }
+  }
+
+  const manualDuties = output.duties.filter(d => d.type === 'health-gate-manual' || d.type === 'recovery-dispatch-manual');
+  for (const d of manualDuties) {
+    if (d.wired === false) {
+      recommendations.push({ source: d.type, message: d.reason, severity: 'medium' });
+    }
+  }
+
+  return { facts, recommendations, humanRequired };
+}
+
 // ── Build output ─────────────────────────────────────────────────────────────
 
-function buildOutput(issues, openPRs, mergedPRs) {
+function buildOutput(issues, openPRs, mergedPRs, snapshotInputs) {
   const mergePending = detectMergePending(openPRs);
   const launchPending = detectLaunchPending(issues, openPRs);
   const issueClosePending = detectIssueClosePending(issues, mergedPRs);
-  const healthGateManual = detectHealthGateManual();
-  const recoveryDispatchManual = detectRecoveryDispatchManual();
+  const healthGateManual = snapshotInputs && snapshotInputs.health
+    ? { wired: false, reason: 'Post-merge health gate auto-trigger requires CI wiring (codex-retirement-runbook gate-3.3)', lastHealthState: snapshotInputs.health.state || null, lastCapturedAt: snapshotInputs.health.capturedAt || null }
+    : detectHealthGateManual();
+  const recoveryDispatchManual = snapshotInputs && snapshotInputs.workerTrust
+    ? { wired: false, reason: 'Recovery auto-dispatch on red requires wiring (codex-retirement-runbook gate-4.3)', recoveryWorkerDefined: !!(snapshotInputs.workerTrust.workerClasses && snapshotInputs.workerTrust.workerClasses['foundation-fix']) }
+    : detectRecoveryDispatchManual();
 
   const duties = [];
 
@@ -423,7 +451,7 @@ function buildOutput(issues, openPRs, mergedPRs) {
     byType[dt] = duties.filter(d => d.type === dt).length;
   }
 
-  return {
+  const result = {
     schemaVersion: SCHEMA_VERSION,
     capturedAt: new Date().toISOString(),
     summary: {
@@ -438,6 +466,8 @@ function buildOutput(issues, openPRs, mergedPRs) {
       aiStateDirExists: fs.existsSync(STATE_DIR),
     },
   };
+  result.governance = buildGovernance(result);
+  return result;
 }
 
 // ── Self-test ────────────────────────────────────────────────────────────────
@@ -578,6 +608,14 @@ function runSelfTest() {
   assert(typeof output.inputSources.mergedPRsLoaded === 'boolean', 'mergedPRsLoaded is boolean');
   assert(typeof output.inputSources.aiStateDirExists === 'boolean', 'aiStateDirExists is boolean');
 
+  // Test: governance section shape
+  assert(typeof output.governance === 'object', 'governance is object');
+  assert(Array.isArray(output.governance.facts), 'governance.facts is array');
+  assert(Array.isArray(output.governance.recommendations), 'governance.recommendations is array');
+  assert(Array.isArray(output.governance.humanRequired), 'governance.humanRequired is array');
+  assert(output.governance.facts.length > 0, 'governance has facts');
+  assert(output.governance.humanRequired.length === 0, 'empty inputs has no humanRequired');
+
   // Report
   console.log(`\n  detect-codex-owned-duties self-test`);
   console.log(`  ${passed}/${passed + failed} passed`);
@@ -625,7 +663,10 @@ function main() {
     mergedPRs = fetchMergedPRs(repo);
   }
 
-  const output = buildOutput(issues, openPRs, mergedPRs);
+  // Load shared control-plane snapshot for ai-state inputs
+  const { inputs: snapshotInputs } = controlPlane.loadControlPlaneInputs({ stateDir: STATE_DIR });
+
+  const output = buildOutput(issues, openPRs, mergedPRs, snapshotInputs);
   const json = JSON.stringify(output, null, 2) + '\n';
 
   if (args.stdout) {
@@ -655,6 +696,7 @@ module.exports = {
   detectHealthGateManual,
   detectRecoveryDispatchManual,
   buildOutput,
+  buildGovernance,
   DUTY_TYPES,
   SCHEMA_VERSION,
 };

@@ -41,6 +41,10 @@ Is the issue pool large enough for the requested worker wave?
 
 - `scripts/ai/emit-command-steward-brief.js`
 - `scripts/ai/emit-control-plane-dashboard-state.js`
+- `scripts/ai/emit-command-steward-status-bundle.js`
+- `scripts/ai/emit-command-steward-autonomy-readiness.js`
+- `scripts/ai/emit-codex-exit-readiness.js`
+- `scripts/ai/detect-codex-owned-duties.js`
 
 ## Intended Consumers
 

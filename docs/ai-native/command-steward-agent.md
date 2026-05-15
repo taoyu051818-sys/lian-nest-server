@@ -143,13 +143,13 @@ action and explains why.
 
 | Step | Action |
 |------|--------|
-| 1 | Read main health state |
+| 1 | Load shared control-plane snapshot |
 | 2 | Count active workers and their status |
 | 3 | Summarize merge queue depth (pending, processed, failed) |
 | 4 | List stale worktrees (>2h without progress) |
 | 5 | Count open issues by label and priority |
 | 6 | Report any red/black health or blocked gates |
-| 7 | Present summary to human — **read-only, no mutations** |
+| 7 | Present summary to human with governance separation (facts / recommendations / human-required) — **read-only, no mutations** |
 
 The daily brief is always read-only. It produces no side effects and
 requires no confirmation.

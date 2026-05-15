@@ -51,6 +51,7 @@ produces mutations or requires confirmation.
 | 14 | Queue (WebUI) | object | `GET /api/queue` | API | Pending count, blocked-by-exhaustion, blocked-by-conflict |
 | 15 | Trust Score (WebUI) | number 0–100 | `GET /api/state` → `actionReadiness` | API | Current trust level for action gating |
 | 16 | Pressure (WebUI) | `normal \| elevated \| critical` | `GET /api/state` → computed | API | Utilization level derived from provider/worker load |
+| 17 | Governance | object | Computed from brief fields | Computed | Facts, recommendations, and human-required items separated for agent consumption |
 
 ---
 
