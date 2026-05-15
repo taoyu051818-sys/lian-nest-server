@@ -83,14 +83,14 @@ describe('FeedController edge regression', () => {
       getFeedItemUsecase.execute.mockRejectedValueOnce(
         new NotFoundException(`Invalid feed item ID: ${feedItemId}`),
       );
-      expect(controller.getFeedItem(feedItemId)).rejects.toThrow(NotFoundException);
+      expect(controller.getFeedItem(feedItemId, 1)).rejects.toThrow(NotFoundException);
     });
 
     it('propagates NotFoundException from usecase for non-existent t-prefixed ID', async () => {
       getFeedItemUsecase.execute.mockRejectedValueOnce(
         new NotFoundException('Feed item t999999 not found'),
       );
-      await expect(controller.getFeedItem('t999999')).rejects.toThrow(NotFoundException);
+      await expect(controller.getFeedItem('t999999', 1)).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -100,16 +100,16 @@ describe('FeedController edge regression', () => {
       .map((c: EdgeCaseFixture) => [c.id, c.request.query, c.description] as const);
 
     it.each(coercionCases)('%s: query=%j succeeds', async (_id, query, _desc) => {
-      const result = await controller.getFeed(query as unknown as FeedQueryDto);
+      const result = await controller.getFeed(query as unknown as FeedQueryDto, 1);
       expect(result).toBeDefined();
       expect(result.page).toBeDefined();
       expect(result.perPage).toBeDefined();
     });
 
     it('defaults page to 1 when query is empty', async () => {
-      const result = await controller.getFeed({} as FeedQueryDto);
+      const result = await controller.getFeed({} as FeedQueryDto, 1);
       expect(getFeedUsecase.execute).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: 0 }),
+        expect.objectContaining({ userId: 1 }),
       );
       expect(result).toEqual(mockFeedResponse);
     });

@@ -10,6 +10,7 @@ import { NodebbNotificationsProvider } from './providers/nodebb-notifications.pr
 import { NodebbTagsProvider } from './providers/nodebb-tags.provider';
 import { NodebbCategoriesProvider } from './providers/nodebb-categories.provider';
 import { NodebbSearchProvider } from './providers/nodebb-search.provider';
+import { NodebbChatsProvider } from './providers/nodebb-chats.provider';
 
 interface NodebbModuleAsyncOptions {
   useFactory: (...args: unknown[]) => NodebbModuleConfig;
@@ -177,6 +178,7 @@ export class NodebbModule {
         NodebbTagsProvider,
         NodebbCategoriesProvider,
         NodebbSearchProvider,
+        NodebbChatsProvider,
       ],
       exports: [
         NODEBB_CLIENT,
@@ -187,6 +189,7 @@ export class NodebbModule {
         NodebbTagsProvider,
         NodebbCategoriesProvider,
         NodebbSearchProvider,
+        NodebbChatsProvider,
       ],
     };
   }
@@ -212,6 +215,7 @@ export class NodebbModule {
         NodebbTagsProvider,
         NodebbCategoriesProvider,
         NodebbSearchProvider,
+        NodebbChatsProvider,
       ],
       exports: [
         NODEBB_CLIENT,
@@ -222,6 +226,7 @@ export class NodebbModule {
         NodebbTagsProvider,
         NodebbCategoriesProvider,
         NodebbSearchProvider,
+        NodebbChatsProvider,
       ],
     };
   }

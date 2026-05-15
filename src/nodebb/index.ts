@@ -45,3 +45,4 @@ export { NodebbNotificationsProvider } from './providers/nodebb-notifications.pr
 export { NodebbTagsProvider } from './providers/nodebb-tags.provider';
 export { NodebbCategoriesProvider } from './providers/nodebb-categories.provider';
 export { NodebbSearchProvider } from './providers/nodebb-search.provider';
+export { NodebbChatsProvider } from './providers/nodebb-chats.provider';
