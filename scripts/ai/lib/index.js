@@ -4,6 +4,7 @@ const { REPO_ROOT } = require('./constants');
 const { clamp } = require('./math-utils');
 const { sanitize, sanitizeFacts } = require('./sanitize');
 const { readJson, readNdjson, appendNdjson } = require('./fs-utils');
+const controlPlane = require('./control-plane/snapshot');
 
 module.exports = {
   REPO_ROOT,
@@ -13,4 +14,5 @@ module.exports = {
   readJson,
   readNdjson,
   appendNdjson,
+  controlPlane,
 };

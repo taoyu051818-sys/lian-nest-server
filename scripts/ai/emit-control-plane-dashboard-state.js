@@ -36,7 +36,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { REPO_ROOT } = require('./lib');
+const { REPO_ROOT, readJson } = require('./lib');
+const {
+  CONTROL_PLANE_INPUT_FILES,
+  loadControlPlaneSnapshot,
+} = require('./lib/control-plane/snapshot');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -46,25 +50,14 @@ const DEFAULT_OUT = path.join(STATE_DIR, 'dashboard-state.json');
 const SCHEMA_VERSION = 2;
 
 const INPUT_FILES = {
-  health:        'main-health.json',
-  providerPool:  'provider-pool.json',
-  resources:     'local-resource.json',
-  activeWorkers: 'active-workers.json',
-  workerTrust:   'worker-trust.json',
-  metaSignals:   'meta-signals.json',
-  queue:         'queue-state.json',
+  ...CONTROL_PLANE_INPUT_FILES,
+  queue: 'queue-state.json',
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function readJsonFile(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return null;
-  try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(content);
-  } catch {
-    return null;
-  }
+  return readJson(filePath);
 }
 
 function printHelp() {
@@ -267,7 +260,7 @@ function computeAuditSummary(queue) {
 function buildDashboardState(inputs) {
   const health = inputs.health;
   const providerPool = inputs.providerPool;
-  const resources = inputs.resources;
+  const resources = inputs.resources || inputs.localResource;
   const activeWorkers = inputs.activeWorkers;
   const workerTrust = inputs.workerTrust;
   const metaSignals = inputs.metaSignals;
@@ -340,6 +333,7 @@ function buildDashboardState(inputs) {
   return {
     schemaVersion: SCHEMA_VERSION,
     capturedAt: new Date().toISOString(),
+    controlPlaneSnapshot: inputs.controlPlaneSnapshot || null,
     health: health
       ? {
           state: health.state || 'unknown',
@@ -670,11 +664,13 @@ function main() {
     return;
   }
 
-  // Read all input files
-  const inputs = {};
-  for (const [key, filename] of Object.entries(INPUT_FILES)) {
-    inputs[key] = readJsonFile(path.join(STATE_DIR, filename));
-  }
+  const loaded = loadControlPlaneSnapshot({ stateDir: STATE_DIR, inputFiles: CONTROL_PLANE_INPUT_FILES });
+  const inputs = {
+    ...loaded.inputs,
+    resources: loaded.inputs.localResource,
+    queue: readJsonFile(path.join(STATE_DIR, INPUT_FILES.queue)),
+    controlPlaneSnapshot: loaded.snapshot,
+  };
 
   const snapshot = buildDashboardState(inputs);
   const json = JSON.stringify(snapshot, null, 2) + '\n';
