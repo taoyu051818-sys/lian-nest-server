@@ -83,16 +83,4 @@ export class ConfigService {
   get bcryptRounds(): number {
     return this.env.BCRYPT_ROUNDS;
   }
-
-  get wechatAppId(): string {
-    return this.env.WECHAT_APP_ID;
-  }
-
-  get wechatAppSecret(): string {
-    return this.env.WECHAT_APP_SECRET;
-  }
-
-  get wechatConfigured(): boolean {
-    return Boolean(this.env.WECHAT_APP_ID && this.env.WECHAT_APP_SECRET);
-  }
 }
