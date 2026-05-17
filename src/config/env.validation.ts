@@ -14,6 +14,8 @@ export interface EnvironmentVariables {
   JWT_EXPIRES_IN: string;
   REFRESH_TOKEN_TTL: string;
   BCRYPT_ROUNDS: number;
+  WECHAT_APP_ID: string;
+  WECHAT_APP_SECRET: string;
 }
 
 export const envValidationSchema = Joi.object<EnvironmentVariables>({
@@ -50,4 +52,12 @@ export const envValidationSchema = Joi.object<EnvironmentVariables>({
     .max(15)
     .default(12)
     .description('bcrypt salt rounds for password hashing'),
+  WECHAT_APP_ID: Joi.string()
+    .allow('')
+    .default('')
+    .description('WeChat Official Account AppID for JS-SDK sharing'),
+  WECHAT_APP_SECRET: Joi.string()
+    .allow('')
+    .default('')
+    .description('WeChat Official Account AppSecret for JS-SDK sharing'),
 });

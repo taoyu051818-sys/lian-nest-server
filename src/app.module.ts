@@ -13,6 +13,7 @@ import { TagsModule } from './tags';
 import { SearchModule } from './search';
 import { TopicsModule } from './topics';
 import { UsersModule } from './users';
+import { WechatModule } from './wechat';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { UsersModule } from './users';
     TagsModule,
     TopicsModule,
     UsersModule,
+    WechatModule,
     NodebbModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
