@@ -1,8 +1,17 @@
 # lian-nest-server
 
-Nest-first backend rewrite for LIAN.
+> **FROZEN — migration reference only.** This repository is not a deployment source and must not
+> receive feature, dependency or migration work. The canonical LIAN backend is
+> [`taoyu051818-sys/lian-platform-server`](https://github.com/taoyu051818-sys/lian-platform-server).
+> See [`docs/FROZEN.md`](docs/FROZEN.md) for the exception/unfreeze policy and the
+> [authoritative repository relationship register](https://github.com/taoyu051818-sys/lian-mobile-web/blob/main/docs/REPOSITORY_RELATIONSHIP.md)
+> for lifecycle status.
 
-This repository is the AI-native development home for the new LIAN backend. The legacy backend remains the behavior reference during migration; new backend work should be planned through GitHub issues and implemented by bounded worker tasks.
+Nest-first backend rewrite retained as frozen migration evidence for LIAN.
+
+The content below documents the state captured at freeze commit
+`57b8d129c84c82fbe71fecd0aeea32b6ea01db00`. It is historical context, not an active queue or
+authorization to continue the rewrite.
 
 ## AI-Native Development
 
